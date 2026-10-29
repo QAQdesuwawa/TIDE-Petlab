@@ -1,0 +1,83 @@
+name: Build public Alpha492 complete package
+on:
+  push:
+    branches: [build/public-alpha492]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: v0.1.0-alpha.492
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 5af4b4c0c2a33692ee4cda548e76e2ebc5aacad1
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Verify offline developer examples
+        run: |
+          python -B -S -m examples.runtime_minimal
+          python -B -S -m examples.existing_provider
+          python -B -S -m examples.existing_player
+          python -B -S -m unittest examples.test_examples
+      - name: Fetch checksum-pinned public model and runtime resources
+        run: python -B -S -m petlab_app.model_resources --root "$RUNNER_TEMP/petlab-models"
+      - name: Verify and assemble the allowlisted source plus local models
+        run: |
+          python - <<'PY'
+          import os,json,hashlib,zipfile
+          from pathlib import Path
+          root=Path.cwd();temp=Path(os.environ['RUNNER_TEMP']);models=temp/'petlab-models'
+          output=temp/'petlab-release';output.mkdir()
+          archive=output/'TIDE-PetLab-alpha.492-win-x64-models.zip'
+          def digest(path):
+              h=hashlib.sha256()
+              with path.open('rb') as f:
+                  for block in iter(lambda:f.read(2**20),b''):h.update(block)
+              return h.hexdigest()
+          manifest=json.loads((root/'RELEASE_MANIFEST.json').read_text('utf8'))
+          assert manifest['product_version']=='0.1.0-alpha.492'
+          sources={r['path']:r for r in manifest['files']};assert len(sources)==809
+          mm=json.loads((models/'MODEL_MANIFEST.json').read_text('utf8'))
+          expected=json.loads((root/'model_packages/desktop_pet_v1/resources/local-models/manifest.json').read_text('utf8'))
+          assert mm['files']==expected['files'] and len(mm['files'])==37
+          files=[(root/name,name,row) for name,row in sources.items()]
+          files.append((root/'RELEASE_MANIFEST.json','RELEASE_MANIFEST.json',None))
+          files.extend((models/r['path'],'local_models/'+r['path'],r) for r in mm['files'])
+          files.append((models/'MODEL_MANIFEST.json','local_models/MODEL_MANIFEST.json',None))
+          with zipfile.ZipFile(archive,'x',zipfile.ZIP_DEFLATED,compresslevel=1) as z:
+              for path,name,row in files:
+                  assert not name.startswith('/') and '..' not in Path(name).parts
+                  assert not set(Path(name).parts)&{'output','user-data','records','.env','.venv'}
+                  if row:assert path.stat().st_size==row['bytes'] and digest(path)==row['sha256'],name
+                  z.write(path,'TIDE-PetLab-alpha.492/'+name)
+          with zipfile.ZipFile(archive) as z:assert z.testzip() is None and len(z.infolist())==848
+          result={'version':manifest['product_version'],'repository':'QAQdesuwawa/TIDE-Petlab',
+              'source_commit':'5af4b4c0c2a33692ee4cda548e76e2ebc5aacad1','source_files':810,'local_model_files':38,
+              'archive':archive.name,'archive_bytes':archive.stat().st_size,'sha256':digest(archive),
+              'CRC':'passed','model_hashes':'passed','private_data_included':False}
+          (output/'bundle-verification.json').write_text(json.dumps(result,indent=2),'utf8')
+          print(json.dumps(result))
+          PY
+      - name: Upload and verify complete draft asset
+        run: |
+          test "$(gh api repos/$GITHUB_REPOSITORY/releases/427639383 --jq .draft)" = true
+          gh release upload "$TAG" "$RUNNER_TEMP/petlab-release/TIDE-PetLab-alpha.492-win-x64-models.zip" "$RUNNER_TEMP/petlab-release/bundle-verification.json" --repo "$GITHUB_REPOSITORY"
+          gh api repos/$GITHUB_REPOSITORY/releases/427639383/assets > "$RUNNER_TEMP/petlab-release/remote-assets.json"
+          python - <<'PY'
+          import os,json
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'petlab-release'
+          proof=json.loads((root/'bundle-verification.json').read_text('utf8'))
+          assets=json.loads((root/'remote-assets.json').read_text('utf8'))
+          asset=next(a for a in assets if a['name']==proof['archive'])
+          assert asset['state']=='uploaded' and asset['size']==proof['archive_bytes']
+          assert asset['digest']=='sha256:'+proof['sha256']
+          print('Complete package upload and remote digest verified; release remains draft.')
+          PY

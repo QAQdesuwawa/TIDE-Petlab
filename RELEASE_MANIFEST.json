@@ -28,6 +28,11 @@
       "sha256": "866d06045893cb68c94e8c3cf96f0e7331b2fe09857cd68b6d616cf39bb8815d"
     },
     {
+      "path": "AGENTS.md",
+      "bytes": 12505,
+      "sha256": "a8e59b369df9c4b1c8272a220b5afbd72efa9890a0db8f9013398f29e7d8d9cb"
+    },
+    {
       "path": "ALPHA_ACCEPTANCE.md",
       "bytes": 2211,
       "sha256": "fd8127f37fce3f4d0785c8bffd8d222b0613a2187d4347aceb2d0b85066e0c6c"
@@ -579,8 +584,8 @@
     },
     {
       "path": "docs/developer/README.md",
-      "bytes": 3747,
-      "sha256": "9e7c7bcc92b26ccb48680c8cfd7012142969da9819efadf61952cecc0234c46b"
+      "bytes": 3977,
+      "sha256": "35ee11288d1cf5710b7d6220084338b85e4bdaf32f8a323d35e2a4ac3037cc04"
     },
     {
       "path": "docs/developer/desktop.md",

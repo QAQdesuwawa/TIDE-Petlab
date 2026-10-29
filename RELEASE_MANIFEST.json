@@ -64,8 +64,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 6711,
-      "sha256": "c39d2ce4b113a66033bcc85b654d170285033e2e4e8bdfa840b22a72712b08ff"
+      "bytes": 11856,
+      "sha256": "ffce4813138922fbc579abf0a5080bb4e8291f13bc27fab95ca22e5bfcb1fd09"
     },
     {
       "path": "SECURITY.md",
@@ -571,6 +571,11 @@
       "path": "core/vectors.py",
       "bytes": 3093,
       "sha256": "939e14f23d9c391d0abc4b708d83db341a990269e164a19fc0d2fa4048cf5ab2"
+    },
+    {
+      "path": "docs/community.md",
+      "bytes": 1724,
+      "sha256": "5d64af2907cc071084497e9e02a7194ed6b1d512b28b13a0d8db1923899f7186"
     },
     {
       "path": "docs/developer/README.md",

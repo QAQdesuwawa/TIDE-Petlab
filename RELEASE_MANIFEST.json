@@ -64,8 +64,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 10929,
-      "sha256": "7c843f10f2d47fc1b1a2c2ec30105dadb79061c2b7cb9a080cd0da56aecea4bb"
+      "bytes": 18560,
+      "sha256": "2b5a8dbef2f3036fb5541fe8226b2fb6ae33fa73415ef8e741d50fb97b9331a8"
     },
     {
       "path": "SECURITY.md",
@@ -574,8 +574,8 @@
     },
     {
       "path": "docs/community.md",
-      "bytes": 1724,
-      "sha256": "5d64af2907cc071084497e9e02a7194ed6b1d512b28b13a0d8db1923899f7186"
+      "bytes": 1647,
+      "sha256": "10a689b00c6e66969707be5251d0aeaf98e27b69df63965f9a148a5857af6255"
     },
     {
       "path": "docs/developer/README.md",

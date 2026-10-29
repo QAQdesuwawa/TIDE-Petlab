@@ -1,0 +1,10 @@
+{
+  "version": "desktop-pet-token-sprite-v1",
+  "default": "normal",
+  "rules": [
+    {"axis":"withhold", "orientation":"positive", "prominence":"显著", "expression":"aggrieved"},
+    {"axis":"tension", "orientation":"positive", "prominence":"显著", "expression":"angry"},
+    {"axis":"exchange", "orientation":"negative", "prominence":"显著", "expression":"sad"},
+    {"axis":"exchange", "orientation":"positive", "prominence":"显著", "expression":"happy"}
+  ]
+}

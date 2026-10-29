@@ -1,0 +1,7 @@
+# PetLab runtime; development/test packages are separate.
+openai>=1.30.0,<3
+python-dotenv>=1.0.0,<2
+httpx>=0.27,<1
+
+# Native index already supported by History; canonical verification stays unchanged.
+orjson>=3.12,<4

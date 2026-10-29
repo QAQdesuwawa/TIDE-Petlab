@@ -1,0 +1,39 @@
+# 密钥与本地数据永不入库
+.env
+data/
+output/
+__pycache__/
+*.pyc
+*.log
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 本地探针、导出与可再生成的论文 release 不属于 TIDE 实现快照
+tmp/
+TIDE_AAMAS_CN_LaTeX_v1_4_release/
+TIDE_AAMAS_CN_LaTeX_v1_4_release.zip
+
+# PetLab local runtime
+.tmp/
+
+
+# Publication: private local settings, credentials, model weights, generated exports
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.gguf
+*.safetensors
+models/
+user-data/
+release/
+dist/
+build/
+
+# Private derived vectors and external local inference resources
+local_models/
+*.rag.sqlite3*

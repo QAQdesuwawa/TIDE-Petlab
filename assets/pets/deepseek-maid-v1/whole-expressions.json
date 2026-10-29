@@ -1,0 +1,516 @@
+{
+  "version": "petlab-whole-expression-assets-v1",
+  "idle": {
+    "image": "expressions-original-v2-candidate.png",
+    "image_sha256": "67c9a076ee15540361800916d92f8db6b73c24507cc56899bd61b542d5842042",
+    "grid": {
+      "columns": 3,
+      "rows": 2,
+      "cell_width": 512,
+      "cell_height": 512
+    },
+    "codes": {
+      "normal": 0,
+      "happy": 1,
+      "sad": 2,
+      "aggrieved": 3,
+      "angry": 4
+    },
+    "neutral_blink_frame": 5,
+    "frame_offsets": {
+      "0": [
+        9,
+        -4
+      ],
+      "1": [
+        9,
+        -4
+      ],
+      "2": [
+        9,
+        -4
+      ],
+      "3": [
+        9,
+        -4
+      ],
+      "4": [
+        9,
+        -4
+      ],
+      "5": [
+        9,
+        -4
+      ]
+    }
+  },
+  "drag": {
+    "normal": {
+      "image": "whole-drag-attitudes-v2.png",
+      "image_sha256": "486628fc7912bf4b86f89301aeb93fb82e2b4215fafa1ac4ca7157e4d6a32e63",
+      "grid": {
+        "columns": 3,
+        "rows": 2,
+        "cell_width": 512,
+        "cell_height": 512
+      },
+      "frame_indices": [
+        3,
+        3,
+        4,
+        5,
+        3,
+        3
+      ]
+    },
+    "happy": {
+      "image": "whole-drag-attitudes-v2.png",
+      "image_sha256": "486628fc7912bf4b86f89301aeb93fb82e2b4215fafa1ac4ca7157e4d6a32e63",
+      "grid": {
+        "columns": 3,
+        "rows": 2,
+        "cell_width": 512,
+        "cell_height": 512
+      },
+      "frame_indices": [
+        0,
+        0,
+        1,
+        2,
+        0,
+        0
+      ]
+    },
+    "sad": {
+      "image": "whole-drag-attitudes-v2.png",
+      "image_sha256": "486628fc7912bf4b86f89301aeb93fb82e2b4215fafa1ac4ca7157e4d6a32e63",
+      "grid": {
+        "columns": 3,
+        "rows": 2,
+        "cell_width": 512,
+        "cell_height": 512
+      },
+      "frame_indices": [
+        3,
+        3,
+        4,
+        5,
+        3,
+        3
+      ]
+    },
+    "aggrieved": {
+      "image": "whole-drag-attitudes-v2.png",
+      "image_sha256": "486628fc7912bf4b86f89301aeb93fb82e2b4215fafa1ac4ca7157e4d6a32e63",
+      "grid": {
+        "columns": 3,
+        "rows": 2,
+        "cell_width": 512,
+        "cell_height": 512
+      },
+      "frame_indices": [
+        3,
+        3,
+        4,
+        5,
+        3,
+        3
+      ]
+    },
+    "angry": {
+      "image": "whole-drag-attitudes-v2.png",
+      "image_sha256": "486628fc7912bf4b86f89301aeb93fb82e2b4215fafa1ac4ca7157e4d6a32e63",
+      "grid": {
+        "columns": 3,
+        "rows": 2,
+        "cell_width": 512,
+        "cell_height": 512
+      },
+      "frame_indices": [
+        3,
+        3,
+        4,
+        5,
+        3,
+        3
+      ]
+    }
+  },
+  "references": [
+    {
+      "file": "chibi-reference.jpg",
+      "sha256": "e2653e1518460ea4db71613e717d10eeff199c70a4585b5d5ff50034eccf7338",
+      "original_upload_filename": "6257211c4ca0f0f8dde0270df91701ee.jpg",
+      "origin": "existing original upload archive; visually verified against conversation attachments",
+      "original_temp_path_available": false
+    },
+    {
+      "file": "palette-reference.jpg",
+      "sha256": "97edbf6410293b78ad14a724ab9367b07fd6f4fd134e398126feee18740e1f2c",
+      "original_upload_filename": "0dbe7581c5a77236b3cce3b9769b16a7.jpg",
+      "origin": "existing original upload archive; visually verified against conversation attachments",
+      "original_temp_path_available": false
+    }
+  ],
+  "generation_source": "only original user reference images, never previous generated images",
+  "render_method": "complete character frame only, no face/body composition",
+  "body_regions": {
+    "map": "whole-body-regions-v1.json",
+    "map_sha256": "acc5681c0cda6e0590efe2e8b2ac52b80d8f91f76915a749738f3a16dadd6a29",
+    "coordinate_registration": "existing authored normalized region definitions, repeated for stable complete standing pose; original map remains archived"
+  },
+  "emotion_motion": {
+    "happy": {
+      "image": "happy-wag-smooth-v188.png",
+      "image_sha256": "fdc06c2e865575f70c8636783b8109d7b517650782225f77d3b057e7869681e5",
+      "grid": {
+        "columns": 8,
+        "rows": 6,
+        "cell_width": 256,
+        "cell_height": 256
+      },
+      "frame_indices": [
+        0,
+        12,
+        24,
+        36,
+        0,
+        12,
+        24,
+        36,
+        0,
+        12,
+        24,
+        36
+      ],
+      "visual_clip": {
+        "frames": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "durations_ms": [
+          360,
+          260,
+          360,
+          260
+        ]
+      },
+      "playback": {
+        "version": "whole-emotion-playback-v1",
+        "frame_indices": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47
+        ],
+        "durations_ms": [
+          25,
+          26,
+          26,
+          26,
+          26,
+          26,
+          25,
+          26,
+          26,
+          26,
+          26,
+          26,
+          25,
+          26,
+          26,
+          26,
+          26,
+          26,
+          25,
+          26,
+          26,
+          26,
+          26,
+          26,
+          25,
+          26,
+          26,
+          26,
+          26,
+          26,
+          25,
+          26,
+          26,
+          26,
+          26,
+          26,
+          25,
+          26,
+          26,
+          26,
+          26,
+          26,
+          25,
+          26,
+          26,
+          26,
+          26,
+          26
+        ],
+        "body_frame_indices": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "body_regions": {
+        "map": "whole-motion-body-happy-v188.json",
+        "map_sha256": "04ac5226be49c9f71d25ff647ed4c683e8bdbf6dabf588e3f835b37cfea2fab8"
+      },
+      "retained_source_sha256": "c34d5b84fa4b7614ae824a6373c9574e4df553c8e7789642579b5c3d5d3f1863"
+    }
+  },
+  "tail_motion": {
+    "version": "local-tail-deformation-v1",
+    "region": [
+      0.83,
+      0.64,
+      0.99,
+      0.93
+    ],
+    "amplitude_px": 9.5,
+    "frame_count": 12,
+    "visual_clip": {
+      "frames": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "durations_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ]
+    },
+    "source": "one immutable whole expression frame; no repainting; only distal tail region deformed",
+    "playback_frame_count": 48
+  },
+  "drag_motion": {
+    "version": "local-whole-drag-deformation-v1",
+    "frame_count": 26,
+    "durations_ms": [
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20
+    ],
+    "regions": [
+      {
+        "region": [
+          0.19,
+          0.42,
+          0.36,
+          0.59
+        ],
+        "displacement": [
+          0,
+          0.04
+        ],
+        "phase": 0
+      },
+      {
+        "region": [
+          0.54,
+          0.56,
+          0.72,
+          0.73
+        ],
+        "displacement": [
+          0,
+          0.04
+        ],
+        "phase": 0.5
+      },
+      {
+        "region": [
+          0.33,
+          0.8,
+          0.48,
+          0.97
+        ],
+        "displacement": [
+          0.026,
+          0.03
+        ],
+        "phase": 0.5
+      },
+      {
+        "region": [
+          0.48,
+          0.84,
+          0.63,
+          1.0
+        ],
+        "displacement": [
+          -0.026,
+          0.03
+        ],
+        "phase": 0
+      }
+    ],
+    "whole_displacement_px": [
+      5,
+      4
+    ]
+  },
+  "presentation": {
+    "version": "desktop-pet-visual-declaration-v1",
+    "expressions": [
+      "normal",
+      "happy",
+      "sad",
+      "aggrieved",
+      "angry"
+    ],
+    "descriptions": {
+      "normal": "睁眼、嘴部放松的完整立绘。",
+      "happy": "双眼弯起、张嘴微笑的完整立绘；拖拽时为闭眼圆点手脚的玩耍画面。",
+      "sad": "半闭下垂眼睑和明显下弯嘴角的完整立绘；拖拽时为抗拒画面。",
+      "aggrieved": "睁眼含泪、嘴部轻微波浪形委屈噘起的完整立绘；拖拽时为抗拒画面。",
+      "angry": "眉眼压低、嘴角下弯的完整立绘；拖拽时为抗拒画面。"
+    }
+  },
+  "rest_motion": {
+    "version": "petlab-rest-motion-v2",
+    "frame_count": 48,
+    "amplitude_px": 3.2,
+    "period_ms": 4800
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "version": "petlab-sprite-set-v1",
+  "image": "sprites.png",
+  "grid": {
+    "columns": 4,
+    "rows": 3,
+    "cell_width": 362,
+    "cell_height": 362
+  },
+  "clips": {
+    "breathing": {
+      "frames": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "durations_ms": [
+        750,
+        500,
+        150,
+        750
+      ]
+    },
+    "greeting": {
+      "frames": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "durations_ms": [
+        160,
+        160,
+        280,
+        160
+      ]
+    },
+    "hop": {
+      "frames": [
+        8,
+        9,
+        10,
+        11
+      ],
+      "durations_ms": [
+        180,
+        160,
+        220,
+        180
+      ]
+    }
+  },
+  "action_assets": {
+    "wave": "greeting",
+    "hop": "hop"
+  },
+  "visual_only_clip": "breathing",
+  "image_sha256": "7d7bdbdf87fb76496a790361c24e403d9320010e324bfb37b2c242498fc6af5d",
+  "visual_feedback": {
+    "version": "petlab-visual-feedback-v1",
+    "image": "drag-feedback-v5.png",
+    "image_sha256": "51e72ccfef4a192ed4ae97a0f9c4b8369986e626c54b5ca44df8a342789c49df",
+    "grid": {
+      "columns": 3,
+      "rows": 2,
+      "cell_width": 512,
+      "cell_height": 512
+    },
+    "clips": {
+      "lift": {
+        "frames": [
+          1
+        ],
+        "durations_ms": [
+          90
+        ]
+      },
+      "hang": {
+        "frames": [
+          1,
+          2,
+          3,
+          2
+        ],
+        "durations_ms": [
+          130,
+          130,
+          130,
+          130
+        ]
+      },
+      "lower": {
+        "frames": [
+          4,
+          5
+        ],
+        "durations_ms": [
+          140,
+          160
+        ]
+      }
+    },
+    "bindings": {
+      "drag": {
+        "start": "lift",
+        "loop": "hang",
+        "end": null
+      }
+    }
+  },
+  "body_interactions": {
+    "version": "petlab-body-feedback-v1",
+    "map": "body-regions.json",
+    "map_sha256": "cd9bdd7868f25829d8b8454a14d445a79a46a0a0262f3e2e5d23fdd4238a8f86",
+    "clips": {
+      "blink": {
+        "frames": [
+          2,
+          1,
+          0
+        ],
+        "durations_ms": [
+          70,
+          140,
+          70
+        ]
+      },
+      "hand_ack": {
+        "frames": [
+          5,
+          6,
+          4,
+          0
+        ],
+        "durations_ms": [
+          80,
+          140,
+          80,
+          70
+        ]
+      },
+      "tail_ack": {
+        "frames": [
+          8,
+          11,
+          0
+        ],
+        "durations_ms": [
+          100,
+          100,
+          70
+        ]
+      }
+    }
+  },
+  "input_feedback": {
+    "version": "petlab-input-feedback-v1",
+    "clip": "hand_ack"
+  }
+}

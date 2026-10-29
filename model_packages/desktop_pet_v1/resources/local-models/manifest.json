@@ -1,0 +1,245 @@
+{
+  "version": "petlab-local-model-resource-pack-v1",
+  "platform": "Windows x86_64 CPU",
+  "models": [
+    {
+      "kind": "embedding",
+      "path": "models/Qwen3-Embedding-0.6B-Q8_0.gguf",
+      "bytes": 639150592,
+      "sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439",
+      "license": "Apache-2.0",
+      "repository": "Qwen/Qwen3-Embedding-0.6B-GGUF",
+      "revision": "370f27d7550e0def9b39c1f16d3fbaa13aa67728",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/blob/370f27d7550e0def9b39c1f16d3fbaa13aa67728/Qwen3-Embedding-0.6B-Q8_0.gguf",
+      "download_url": "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/370f27d7550e0def9b39c1f16d3fbaa13aa67728/Qwen3-Embedding-0.6B-Q8_0.gguf"
+    },
+    {
+      "kind": "reranker",
+      "path": "models/qwen3-reranker-0.6b-q8_0.gguf",
+      "bytes": 639153184,
+      "sha256": "22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48",
+      "license": "Apache-2.0",
+      "repository": "ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF",
+      "revision": "a02f48bb4f057028298c21fa033da2b30d7742d5",
+      "source_url": "https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/blob/a02f48bb4f057028298c21fa033da2b30d7742d5/qwen3-reranker-0.6b-q8_0.gguf",
+      "download_url": "https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/resolve/a02f48bb4f057028298c21fa033da2b30d7742d5/qwen3-reranker-0.6b-q8_0.gguf"
+    }
+  ],
+  "runtime": {
+    "source": "https://github.com/ggml-org/llama.cpp/tree/77d554b26",
+    "build": 10981,
+    "license": "MIT",
+    "openmp_license": "Apache-2.0 WITH LLVM-exception"
+  },
+  "product_embedding_consumer_connected": true,
+  "paid_api_calls": 0,
+  "files": [
+    {
+      "path": "licenses/Apache-2.0.txt",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "licenses/llama.cpp-MIT.txt",
+      "bytes": 1078,
+      "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+    },
+    {
+      "path": "licenses/Qwen3-Embedding-model-card.md",
+      "bytes": 11889,
+      "sha256": "5dc596e802ce79342678281d42ec4b98fbee2fee241758df330cdc35cc15d29f"
+    },
+    {
+      "path": "licenses/Qwen3-Reranker-model-card.md",
+      "bytes": 540,
+      "sha256": "5538c6bce0ab02f680fd0f17ab538e2acfb06fd51376d64ce218edf09c855bfb"
+    },
+    {
+      "path": "models/Qwen3-Embedding-0.6B-Q8_0.gguf",
+      "bytes": 639150592,
+      "sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+    },
+    {
+      "path": "models/qwen3-reranker-0.6b-q8_0.gguf",
+      "bytes": 639153184,
+      "sha256": "22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48"
+    },
+    {
+      "path": "runtime/ggml-base.dll",
+      "bytes": 796160,
+      "sha256": "0b95213a24e405ceb040aff94680238a0c0d6da8c6d3873de3c78737fce128e4"
+    },
+    {
+      "path": "runtime/ggml-cpu-alderlake.dll",
+      "bytes": 1230336,
+      "sha256": "acca13277a3345e7855a742c94bdac6aece382d017217285ba2d7cf363232c54"
+    },
+    {
+      "path": "runtime/ggml-cpu-cannonlake.dll",
+      "bytes": 1448448,
+      "sha256": "4025d3b1659f3f3f3205dd2d31d6f64336d7dd1c7094b68a447c85ba09a97e3e"
+    },
+    {
+      "path": "runtime/ggml-cpu-cascadelake.dll",
+      "bytes": 1434112,
+      "sha256": "48063fbbb72db14c1d7b2e9beec5ae4edc6675b7525ec6cb50a9b5c46a4f20e6"
+    },
+    {
+      "path": "runtime/ggml-cpu-cooperlake.dll",
+      "bytes": 1434624,
+      "sha256": "7b7236ab97dc85a6151f23af325134eb22fe680c93806d28cd2e6f9b03ef2fc5"
+    },
+    {
+      "path": "runtime/ggml-cpu-haswell.dll",
+      "bytes": 1235968,
+      "sha256": "5d47cac4423a8e62c67aaf9a1305539ed1c918c8b89830fa31ad2462393f14e5"
+    },
+    {
+      "path": "runtime/ggml-cpu-icelake.dll",
+      "bytes": 1440768,
+      "sha256": "dc135edb0651178a1b384b89851600206bb5d5a039a45659c30d07856a51e567"
+    },
+    {
+      "path": "runtime/ggml-cpu-ivybridge.dll",
+      "bytes": 1127424,
+      "sha256": "6aa4f2ef129ca7209cadabd5d0f19d39c10bbe7f2cfadc15901d3306c839f7f5"
+    },
+    {
+      "path": "runtime/ggml-cpu-piledriver.dll",
+      "bytes": 1131520,
+      "sha256": "2d7d8c5329aa91d5b194517f6803dc298794ad52fc5623d44dee271bcf8ae44f"
+    },
+    {
+      "path": "runtime/ggml-cpu-sandybridge.dll",
+      "bytes": 1107968,
+      "sha256": "37b2327ea3056e95b40e36b43cf94af21ba1913ae88d662b3cc240ce3e162059"
+    },
+    {
+      "path": "runtime/ggml-cpu-sapphirerapids.dll",
+      "bytes": 1711616,
+      "sha256": "6b5d8bd96b9ca5f814659a217227f3326c6af6775530622b9803581bc8217203"
+    },
+    {
+      "path": "runtime/ggml-cpu-skylakex.dll",
+      "bytes": 1441792,
+      "sha256": "8ec47ef8517a8cd1927da18f576319caec55712daa45f1e0631ad6fa90d33ca8"
+    },
+    {
+      "path": "runtime/ggml-cpu-sse42.dll",
+      "bytes": 932352,
+      "sha256": "410bdd004f4a56f8eeee897a0aa6557892a9812e428ed141b15d6a03fdaa18e2"
+    },
+    {
+      "path": "runtime/ggml-cpu-x64.dll",
+      "bytes": 924160,
+      "sha256": "743ce42593633c84867ad03b2d1244090c1857581dd1113e39f1b925999576ef"
+    },
+    {
+      "path": "runtime/ggml-cpu-zen4.dll",
+      "bytes": 1441280,
+      "sha256": "3ca4cd4d38f5e5c87f9712b3850c9a7e7dc80fa245a8cede3fd26425211a996f"
+    },
+    {
+      "path": "runtime/ggml-rpc.dll",
+      "bytes": 168448,
+      "sha256": "b37816e128c2a441d0b17841a9d05526754521eb7cc70c5449d61b7ddf7ad832"
+    },
+    {
+      "path": "runtime/ggml.dll",
+      "bytes": 79872,
+      "sha256": "994f391985477ea466f585018806be551f983e5d968af84971e032e96b65b8c2"
+    },
+    {
+      "path": "runtime/libomp.dll",
+      "bytes": 768000,
+      "sha256": "a12116ba72d1d6820407cf30be23da04ce79d6bb8a71a5ee71759c5a1faa6f1c"
+    },
+    {
+      "path": "runtime/LICENSE-LLVM-OpenMP",
+      "bytes": 19741,
+      "sha256": "fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4"
+    },
+    {
+      "path": "runtime/llama-batched-bench-impl.dll",
+      "bytes": 61440,
+      "sha256": "acf3e6ec933480b080ec4c1dc219c5da83396c16bde778668920a2e7a6ac8668"
+    },
+    {
+      "path": "runtime/llama-bench-impl.dll",
+      "bytes": 397824,
+      "sha256": "116558da12ce97537a490720db0be4335300660c378bc1d9177f2cd467cad438"
+    },
+    {
+      "path": "runtime/llama-cli-impl.dll",
+      "bytes": 3296768,
+      "sha256": "be6944e9312386b96716b586e7d48246f8fa4f91366d368e992f906eae344c8c"
+    },
+    {
+      "path": "runtime/llama-common.dll",
+      "bytes": 7773696,
+      "sha256": "9a45f5de067b9c71161ca58f92627fb835c6d25718c6f96598d6ceacbfea72f8"
+    },
+    {
+      "path": "runtime/llama-completion-impl.dll",
+      "bytes": 133632,
+      "sha256": "a70a2841bddb1043910788ba113c350614025db3bc56b5d376b34945ce7c67d8"
+    },
+    {
+      "path": "runtime/llama-fit-params-impl.dll",
+      "bytes": 41472,
+      "sha256": "57854978040996d8b039cbd9e6df5db7be7fdd65877d1369763bc451431ec765"
+    },
+    {
+      "path": "runtime/llama-perplexity-impl.dll",
+      "bytes": 194048,
+      "sha256": "060f42fef7b6561f794f40b2d8a5e133e653a9740da99037534f2b19881568a5"
+    },
+    {
+      "path": "runtime/llama-quantize-impl.dll",
+      "bytes": 137216,
+      "sha256": "4563b86a4e4f77f2fefd2c3d05154498a91d4243c10159ad9e7155a4bef22a6f"
+    },
+    {
+      "path": "runtime/llama-server-impl.dll",
+      "bytes": 8904192,
+      "sha256": "d27c6b5b581a440aea51bf63b03cd823bed40de0b48dee4835520aa1d4309ed0"
+    },
+    {
+      "path": "runtime/llama-server.exe",
+      "bytes": 9216,
+      "sha256": "ac50ff262975f8f87a2b0855ae58562e3b36ef197f570c4aab5d33005a9ab3e3"
+    },
+    {
+      "path": "runtime/llama.dll",
+      "bytes": 3154944,
+      "sha256": "5eab64be02c12c494e063fb4ef45f8b1dbf720eb707266ef2dd57334dc984687"
+    },
+    {
+      "path": "runtime/mtmd.dll",
+      "bytes": 1772032,
+      "sha256": "4e9e8cf26233a01e6a416ae659c638c41c18af596c47636ea948491fbba7e0e8"
+    }
+  ],
+  "downloads": {
+    "runtime_url": "https://github.com/ggml-org/llama.cpp/releases/download/b10981/llama-b10981-bin-win-cpu-x64.zip",
+    "runtime_archive_sha256": "ca53c86dba93aaa23a2b6bcc5bf5e19409de11c28dfebdd87c0148d687dead71"
+  },
+  "qualification_source": {
+    "composite_manifest_sha256": "5735d05078ec490246dd26bbf9d21b01f84fd92cca936a30e5994dea798a4397",
+    "embedding_manifest_sha256": "a640db48daec698f26b2325b21a9fe4316d770910f588632a2ae2c4fdf334721"
+  },
+  "address_policies": {
+    "embedding": {
+      "identity": "embedding-qualified-reranker-v1",
+      "minimum_similarity": 0.25,
+      "maximum_distance_from_best": 0.5,
+      "fixed_top_n": false
+    },
+    "content": {
+      "identity": "reranker-qualified-band-v1",
+      "minimum_similarity": 0.6,
+      "maximum_distance_from_best": 0.03,
+      "fixed_top_n": false
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "version": "pet-expression-prototypes-v1",
+  "axes": [
+    "E_env",
+    "P_need",
+    "V_attr",
+    "V_rep"
+  ],
+  "prototypes": {
+    "normal": [
+      0.5,
+      0.5,
+      0.5,
+      0.5
+    ],
+    "happy": [
+      0.0,
+      0.5,
+      1.0,
+      0.0
+    ],
+    "sad": [
+      0.5,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "aggrieved": [
+      1.0,
+      1.0,
+      1.0,
+      0.5
+    ],
+    "angry": [
+      1.0,
+      1.0,
+      0.0,
+      1.0
+    ]
+  }
+}

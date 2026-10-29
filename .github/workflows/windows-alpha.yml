@@ -1,0 +1,27 @@
+name: Windows Alpha install
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          architecture: x64
+      - name: Install locked dependencies and check config and assets
+        shell: powershell
+        run: ./quickstart.ps1 -CheckOnly
+      - name: Check native Tk availability
+        shell: powershell
+        run: |
+          & ./.venv/Scripts/python.exe -B -c "import tkinter as tk; root=tk.Tk(); root.withdraw(); root.update(); root.destroy()"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

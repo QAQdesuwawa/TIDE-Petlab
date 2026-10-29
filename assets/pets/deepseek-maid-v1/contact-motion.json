@@ -1,0 +1,802 @@
+{
+  "version": "petlab-contact-motion-v3",
+  "clips": {
+    "blink": {
+      "pose_codes": {
+        "normal": "blink",
+        "happy": "happy",
+        "sad": "angry",
+        "aggrieved": "angry",
+        "angry": "angry"
+      },
+      "cycles": 2,
+      "motion": {
+        "version": "local-whole-drag-deformation-v1",
+        "frame_count": 12,
+        "durations_ms": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ],
+        "whole_displacement_px": [
+          0,
+          0
+        ],
+        "regions": [
+          {
+            "region": [
+              0.25,
+              0.56,
+              0.39,
+              0.72
+            ],
+            "displacement": [
+              0.012,
+              -0.035
+            ],
+            "phase": 0
+          },
+          {
+            "region": [
+              0.6,
+              0.56,
+              0.75,
+              0.72
+            ],
+            "displacement": [
+              -0.012,
+              -0.035
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.38,
+              0.82,
+              0.48,
+              0.99
+            ],
+            "displacement": [
+              0.02,
+              0.025
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.49,
+              0.82,
+              0.59,
+              0.99
+            ],
+            "displacement": [
+              -0.02,
+              0.025
+            ],
+            "phase": 0
+          }
+        ]
+      }
+    },
+    "hand_ack": {
+      "pose_codes": {
+        "normal": "blink",
+        "happy": "happy",
+        "sad": "angry",
+        "aggrieved": "angry",
+        "angry": "angry"
+      },
+      "cycles": 2,
+      "motion": {
+        "version": "local-whole-drag-deformation-v1",
+        "frame_count": 12,
+        "durations_ms": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ],
+        "whole_displacement_px": [
+          0,
+          0
+        ],
+        "regions": [
+          {
+            "region": [
+              0.25,
+              0.56,
+              0.39,
+              0.72
+            ],
+            "displacement": [
+              0.012,
+              -0.035
+            ],
+            "phase": 0
+          },
+          {
+            "region": [
+              0.6,
+              0.56,
+              0.75,
+              0.72
+            ],
+            "displacement": [
+              -0.012,
+              -0.035
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.38,
+              0.82,
+              0.48,
+              0.99
+            ],
+            "displacement": [
+              0.02,
+              0.025
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.49,
+              0.82,
+              0.59,
+              0.99
+            ],
+            "displacement": [
+              -0.02,
+              0.025
+            ],
+            "phase": 0
+          }
+        ]
+      }
+    },
+    "tail_ack": {
+      "pose_codes": {
+        "normal": "blink",
+        "happy": "happy",
+        "sad": "angry",
+        "aggrieved": "angry",
+        "angry": "angry"
+      },
+      "cycles": 2,
+      "motion": {
+        "version": "local-whole-drag-deformation-v1",
+        "frame_count": 12,
+        "durations_ms": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ],
+        "whole_displacement_px": [
+          0,
+          0
+        ],
+        "regions": [
+          {
+            "region": [
+              0.25,
+              0.56,
+              0.39,
+              0.72
+            ],
+            "displacement": [
+              0.012,
+              -0.035
+            ],
+            "phase": 0
+          },
+          {
+            "region": [
+              0.6,
+              0.56,
+              0.75,
+              0.72
+            ],
+            "displacement": [
+              -0.012,
+              -0.035
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.38,
+              0.82,
+              0.48,
+              0.99
+            ],
+            "displacement": [
+              0.02,
+              0.025
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.49,
+              0.82,
+              0.59,
+              0.99
+            ],
+            "displacement": [
+              -0.02,
+              0.025
+            ],
+            "phase": 0
+          }
+        ]
+      }
+    },
+    "blink@playful": {
+      "pose_codes": {
+        "normal": "blink",
+        "happy": "happy",
+        "sad": "angry",
+        "aggrieved": "angry",
+        "angry": "angry"
+      },
+      "cycles": 2,
+      "motion": {
+        "version": "local-whole-drag-deformation-v1",
+        "frame_count": 12,
+        "durations_ms": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ],
+        "whole_displacement_px": [
+          0,
+          0
+        ],
+        "regions": [
+          {
+            "region": [
+              0.25,
+              0.56,
+              0.39,
+              0.72
+            ],
+            "displacement": [
+              0.012,
+              0.035
+            ],
+            "phase": 0
+          },
+          {
+            "region": [
+              0.6,
+              0.56,
+              0.75,
+              0.72
+            ],
+            "displacement": [
+              -0.012,
+              0.035
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.38,
+              0.82,
+              0.48,
+              0.99
+            ],
+            "displacement": [
+              0.02,
+              0.025
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.49,
+              0.82,
+              0.59,
+              0.99
+            ],
+            "displacement": [
+              -0.02,
+              0.025
+            ],
+            "phase": 0
+          }
+        ]
+      }
+    },
+    "blink@recoil": {
+      "pose_codes": {
+        "normal": "blink",
+        "happy": "happy",
+        "sad": "angry",
+        "aggrieved": "angry",
+        "angry": "angry"
+      },
+      "cycles": 2,
+      "motion": {
+        "version": "local-whole-drag-deformation-v1",
+        "frame_count": 12,
+        "durations_ms": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ],
+        "whole_displacement_px": [
+          0,
+          0
+        ],
+        "regions": [
+          {
+            "region": [
+              0.25,
+              0.56,
+              0.39,
+              0.72
+            ],
+            "displacement": [
+              0.012,
+              -0.035
+            ],
+            "phase": 0
+          },
+          {
+            "region": [
+              0.6,
+              0.56,
+              0.75,
+              0.72
+            ],
+            "displacement": [
+              -0.012,
+              -0.035
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.38,
+              0.82,
+              0.48,
+              0.99
+            ],
+            "displacement": [
+              0.02,
+              0.025
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.49,
+              0.82,
+              0.59,
+              0.99
+            ],
+            "displacement": [
+              -0.02,
+              0.025
+            ],
+            "phase": 0
+          }
+        ]
+      }
+    },
+    "hand_ack@playful": {
+      "pose_codes": {
+        "normal": "blink",
+        "happy": "happy",
+        "sad": "angry",
+        "aggrieved": "angry",
+        "angry": "angry"
+      },
+      "cycles": 2,
+      "motion": {
+        "version": "local-whole-drag-deformation-v1",
+        "frame_count": 12,
+        "durations_ms": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ],
+        "whole_displacement_px": [
+          0,
+          0
+        ],
+        "regions": [
+          {
+            "region": [
+              0.25,
+              0.56,
+              0.39,
+              0.72
+            ],
+            "displacement": [
+              0.012,
+              0.035
+            ],
+            "phase": 0
+          },
+          {
+            "region": [
+              0.6,
+              0.56,
+              0.75,
+              0.72
+            ],
+            "displacement": [
+              -0.012,
+              0.035
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.38,
+              0.82,
+              0.48,
+              0.99
+            ],
+            "displacement": [
+              0.02,
+              0.025
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.49,
+              0.82,
+              0.59,
+              0.99
+            ],
+            "displacement": [
+              -0.02,
+              0.025
+            ],
+            "phase": 0
+          }
+        ]
+      }
+    },
+    "hand_ack@recoil": {
+      "pose_codes": {
+        "normal": "blink",
+        "happy": "happy",
+        "sad": "angry",
+        "aggrieved": "angry",
+        "angry": "angry"
+      },
+      "cycles": 2,
+      "motion": {
+        "version": "local-whole-drag-deformation-v1",
+        "frame_count": 12,
+        "durations_ms": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ],
+        "whole_displacement_px": [
+          0,
+          0
+        ],
+        "regions": [
+          {
+            "region": [
+              0.25,
+              0.56,
+              0.39,
+              0.72
+            ],
+            "displacement": [
+              0.012,
+              -0.035
+            ],
+            "phase": 0
+          },
+          {
+            "region": [
+              0.6,
+              0.56,
+              0.75,
+              0.72
+            ],
+            "displacement": [
+              -0.012,
+              -0.035
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.38,
+              0.82,
+              0.48,
+              0.99
+            ],
+            "displacement": [
+              0.02,
+              0.025
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.49,
+              0.82,
+              0.59,
+              0.99
+            ],
+            "displacement": [
+              -0.02,
+              0.025
+            ],
+            "phase": 0
+          }
+        ]
+      }
+    },
+    "tail_ack@playful": {
+      "pose_codes": {
+        "normal": "blink",
+        "happy": "happy",
+        "sad": "angry",
+        "aggrieved": "angry",
+        "angry": "angry"
+      },
+      "cycles": 2,
+      "motion": {
+        "version": "local-whole-drag-deformation-v1",
+        "frame_count": 12,
+        "durations_ms": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ],
+        "whole_displacement_px": [
+          0,
+          0
+        ],
+        "regions": [
+          {
+            "region": [
+              0.25,
+              0.56,
+              0.39,
+              0.72
+            ],
+            "displacement": [
+              0.012,
+              0.035
+            ],
+            "phase": 0
+          },
+          {
+            "region": [
+              0.6,
+              0.56,
+              0.75,
+              0.72
+            ],
+            "displacement": [
+              -0.012,
+              0.035
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.38,
+              0.82,
+              0.48,
+              0.99
+            ],
+            "displacement": [
+              0.02,
+              0.025
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.49,
+              0.82,
+              0.59,
+              0.99
+            ],
+            "displacement": [
+              -0.02,
+              0.025
+            ],
+            "phase": 0
+          }
+        ]
+      }
+    },
+    "tail_ack@recoil": {
+      "pose_codes": {
+        "normal": "blink",
+        "happy": "happy",
+        "sad": "angry",
+        "aggrieved": "angry",
+        "angry": "angry"
+      },
+      "cycles": 2,
+      "motion": {
+        "version": "local-whole-drag-deformation-v1",
+        "frame_count": 12,
+        "durations_ms": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ],
+        "whole_displacement_px": [
+          0,
+          0
+        ],
+        "regions": [
+          {
+            "region": [
+              0.25,
+              0.56,
+              0.39,
+              0.72
+            ],
+            "displacement": [
+              0.012,
+              -0.035
+            ],
+            "phase": 0
+          },
+          {
+            "region": [
+              0.6,
+              0.56,
+              0.75,
+              0.72
+            ],
+            "displacement": [
+              -0.012,
+              -0.035
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.38,
+              0.82,
+              0.48,
+              0.99
+            ],
+            "displacement": [
+              0.02,
+              0.025
+            ],
+            "phase": 0.5
+          },
+          {
+            "region": [
+              0.49,
+              0.82,
+              0.59,
+              0.99
+            ],
+            "displacement": [
+              -0.02,
+              0.025
+            ],
+            "phase": 0
+          }
+        ]
+      }
+    }
+  },
+  "expression_variants": {
+    "blink": {
+      "normal": "blink",
+      "happy": "blink@playful",
+      "sad": "blink@recoil",
+      "aggrieved": "blink@recoil",
+      "angry": "blink@recoil"
+    },
+    "hand_ack": {
+      "normal": "hand_ack",
+      "happy": "hand_ack@playful",
+      "sad": "hand_ack@recoil",
+      "aggrieved": "hand_ack@recoil",
+      "angry": "hand_ack@recoil"
+    },
+    "tail_ack": {
+      "normal": "tail_ack",
+      "happy": "tail_ack@playful",
+      "sad": "tail_ack@recoil",
+      "aggrieved": "tail_ack@recoil",
+      "angry": "tail_ack@recoil"
+    }
+  }
+}

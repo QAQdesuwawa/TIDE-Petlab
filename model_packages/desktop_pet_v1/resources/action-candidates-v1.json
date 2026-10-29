@@ -1,0 +1,36 @@
+{
+  "version": "desktop-pet-action-candidates-v1",
+  "candidates": [
+    {
+      "key": "play_tail",
+      "description": "摆动自己的尾巴自娱",
+      "all": [
+        {
+          "kind": "phase",
+          "var": "V_attr",
+          "level": "high"
+        },
+        {
+          "kind": "phase",
+          "var": "V_rep",
+          "level": "low"
+        }
+      ],
+      "any": [
+        {
+          "kind": "self",
+          "text": "[行为高度同向]"
+        },
+        {
+          "kind": "self",
+          "text": "[行为中等同向]"
+        }
+      ],
+      "none": [
+        {
+          "kind": "pain"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+memory_cues每项另含cue_kind，按text本身的词面内容分类：explicit_topic表示原文已经给出的名称、对象类别或事件主题词，如“咖啡”“约定”；reference_slot表示原文尚待补出所问主题或对象的指代、提问槽，如“那个呢”“要聊什么”。只有指代槽时也先将该槽的原文记录在memory_cues。明确主题沿原词检索；reference_cues只为对应的reference_slot补来源，补全的作用范围是该原文槽。

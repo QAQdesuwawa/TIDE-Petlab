@@ -1,0 +1,26 @@
+"""Edit domain definitions here; standard API v2 stages live in package.py.
+This starter preserves the sample affinity formulas. It has no memory or Writer.
+Change PACKAGE_VERSION when meanings change; matching scenario fields must change too.
+"""
+PACKAGE_ID = "community.__NAME__"
+PACKAGE_VERSION = "1.0.0"
+PARAMETER_NAMES = ("responsiveness", "restraint")
+STATE_NAMES = ("affinity", "tension", "expression_drive")
+MEASUREMENT_NAMES = ("affinity_stimulus", "conflict_stimulus")
+
+def transition(before, params, measured):
+    clamp = lambda x: min(1.0, max(0.0, x))
+    response, restraint = params["responsiveness"], params["restraint"]
+    a, c = measured["affinity_stimulus"], measured["conflict_stimulus"]
+    return {
+        "affinity": clamp(before["affinity"] + response * a),
+        "tension": clamp(before["tension"] + response * c - restraint * max(a, 0.0)),
+        "expression_drive": clamp(before["expression_drive"] + response * (abs(a)+abs(c))/2
+                                  - restraint * before["expression_drive"]),
+    }
+
+def action_threshold(params):
+    return params["restraint"]
+
+def wants_action(values, threshold):
+    return values["expression_drive"] > threshold

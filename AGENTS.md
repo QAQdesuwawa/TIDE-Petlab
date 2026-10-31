@@ -12,7 +12,7 @@ python -B -m examples.existing_provider
 python -B -m unittest examples.test_examples
 ```
 
-这些示例离线运行，不需要 API、旧配置、桌面窗口或 embedding 权重。安装桌宠及本地检索模型另见 [README](README.md) 和 [LOCAL_MODELS](LOCAL_MODELS.md)。目前使用源码导入；不要假定已经发布独立 pip 包、包生成器或批量记忆导入命令。
+这些示例离线运行，不需要 API、旧配置、桌面窗口或 embedding 权重。安装桌宠及本地检索模型另见 [README](README.md) 和 [LOCAL_MODELS](LOCAL_MODELS.md)。开发套件可从本仓库安装，提供统一 `tide-dev new/check/run` 与包生成器，见 [安装、建包与检查](docs/developer/devkit.md)。尚未发布到 PyPI，也没有任意格式的批量记忆导入命令。
 
 | 任务 | 从哪里读起 |
 | --- | --- |

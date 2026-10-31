@@ -4,6 +4,8 @@
 
 ## 从最小可运行包改起
 
+也可以直接使用 [包生成器](devkit.md)，生成同一 API v2 合同的普通 Python 包，将业务字段/公式放在 `definition.py`，用统一命令做结算与恢复检查。
+
 先运行 [独立 Runtime 示例](../../examples/runtime_minimal.py)，再看 [MinimalAffinityV1Package](../../model_packages/minimal_affinity_v1/__init__.py)。它包含 manifest、参数/状态/量测 schema 和十个已声明阶段，使用自己的三个状态量；完整六七模型只是另一个包实现。
 
 最省事的开始方式是复制这个小包到自己的包目录，换成自己的 `package_id`、版本和定义，在自己的宿主中实例化，再传给 `compose_runtime_packages()`。`model_packages` 是仓库组织习惯，不是框架限定的安装目录；Python调用者能导入并传入包实例即可。当前没有基于包名字符串的动态安装/热加载入口。

@@ -29,8 +29,8 @@
     },
     {
       "path": "AGENTS.md",
-      "bytes": 12505,
-      "sha256": "a8e59b369df9c4b1c8272a220b5afbd72efa9890a0db8f9013398f29e7d8d9cb"
+      "bytes": 12620,
+      "sha256": "9ad721883733361c937791fd9e0d276bf49491004a5835176afcdd0af44fbcf3"
     },
     {
       "path": "ALPHA_ACCEPTANCE.md",
@@ -578,19 +578,69 @@
       "sha256": "939e14f23d9c391d0abc4b708d83db341a990269e164a19fc0d2fa4048cf5ab2"
     },
     {
+      "path": "devkit/build_sources.py",
+      "bytes": 2309,
+      "sha256": "f16d3831e88d4f99456918c5441d84e247883d56db618002f5772534a089e8bb"
+    },
+    {
+      "path": "devkit/pyproject.toml",
+      "bytes": 97,
+      "sha256": "717ffbb955ebb2e488c0137c4ff227cc6892d269cc1754da00a1df79c749a310"
+    },
+    {
+      "path": "devkit/setup.py",
+      "bytes": 801,
+      "sha256": "6698f70b3d08bf998113b84d803770a4a87e95f21938e51527a0032f2cfec066"
+    },
+    {
+      "path": "devkit/tests/test_cli.py",
+      "bytes": 6524,
+      "sha256": "c2347661c0dc364a0f25dc54b86f286dd0a0a22661a64db1e13d8cf0e6ec991d"
+    },
+    {
+      "path": "devkit/tide_dev/__init__.py",
+      "bytes": 82,
+      "sha256": "929abec7ae1628e4b3a587d56a390ad987a06704b0cbab56be58268e6485585b"
+    },
+    {
+      "path": "devkit/tide_dev/__main__.py",
+      "bytes": 49,
+      "sha256": "8134dc71036ab6fef7cb605ec59b400b2864890fc00526f9763c447e2937e295"
+    },
+    {
+      "path": "devkit/tide_dev/cli.py",
+      "bytes": 11901,
+      "sha256": "d7e424c6cbc51c7239bd1e1e6a4b99d07168ee59f0c8c40ee179c96d527afcbf"
+    },
+    {
+      "path": "devkit/tide_dev/templates/definition.py.txt",
+      "bytes": 1222,
+      "sha256": "59c2e56d2362a06c35b2bf5f98a3abb4a9e205039cf033bce19cd1cc77246847"
+    },
+    {
+      "path": "devkit/tide_dev/templates/package.py.txt",
+      "bytes": 16309,
+      "sha256": "d68fc90096bb93d4ed047d682dfedcf1e3a9698a24d1a95d249391d8fe4b04ae"
+    },
+    {
       "path": "docs/community.md",
       "bytes": 1647,
       "sha256": "10a689b00c6e66969707be5251d0aeaf98e27b69df63965f9a148a5857af6255"
     },
     {
       "path": "docs/developer/README.md",
-      "bytes": 3977,
-      "sha256": "35ee11288d1cf5710b7d6220084338b85e4bdaf32f8a323d35e2a4ac3037cc04"
+      "bytes": 4220,
+      "sha256": "91a32c500cc078e9b4a71d671c50fe10e68d20d144ecd5838b37ad48b88db666"
     },
     {
       "path": "docs/developer/desktop.md",
       "bytes": 5336,
       "sha256": "3d86b4c7515f4aab5cbd78c0777ce7c929cf6219b116ed59b5dc32fb63280480"
+    },
+    {
+      "path": "docs/developer/devkit.md",
+      "bytes": 6034,
+      "sha256": "de1bf7900bd894234a74e9c3e7efbda21b026db43f6970d5327a6f6fae3918bc"
     },
     {
       "path": "docs/developer/integrations.md",
@@ -599,8 +649,8 @@
     },
     {
       "path": "docs/developer/packages.md",
-      "bytes": 4012,
-      "sha256": "31dc37cf0ddfcfa49f23efe5fa055688a2f1239623f4ade6b3ea398921c11967"
+      "bytes": 4202,
+      "sha256": "a9bb36f7282e0827e345735f5400a7143236c08404d0b73ece2405004dc7d9bb"
     },
     {
       "path": "docs/developer/runtime.md",

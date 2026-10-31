@@ -1,6 +1,6 @@
 {
   "version": "petlab-public-source-candidate-v1",
-  "product_version": "0.1.0-alpha.501",
+  "product_version": "0.1.0-alpha.502",
   "embedding_consumer_connected": true,
   "excluded": [
     "personal configurations",
@@ -29,13 +29,13 @@
     },
     {
       "path": "AGENTS.md",
-      "bytes": 12996,
-      "sha256": "9f043f9b02784a955b3f8d1d36fc80a1897a684f7b4efab399f3f64b22e8fc34"
+      "bytes": 13868,
+      "sha256": "823f9a6ab49971fd275303e516befa49cf12460965ae6e90c3dd12d53dd42464"
     },
     {
       "path": "ALPHA_ACCEPTANCE.md",
-      "bytes": 2720,
-      "sha256": "03435f3d006ec28cc8e7e307e6ef71ac0ea341165300038d423f9623a108aeb5"
+      "bytes": 3491,
+      "sha256": "0c9bcc655ac3f6d4c0b75ad88700af18645e6b7fb3c2d9950ea370657b636d97"
     },
     {
       "path": "ASSET_SOURCES.md",
@@ -44,8 +44,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 2281,
-      "sha256": "693daadf5ab90e2db8be88439d4278791eef852c1894dde7844dab43601bf4c5"
+      "bytes": 3072,
+      "sha256": "0f1867f2746d65eff20bbe7a3dbb3d0d93dbcd378f3d854a7a9bb0fcc3f8d777"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -69,8 +69,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 18837,
-      "sha256": "6cae531cf85b9ef32720e74d5b095c41c1750edc21576a62c0f06ede31e1cabb"
+      "bytes": 18994,
+      "sha256": "50ca21d210792764701b082ded9b2e0eb8f0b476fc7ba801be575fcaf60dd9bc"
     },
     {
       "path": "SECURITY.md",
@@ -90,7 +90,7 @@
     {
       "path": "VERSION",
       "bytes": 17,
-      "sha256": "858f0fab336fa1cacc594dcb2959a344d7254f78f8acc4ac539b4e40b7d58c4e"
+      "sha256": "5f84421fb970afac30caedc123a317c6ffe3658a068688453dd925f1e87f99bd"
     },
     {
       "path": "agents/__init__.py",
@@ -629,8 +629,8 @@
     },
     {
       "path": "docs/developer/README.md",
-      "bytes": 4183,
-      "sha256": "10c1653bb3994ec4c806823b8e92f3c812468613f9f7b162ea022f7a4912e4c9"
+      "bytes": 4446,
+      "sha256": "0a8d1891774cbd4b89d424c3abbc5d3ff13377af83fd6fc0f32fb3b03d72ec6f"
     },
     {
       "path": "docs/developer/desktop.md",
@@ -659,13 +659,23 @@
     },
     {
       "path": "docs/user/characters.md",
-      "bytes": 3917,
-      "sha256": "1a1942527fa198629f4d68da4b4802d2ac25b18c806e3ce12534252491c8d175"
+      "bytes": 3987,
+      "sha256": "3f12e490845d28076122e9b2975ec5e0c2127578a06d96d4000590831d2738c9"
+    },
+    {
+      "path": "docs/user/import-chat.md",
+      "bytes": 7137,
+      "sha256": "742c2a7c46cdc45c56dec353ece5427ebdb7d78ccd1161b0530a38d5241eb59e"
     },
     {
       "path": "examples/__init__.py",
       "bytes": 86,
       "sha256": "e818726509965a51e5fb36d6f5e3e7d9b791ed4b711faccd052e41e56a173e83"
+    },
+    {
+      "path": "examples/chat-import.example.json",
+      "bytes": 266,
+      "sha256": "c4db08eaf3575878a09c7c49bce4a4ee65bdbe57ee5f17dd492773e3e2ba3037"
     },
     {
       "path": "examples/existing_player.py",
@@ -1541,6 +1551,11 @@
       "path": "model_packages/desktop_pet_v1/hierarchy_sources.py",
       "bytes": 2986,
       "sha256": "75e0dc5ff115f66344e51f6eaf7af5fcd33fac751c9e32119d2090e56b7be157"
+    },
+    {
+      "path": "model_packages/desktop_pet_v1/import_estimation.py",
+      "bytes": 12309,
+      "sha256": "68dd4992b928e72d9f9fb37dfa18f9f28e368835a09792cf4496965883838849"
     },
     {
       "path": "model_packages/desktop_pet_v1/information_holder.py",
@@ -3353,6 +3368,16 @@
       "sha256": "049ca61b4dd96541594623a8db7ad2b2b25daba81e20e351ae88e53928308560"
     },
     {
+      "path": "petlab_app/history_import.py",
+      "bytes": 11959,
+      "sha256": "8aa95806f7227e0845a9f29969cb751292c102515171cff72f913ebb1ed10ad9"
+    },
+    {
+      "path": "petlab_app/history_import_tool.py",
+      "bytes": 4947,
+      "sha256": "b1196547891c16a5c4998e0fac9bb0d5ffc16f6cc3e7cfe4447ae118dbdb899f"
+    },
+    {
       "path": "petlab_app/human_interaction.py",
       "bytes": 712,
       "sha256": "e941817c9b30f0e27a167ccecede1e4d272a28cb5da3683ecc8786076febe2ba"
@@ -3366,6 +3391,11 @@
       "path": "petlab_app/idle_targets.py",
       "bytes": 3922,
       "sha256": "6895a7238b6bae2be98f9c4d959c51b16b51be5af54d4644a91fb0a14602f2de"
+    },
+    {
+      "path": "petlab_app/imported_source.py",
+      "bytes": 4785,
+      "sha256": "2060badd1a40b56a32aac09bd1924eda351fd1215b27e55d2c90759a1aa33059"
     },
     {
       "path": "petlab_app/ingress.py",
@@ -3544,8 +3574,8 @@
     },
     {
       "path": "petlab_app/session.py",
-      "bytes": 45145,
-      "sha256": "f93d393372cba22f5a1b3cbcb1641f7b5b4bc4ee8881beafa21d7d61c0d8fed1"
+      "bytes": 45495,
+      "sha256": "8be711be727154f905c0bad58f82e2e96c16e0f939ef6e9d7c271f2145997416"
     },
     {
       "path": "petlab_app/setup_dialog.py",
@@ -3756,6 +3786,21 @@
       "path": "product_adapters/desktop_pet_v1/expression.py",
       "bytes": 13045,
       "sha256": "b6d4e2d4b881d3577888fb7e37d5d8ca3e41d86d763a446449855ec04d9e6dd0"
+    },
+    {
+      "path": "product_adapters/desktop_pet_v1/import_provider.py",
+      "bytes": 4859,
+      "sha256": "56a39a700158a9a3aed1169ae62d90353411a26d7e0f6af114fd6959212ec9d1"
+    },
+    {
+      "path": "product_adapters/desktop_pet_v1/import_publication.py",
+      "bytes": 6787,
+      "sha256": "373136d620ceb445bb267b69d49568a66e57304f9a8ce31982b18b2574780f89"
+    },
+    {
+      "path": "product_adapters/desktop_pet_v1/import_reconstruction.py",
+      "bytes": 6232,
+      "sha256": "dcd415d046f0d176c3e5af99c93515bf86c8119dbf6d9e633a1c253d3948ba66"
     },
     {
       "path": "product_adapters/desktop_pet_v1/input_reference.py",

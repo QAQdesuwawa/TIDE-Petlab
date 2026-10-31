@@ -14,7 +14,7 @@ python -B -m examples.existing_provider
 python -B -m unittest examples.test_examples
 ```
 
-这些示例离线运行，不需要 API、旧配置、桌面窗口或 embedding 权重。安装桌宠及本地检索模型另见 [README](README.md) 和 [LOCAL_MODELS](LOCAL_MODELS.md)。开发套件可从本仓库安装，提供统一 `tide-dev new/check/run` 与包生成器，见 [安装、建包与检查](docs/developer/devkit.md)。尚未发布到 PyPI，也没有任意格式的批量记忆导入命令。
+这些示例离线运行，不需要 API、旧配置、桌面窗口或 embedding 权重。安装桌宠及本地检索模型另见 [README](README.md) 和 [LOCAL_MODELS](LOCAL_MODELS.md)。开发套件可从本仓库安装，提供统一 `tide-dev new/check/run` 与包生成器，见 [安装、建包与检查](docs/developer/devkit.md)。尚未发布到 PyPI。文本旧聊天导入走统一命令，见 [用户教程](docs/user/import-chat.md)；不自动识别任意平台格式。
 
 | 任务 | 从哪里读起 |
 | --- | --- |
@@ -80,7 +80,9 @@ print(json.dumps(parsed, ensure_ascii=False, indent=2))
 1. **结构化量测档案**：原文、参与者、时间、可见性、数值估计、属性层级及证据。得到 JSON 只完成这一步。
 2. **可参与状态与召回的正式历史**：还需所选包的事件贡献、正式结算、记忆物化及 History 接受。不能把任意 JSON 或 embedding 索引称为正式记忆。
 
-当前有逐事件量测与正式记忆通路，**没有开箱即用的任意聊天格式批量导入器，也没有已完成的“边导入边联合拟合角色参数”工具**。实现导入器时应接下列入口，不能向 profile 塞一串自造记忆来冒充导入完成。
+当前提供单角色文本JSON导入工具：`python -m petlab_app.history_import_tool`。先读 [导入教程](docs/user/import-chat.md)，执行 `prepare` 预览来源、时间策略和费用，再按预算 `run`，完成后 `publish` 到独立角色。联合修订针对角色五模板权重和当前事件量测，以完整人设为约束且须有原文依据；原公式生成常量。每步修订承接前一步估计，发布时冻结最终参数并沿原事务重建一次。原始来源、重建估计和正式历史分别保存；不能向 profile 塞一串自造记忆冒充导入。
+
+扩展平台格式时只把原数据转换为标准JSON，复用这个命令和适配器，避免再造导入/量测/归档流水线。入口分别为 `petlab_app/history_import_tool.py`、`product_adapters/desktop_pet_v1/import_reconstruction.py`、`import_publication.py`；包合同在 `model_packages/desktop_pet_v1/import_estimation.py`。
 
 ### 导入适配器的工作顺序
 

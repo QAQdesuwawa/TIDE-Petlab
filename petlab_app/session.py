@@ -179,6 +179,11 @@ class SinglePetApplication:
     def _verify_source_uncached(self,event):
         # This verifier consumes one source, not a mutable copy of the entire journal.
         raw = self.runtime.session.profile.get(PRODUCT_KEY,{})
+        imported=raw.get('sources',{}).get(event.event_id)
+        if imported is not None and imported.get('origin')=='transcript':
+            from .imported_source import verify
+            verify(self,event,imported)
+            return
         product = {"sources": {event.event_id: thaw_model_data(raw.get("sources",{}).get(event.event_id))},
                    "executions": {event.event_id: thaw_model_data(raw.get("executions",{}).get(event.event_id))}}
         source = product["sources"].get(event.event_id)
@@ -287,7 +292,7 @@ class SinglePetApplication:
             return IngestResult(self.runtime.memory_instance(event.event_id),None,True)
         product = self._product(source_id=event.event_id)
         source = product["sources"][event.event_id]
-        if event.event_kind == "npc_output":
+        if event.event_kind == "npc_output" and source['origin']!='transcript':
             # The execution fact is already durable; its later psychological
             # settlement must not delay another Actor hearing the actual speech.
             self._verify_source(event)
@@ -307,7 +312,7 @@ class SinglePetApplication:
                 transaction=result.transaction,session=shadow.session,source=source,_products=live_products)
         from product_adapters.desktop_pet_v1.settlement_view import attach as attach_settlement_view
         from model_packages.desktop_pet_v1.reaction import results_for
-        if event.event_kind=='npc_output':
+        if event.event_kind=='npc_output' and source['origin']!='transcript':
             actual=source['evidence']['fact']['model_payload']['execution_receipt']
             reaction_results=actual.get('reaction_results') or results_for(event.contents,
                 actual_ids=actual['outcome']['completed_content_ids'],
@@ -329,7 +334,7 @@ class SinglePetApplication:
         # The result accompanies this one formal event; holds are not extra effects.
         from product_adapters.desktop_pet_v1.settlement_view import KEY as SETTLEMENT_KEY
         source['reaction']=thaw_model_data(shadow.session.profile[SETTLEMENT_KEY]['reaction'])
-        if event.event_kind=='npc_output':
+        if event.event_kind=='npc_output' and source['origin']!='transcript':
             from product_adapters.desktop_pet_v1.settlement_audit import build as settlement_audit
             source['settlement_audit']=settlement_audit(event=event,settled=settled,fact=result.memory.fact)
         profile=dict(shadow.session.profile);profile[PRODUCT_KEY]=product

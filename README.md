@@ -18,7 +18,7 @@
 
 **当前提供：框架的 Python 源码接口，以及 PetLab 的 Windows 技术 Alpha。** 框架的独立示例不依赖桌面窗口或本地模型；桌宠应用尚非免安装 EXE，当前源码提供独立角色创建页，旧 Release 仍以其版本说明为准。
 
-[**开发者快速入口**](docs/developer/README.md) · [**自定义领域包**](docs/developer/packages.md) · [**独立 Runtime**](docs/developer/runtime.md) · [**PetLab 示例下载**](https://github.com/QAQdesuwawa/TIDE-Petlab/releases/tag/v0.1.0-alpha.492)
+[**开发者快速入口**](docs/developer/README.md) · [**自定义领域包**](docs/developer/packages.md) · [**独立 Runtime**](docs/developer/runtime.md) · [**旧聊天导入**](docs/user/import-chat.md) · [**PetLab 示例下载**](https://github.com/QAQdesuwawa/TIDE-Petlab/releases/tag/v0.1.0-alpha.492)
 
 ---
 
@@ -224,7 +224,7 @@ PetLab 用两只默认角色「大肥鱼」「小肥鱼」展示这套机制。�
 
 ## PetLab Alpha 范围与使用边界
 
-- **产品入口**：当前是 Windows Python 源码发行版；默认双宠可运行，当前源码支持使用现有动画创建独立角色。任意图片自动生成动画、更多角色的界面和外部聊天历史导入尚未提供。
+- **产品入口**：当前是 Windows Python 源码发行版；默认双宠可运行，当前源码支持使用现有动画创建独立角色。文本旧聊天可用命令导入并重建独立角色记忆，见[教程](docs/user/import-chat.md)；任意图片自动生成动画、更多角色界面和平台导出文件自动识别尚未提供。
 - **本地检索**：使用 Qwen3-Embedding-0.6B Q8 与 Qwen3-Reranker-0.6B Q8，CPU 运行，无需额外检索 API 密钥或 GPU；本地文字检索有约 **500ms** 的前台额外等待预算，忙碌或超时可能导致当轮未交付相关正文。
 - **生成效果**：模型可能重复、理解错误、归属错位或未命中记忆；系统提供可追溯的运行边界，**不保证每次问答、每次回忆或每次动作都成功**。
 - **网页读取**：当前主要处理文本。单次送入正文最多 **4096 字符**；长页面标记为只读开头，原始读取结果与回执保存在存档旁 `.resources/` 中，失败不当作成功。

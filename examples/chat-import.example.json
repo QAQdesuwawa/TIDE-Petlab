@@ -1,0 +1,14 @@
+{
+  "messages": [
+    {
+      "id": "m1",
+      "role": "user",
+      "content": "备用钥匙放在蓝盒子里了。"
+    },
+    {
+      "id": "m2",
+      "role": "assistant",
+      "content": "好，我知道你放在蓝盒子里了。"
+    }
+  ]
+}

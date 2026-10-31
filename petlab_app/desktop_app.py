@@ -872,7 +872,8 @@ def main():
         if choice is None:return
         selected=choice.configuration;args.session=choice.session_path;args.traces=choice.trace_dir
         args.assets=choice.asset_dir or args.assets
-        if use_dual:args.workspace=choice.multi_workspace
+        use_dual=choice.multi_workspace is not None
+        args.workspace=choice.multi_workspace
     else:
         selected=load_configuration(args.config)
         args.session=args.session or base/"output/single-pet/session.json"

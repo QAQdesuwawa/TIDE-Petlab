@@ -1,6 +1,6 @@
 {
   "version": "petlab-public-source-candidate-v1",
-  "product_version": "0.1.0-alpha.492",
+  "product_version": "0.1.0-alpha.501",
   "embedding_consumer_connected": true,
   "excluded": [
     "personal configurations",
@@ -29,13 +29,13 @@
     },
     {
       "path": "AGENTS.md",
-      "bytes": 12956,
-      "sha256": "107f2c4d705a55fe7e93ccda2728c63603bf3e3942ca1737b24b65a9cbd94bd9"
+      "bytes": 12996,
+      "sha256": "9f043f9b02784a955b3f8d1d36fc80a1897a684f7b4efab399f3f64b22e8fc34"
     },
     {
       "path": "ALPHA_ACCEPTANCE.md",
-      "bytes": 2211,
-      "sha256": "fd8127f37fce3f4d0785c8bffd8d222b0613a2187d4347aceb2d0b85066e0c6c"
+      "bytes": 2720,
+      "sha256": "03435f3d006ec28cc8e7e307e6ef71ac0ea341165300038d423f9623a108aeb5"
     },
     {
       "path": "ASSET_SOURCES.md",
@@ -44,8 +44,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 1526,
-      "sha256": "1f5e74a0a3d81e81fd600e82a949223c6a631d55af3de70542c8550bad3659be"
+      "bytes": 2281,
+      "sha256": "693daadf5ab90e2db8be88439d4278791eef852c1894dde7844dab43601bf4c5"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -69,8 +69,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 18560,
-      "sha256": "2b5a8dbef2f3036fb5541fe8226b2fb6ae33fa73415ef8e741d50fb97b9331a8"
+      "bytes": 18837,
+      "sha256": "6cae531cf85b9ef32720e74d5b095c41c1750edc21576a62c0f06ede31e1cabb"
     },
     {
       "path": "SECURITY.md",
@@ -90,7 +90,7 @@
     {
       "path": "VERSION",
       "bytes": 17,
-      "sha256": "c7c54a1ee79b3793cf93397ff130870e0ba5d6cae10bee11612b83012d919d08"
+      "sha256": "858f0fab336fa1cacc594dcb2959a344d7254f78f8acc4ac539b4e40b7d58c4e"
     },
     {
       "path": "agents/__init__.py",
@@ -629,13 +629,13 @@
     },
     {
       "path": "docs/developer/README.md",
-      "bytes": 4149,
-      "sha256": "578fe2c519f48e191f34b2933419912fc44b5800aaa8fe52c3e5c34b55917912"
+      "bytes": 4183,
+      "sha256": "10c1653bb3994ec4c806823b8e92f3c812468613f9f7b162ea022f7a4912e4c9"
     },
     {
       "path": "docs/developer/desktop.md",
-      "bytes": 5336,
-      "sha256": "3d86b4c7515f4aab5cbd78c0777ce7c929cf6219b116ed59b5dc32fb63280480"
+      "bytes": 5476,
+      "sha256": "e61bff365e752ca84e2cc90f81d9338320f23d5716992bcef69bfdfa19b22d3a"
     },
     {
       "path": "docs/developer/devkit.md",
@@ -656,6 +656,11 @@
       "path": "docs/developer/runtime.md",
       "bytes": 4027,
       "sha256": "51e5a5ce0162c7a2ff36d17da44d874849713062a6d7cc8e94968710e880ef22"
+    },
+    {
+      "path": "docs/user/characters.md",
+      "bytes": 3917,
+      "sha256": "1a1942527fa198629f4d68da4b4802d2ac25b18c806e3ce12534252491c8d175"
     },
     {
       "path": "examples/__init__.py",
@@ -3299,8 +3304,8 @@
     },
     {
       "path": "petlab_app/desktop_app.py",
-      "bytes": 60107,
-      "sha256": "efda322bdd8ed8110f4f68ff3f61deeb2961efc41c6e47156682eb7d4e1fabae"
+      "bytes": 60148,
+      "sha256": "2cde98c626cf81d0b35296070a2efea4f3ebaced0bbee92643f514053b7b0b80"
     },
     {
       "path": "petlab_app/desktop_view.py",
@@ -3544,8 +3549,8 @@
     },
     {
       "path": "petlab_app/setup_dialog.py",
-      "bytes": 26443,
-      "sha256": "e10ae8fca23b71c5ca090f09aacd2106ed906f253c6587f221159af0eb1412c7"
+      "bytes": 29532,
+      "sha256": "bbbc99bb676bd65c7bfd25e77c189c428b4923d68f648af1957335db9817a792"
     },
     {
       "path": "petlab_app/speech_bubble.py",

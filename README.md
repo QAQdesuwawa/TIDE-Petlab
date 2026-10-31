@@ -16,7 +16,7 @@
 
 *Persistent AI agent runtime · Event-sourced history · Temporal state dynamics · Forward memory influence · Pluggable interaction models*
 
-**当前提供：框架的 Python 源码接口，以及 PetLab 的 Windows 技术 Alpha。** 框架的独立示例不依赖桌面窗口或本地模型；桌宠应用尚非免安装 EXE，暂未开放无代码角色创建。
+**当前提供：框架的 Python 源码接口，以及 PetLab 的 Windows 技术 Alpha。** 框架的独立示例不依赖桌面窗口或本地模型；桌宠应用尚非免安装 EXE，当前源码提供独立角色创建页，旧 Release 仍以其版本说明为准。
 
 [**开发者快速入口**](docs/developer/README.md) · [**自定义领域包**](docs/developer/packages.md) · [**独立 Runtime**](docs/developer/runtime.md) · [**PetLab 示例下载**](https://github.com/QAQdesuwawa/TIDE-Petlab/releases/tag/v0.1.0-alpha.492)
 
@@ -199,6 +199,8 @@ python -B -m unittest examples.test_examples
 
 ## PetLab：内核的一个 Windows 桌面切面
 
+PetLab 用户可从 [创建自己的角色教程](docs/user/characters.md) 进入：填写人设、量测生成参数、独立保存与恢复；首版复用现有鲸鱼动画。
+
 PetLab 用两只默认角色「大肥鱼」「小肥鱼」展示这套机制。当前 Alpha 支持触碰与拖拽、主动活动、公开／私聊、双角色独立身份与记忆、部分连续身体动作，以及公开网页的读取与后续有源记忆交付。角色共享素材和 API 配置，但各自的身份、状态与可见经历独立；重新启动后可以恢复对应存档。**发行包不包含开发者的私人聊天历史。**
 
 桌面 UI、动作播放器、社交平台与具体大模型都不是 TIDE 的组成前提；现阶段 PetLab 只是一个可运行的产品适配示例。
@@ -222,7 +224,7 @@ PetLab 用两只默认角色「大肥鱼」「小肥鱼」展示这套机制。�
 
 ## PetLab Alpha 范围与使用边界
 
-- **产品入口**：当前是 Windows Python 源码发行版；默认双宠可运行，尚未开放无代码创建任意角色、编辑 CX67 参数、更多角色或外部聊天历史导入。
+- **产品入口**：当前是 Windows Python 源码发行版；默认双宠可运行，当前源码支持使用现有动画创建独立角色。任意图片自动生成动画、更多角色的界面和外部聊天历史导入尚未提供。
 - **本地检索**：使用 Qwen3-Embedding-0.6B Q8 与 Qwen3-Reranker-0.6B Q8，CPU 运行，无需额外检索 API 密钥或 GPU；本地文字检索有约 **500ms** 的前台额外等待预算，忙碌或超时可能导致当轮未交付相关正文。
 - **生成效果**：模型可能重复、理解错误、归属错位或未命中记忆；系统提供可追溯的运行边界，**不保证每次问答、每次回忆或每次动作都成功**。
 - **网页读取**：当前主要处理文本。单次送入正文最多 **4096 字符**；长页面标记为只读开头，原始读取结果与回执保存在存档旁 `.resources/` 中，失败不当作成功。

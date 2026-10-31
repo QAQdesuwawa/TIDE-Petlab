@@ -93,8 +93,9 @@ def read_launch_paths(path):
 
 
 class PetSetupDialog:
-    def __init__(self,root,*,config_path,session_path,trace_dir,preferences_path=None,asset_dir=None,multi_workspace=None):
+    def __init__(self,root,*,config_path,session_path,trace_dir,preferences_path=None,asset_dir=None,multi_workspace=None,creating=False):
         self.root=root;self.result=None;self.last_error=None
+        self.creating=creating;self._created_definition=None
         self._creation_pending=False
         self.preferences_path=None if preferences_path is None else Path(preferences_path)
         self.multi_workspace=None if multi_workspace is None else Path(multi_workspace)
@@ -109,7 +110,17 @@ class PetSetupDialog:
             # accepted as a replacement for the unreadable role or its history.
             self.seed=read_configuration_record(BASE/"config.example.json")
             self._seed_unavailable=True
-        self.window=tk.Toplevel(root);self.window.title("TIDE · 桌宠设置")
+        if creating:
+            provider=deepcopy(self.seed['provider'])
+            self.seed=read_configuration_record(BASE/'config.example.json')
+            self.seed['provider']=provider
+            self.seed.pop('expression_profile',None)
+            self._fresh_identity(self.seed)
+            self.seed['definition'].update(name='',background='')
+            self._seed_unavailable=False;self.multi_workspace=None
+            folder=Path(config_path).resolve().parent/'characters'/uuid.uuid4().hex
+            config_path=folder/'config.json';session_path=folder/'session.json';trace_dir=folder/'traces'
+        self.window=tk.Toplevel(root);self.window.title("TIDE · 创建自己的角色" if creating else "TIDE · 桌宠设置")
         self.window.resizable(False,False)
         self.fields={}
         names=self.seed["definition"]["name"]
@@ -120,11 +131,11 @@ class PetSetupDialog:
             if manifest.exists():
                 try:names='、'.join(v['name'] for v in json.loads(manifest.read_text('utf8'))['definitions'].values())
                 except (OSError,ValueError,KeyError,TypeError):pass # actual identity validation still blocks start
-        ttk.Label(self.window,text="启动角色："+names+"；在下方“API 密钥”框粘贴自己的密钥后，点击“保存并启动”。",wraplength=540).pack(fill="x",padx=14,pady=(12,0))
+        ttk.Label(self.window,text=("创建一个独立角色：先填名称与人设，再配置API并按背景生成。外观暂用现有鲸鱼动画。" if creating else "启动角色："+names+"；在下方“API 密钥”框粘贴自己的密钥后，点击“保存并启动”。"),wraplength=540).pack(fill="x",padx=14,pady=(12,0))
         notebook=ttk.Notebook(self.window);notebook.pack(fill="both",expand=True,padx=14,pady=12)
         role=ttk.Frame(notebook,padding=12);provider=ttk.Frame(notebook,padding=12);files=ttk.Frame(notebook,padding=12)
-        # The unfinished authoring page stays outside the public Alpha notebook.
-        # Its existing fields preserve record/recovery compatibility.
+        self.notebook=notebook
+        if creating:notebook.add(role,text='新角色')
         notebook.add(provider,text="模型");notebook.add(files,text="保存位置")
         self._entry(role,"name","名称",0)
         ttk.Label(role,text="角色背景").grid(row=1,column=0,sticky="nw",pady=6)
@@ -134,7 +145,7 @@ class PetSetupDialog:
         ttk.Button(role,text="角色参数…",command=self.toggle_parameters).grid(row=2,column=1,sticky="w",pady=6)
         self.measure_button=ttk.Button(role,text="按背景生成",command=self.measure_background)
         self.measure_button.grid(row=2,column=0,sticky="w",pady=6)
-        ttk.Label(role,text="新角色可显式生成一次人格卡与参数；仅保存不会请求模型。",wraplength=380).grid(row=3,column=0,columnspan=2,sticky="w")
+        ttk.Label(role,text="填写名称和完整人设，在“模型”页填API，再按背景生成；成功后保存并启动。首版复用现有鲸鱼动画。" if creating else "新角色可显式生成一次人格卡与参数；仅保存不会请求模型。",wraplength=380).grid(row=3,column=0,columnspan=2,sticky="w")
         for row,key in enumerate(CONSTANTS):self._entry(self.advanced,key,key,row)
         for row,(key,label) in enumerate([("endpoint","接口地址"),("model","模型名称"),("api_key_env","密钥变量名（通常不用改）")]):
             self._entry(provider,key,label,row)
@@ -165,6 +176,9 @@ class PetSetupDialog:
         self.check_button=ttk.Button(files,text="本地检查（不连接模型）",command=self.check_local)
         self.check_button.grid(row=8,column=0,columnspan=3,sticky="w",pady=6)
         toolbar=ttk.Frame(self.window);toolbar.pack(fill="x",padx=14,pady=(0,8))
+        if not creating:
+            self.create_button=ttk.Button(toolbar,text='创建自己的角色…',command=self.create_character)
+            self.create_button.pack(side='left',padx=(0,8))
         ttk.Button(toolbar,text="加载配置…",command=self.import_configuration).pack(side="left")
         ttk.Button(toolbar,text="取消",command=self.cancel).pack(side="right")
         self.start_button=ttk.Button(toolbar,text="保存并启动",command=self.start);self.start_button.pack(side="right",padx=8)
@@ -235,8 +249,13 @@ class PetSetupDialog:
                             or {k:str(v) for k,v in self._paths().items()}!=path_snapshot):
                         raise ValueError("设置已经改动，生成结果没有覆盖草稿；请按新描述重新生成。")
                     definition=definition_from_background(selected.definition,measured)
+                    if self.creating:
+                        # The generated card and original interpretation stay in
+                        # the creation receipt; expression keeps the full author text.
+                        definition=replace(definition,background=record['definition']['background'])
                     _atomic_json(paths["trace_dir"]/"creation"/("profile-"+measured["receipt"]["fingerprint"]+".json"),measured)
                     self.seed=deepcopy(record);self.seed["definition"]=definition.to_record();self.populate();self.secret.set(secret)
+                    if self.creating:self._created_definition=definition.fingerprint
                     self.status.set("人格卡与参数已生成。可核对后保存；未产生互动或记忆。")
                 except Exception as error:self._error(error)
             threading.Thread(target=work,daemon=True).start();self.window.after(50,collect)
@@ -302,6 +321,29 @@ class PetSetupDialog:
         for key,name in [("config_path","config.json"),("session_path","session.json"),("trace_dir","traces")]:self.fields[key].set(str(folder/name))
         self.populate();self.status.set("新角色使用新的记忆文件。")
 
+    def create_character(self):
+        if self._creation_pending:return
+        try:
+            paths=self._paths();secret=self.secret.get();current=self.record()
+            dialog=PetSetupDialog(self.root,config_path=paths['config_path'],
+                session_path=paths['session_path'],trace_dir=paths['trace_dir'],
+                preferences_path=self.preferences_path,asset_dir=paths['asset_dir'],creating=True)
+            # Carry edited provider fields into the draft, never the old persona.
+            dialog.seed['provider']=deepcopy(current['provider'])
+            dialog.seed['writer_temperature']=current['writer_temperature']
+            if current.get('writer_model'):dialog.seed['writer_model']=current['writer_model']
+            dialog.populate();dialog.secret.set(secret)
+            self.window.withdraw();self.root.wait_window(dialog.window)
+            if dialog.result is not None:
+                self.result=dialog.result;self.secret.set('');self.window.destroy()
+            else:self.window.deiconify()
+        except Exception as error:
+            self.window.deiconify();self._error(error)
+
+    def _require_created(self,value):
+        if self.creating and PetDefinition.from_record(value['definition']).fingerprint!=self._created_definition:
+            raise ValueError('请先按背景生成角色参数；名称、人设或参数改动后需重新生成。')
+
     def _paths(self):
         result={key:Path(self.fields[key].get()).resolve() for key in ("config_path","session_path","trace_dir","asset_dir")}
         if self.multi_workspace is not None:result['multi_workspace']=Path(self.fields['multi_workspace'].get()).resolve()
@@ -351,6 +393,7 @@ class PetSetupDialog:
         try:
             if self._creation_pending:raise ValueError("请等待背景生成完成。")
             value=self.record();paths=self._paths()
+            self._require_created(value)
             self._check_identity(value,paths)
             save_configuration(paths["config_path"],value)
             if self.preferences_path is not None:
@@ -364,6 +407,7 @@ class PetSetupDialog:
         try:
             if self._creation_pending:raise ValueError("请等待背景生成完成。")
             value,paths,_report=self._checked_local()
+            self._require_created(value)
             key=self.secret.get()
             if key:
                 env_name=value["provider"].get("api_key_env")

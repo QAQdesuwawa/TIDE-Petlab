@@ -6,6 +6,8 @@ import json
 import keyword
 from pathlib import Path
 import re
+import os
+import shlex
 import sys
 import tomllib
 
@@ -13,6 +15,12 @@ import tomllib
 def new(name, destination):
     if not re.fullmatch(r'[a-z][a-z0-9_]{0,47}', name) or keyword.iskeyword(name):
         raise ValueError('new: name must be a lowercase Python identifier (1–48 characters)')
+    reserved = set(sys.stdlib_module_names) | {
+        'framework', 'ops', 'model_packages', 'temporal_packages', 'tide_dev',
+        'con', 'prn', 'aux', 'nul', *(f'com{i}' for i in range(1,10)),
+        *(f'lpt{i}' for i in range(1,10))}
+    if name in reserved:
+        raise ValueError('new: name conflicts with a standard library, SDK module or device name; choose a domain-specific name')
     target = Path(destination).resolve()
     # mkdir is exclusive; existing directories are never adopted or overwritten.
     target.mkdir(parents=True, exist_ok=False)
@@ -42,7 +50,10 @@ def new(name, destination):
         'Do not change installed Runtime code or existing sample package math. '
         'Bump PACKAGE_VERSION when definitions change; restore must reject incompatible old bindings. '
         'No memory/Writer/GUI or real external execution is implemented by this fixture host.\n', encoding='utf8')
-    return {'created': str(target), 'next': f'tide-dev check "{target}"'}
+    command = [sys.executable, '-m', 'tide_dev', 'check', str(target)]
+    next_command = ('& "'+sys.executable+'" -m tide_dev check "'+str(target)+'"'
+                    if os.name == 'nt' else shlex.join(command))
+    return {'created': str(target), 'next': next_command, 'next_argv': command}
 
 
 def factory(spec, kwargs):

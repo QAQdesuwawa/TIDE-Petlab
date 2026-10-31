@@ -29,8 +29,8 @@
     },
     {
       "path": "AGENTS.md",
-      "bytes": 12620,
-      "sha256": "9ad721883733361c937791fd9e0d276bf49491004a5835176afcdd0af44fbcf3"
+      "bytes": 12956,
+      "sha256": "107f2c4d705a55fe7e93ccda2728c63603bf3e3942ca1737b24b65a9cbd94bd9"
     },
     {
       "path": "ALPHA_ACCEPTANCE.md",
@@ -590,12 +590,12 @@
     {
       "path": "devkit/setup.py",
       "bytes": 801,
-      "sha256": "6698f70b3d08bf998113b84d803770a4a87e95f21938e51527a0032f2cfec066"
+      "sha256": "911e6290835451311894e21951684d42ad007443ed744913626de68024b4dd97"
     },
     {
       "path": "devkit/tests/test_cli.py",
-      "bytes": 6524,
-      "sha256": "c2347661c0dc364a0f25dc54b86f286dd0a0a22661a64db1e13d8cf0e6ec991d"
+      "bytes": 7944,
+      "sha256": "aba51672edc7eaa87de292fa645beb027b235eb46139819c2d62b92602ac647f"
     },
     {
       "path": "devkit/tide_dev/__init__.py",
@@ -609,8 +609,8 @@
     },
     {
       "path": "devkit/tide_dev/cli.py",
-      "bytes": 11901,
-      "sha256": "d7e424c6cbc51c7239bd1e1e6a4b99d07168ee59f0c8c40ee179c96d527afcbf"
+      "bytes": 12543,
+      "sha256": "fd2217acd52fc10d42ef2e76257c33ee5bcf13a2109359bee7d0330542abee83"
     },
     {
       "path": "devkit/tide_dev/templates/definition.py.txt",
@@ -629,8 +629,8 @@
     },
     {
       "path": "docs/developer/README.md",
-      "bytes": 4220,
-      "sha256": "91a32c500cc078e9b4a71d671c50fe10e68d20d144ecd5838b37ad48b88db666"
+      "bytes": 4149,
+      "sha256": "578fe2c519f48e191f34b2933419912fc44b5800aaa8fe52c3e5c34b55917912"
     },
     {
       "path": "docs/developer/desktop.md",
@@ -639,8 +639,8 @@
     },
     {
       "path": "docs/developer/devkit.md",
-      "bytes": 6034,
-      "sha256": "de1bf7900bd894234a74e9c3e7efbda21b026db43f6970d5327a6f6fae3918bc"
+      "bytes": 8117,
+      "sha256": "ac461e39fba6d6126ce39a26c9a407778d049678ce96480b3778056705814c1c"
     },
     {
       "path": "docs/developer/integrations.md",

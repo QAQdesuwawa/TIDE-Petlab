@@ -12,7 +12,7 @@ class Build(build_py):
             target=Path(self.build_lib)/name
             target.parent.mkdir(parents=True,exist_ok=True)
             self.copy_file(str(path),str(target))
-setup(name="tide-runtime-devkit",version="0.1.0a1",python_requires=">=3.11",
+setup(name="tide-runtime-devkit",version="0.1.0a2",python_requires=">=3.11",
     description="Developer host and package scaffolding for the TIDE Runtime",
     license="AGPL-3.0-only",packages=["tide_dev"],cmdclass={"build_py":Build},
     entry_points={"console_scripts":["tide-dev=tide_dev.cli:main"]})

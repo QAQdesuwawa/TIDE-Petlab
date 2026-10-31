@@ -14,6 +14,12 @@ python -m venv .venv-dev
 .\.venv-dev\Scripts\tide-dev.exe --help
 ```
 
+不需要激活虚拟环境，也不需要修改 PowerShell 执行策略。为避免后续命令误用系统 Python，安装后在同一个 PowerShell 窗口设定：
+
+```powershell
+$devPython = (Resolve-Path .\.venv-dev\Scripts\python.exe).Path
+```
+
 建议使用独立虚拟环境。SDK 保留现有 `framework`、`ops` 等 Python 导入名称；避免与其他项目同名模块混装。Linux/macOS 使用虚拟环境 `bin/` 下的命令；本次实际验收平台为 Windows/Python 3.11。
 
 也可以先制作 wheel，再拷贝到无网络的新环境安装。源码构建需要 setuptools 和 wheel，首次准备构建环境可能联网下载这些构建工具；安装已生成的 wheel 没有额外运行依赖，不会下载语言模型或 embedding：
@@ -23,15 +29,15 @@ python -m pip wheel ./devkit --no-deps --wheel-dir dist
 python -m pip install --no-index --find-links dist tide-runtime-devkit
 ```
 
-该分发名为 `tide-runtime-devkit`，当前工具版本 `0.1.0a1`，与 PetLab 产品版本独立。尚未发布到 PyPI；不要直接执行不带本地源码路径或 wheel 的在线安装命令。SDK 是现有最小正式宿主的依赖闭包，不是整个 PetLab 产品发行包。
+该分发名为 `tide-runtime-devkit`，当前工具版本 `0.1.0a2`，与 PetLab 产品版本独立。尚未发布到 PyPI；不要直接执行不带本地源码路径或 wheel 的在线安装命令。SDK 是现有最小正式宿主的依赖闭包，不是整个 PetLab 产品发行包。下载源码 ZIP 后先解压，在包含 `AGENTS.md` 和 `devkit` 的目录安装；旧的 alpha.492 Release 压缩包不含这批开发工具，应下载当前仓库源码。
 
 ## 创建与检查
 
 ```powershell
-tide-dev new my_model --output ./my-first-package
-tide-dev check ./my-first-package
-tide-dev run ./my-first-package --output ./first-run.json
-tide-dev run ./my-first-package --restore ./first-run.json
+& $devPython -m tide_dev new my_model --output ./my-first-package
+& $devPython -m tide_dev check ./my-first-package
+& $devPython -m tide_dev run ./my-first-package --output ./first-run.json
+& $devPython -m tide_dev run ./my-first-package --restore ./first-run.json
 ```
 
 没有把虚拟环境加入 PATH 时，使用安装环境中的完整命令路径。`python -m tide_dev` 与 `tide-dev` 使用同一个解析器。
@@ -46,7 +52,26 @@ tide-dev run ./my-first-package --restore ./first-run.json
 | `scenario.json` | 初态、参数和按时间排序的事件量测夹具 |
 | `AGENTS.md` | 给协作 Agent 的本包修改与检查入口 |
 
-目的目录必须不存在，已有目录与输出文件不会覆盖。名字需是小写 Python 标识符。项目内 `tide.toml` 是开发宿主配置，不是新的 Runtime 包 manifest；包仍声明原 `InteractionModelManifest`。
+目的目录必须不存在，已有目录与输出文件不会覆盖。名字需是小写 Python 标识符，且不能与标准库、SDK模块或设备名重名（如 `json`、`framework`、`con`）；优先使用业务名。项目内 `tide.toml` 是开发宿主配置，不是新的 Runtime 包 manifest；包仍声明原 `InteractionModelManifest`。
+
+## 已经有自己的包时
+
+不必复制生成的业务公式。生成器先给你一个宿主配置骨架，再将 `tide.toml` 的 `model` 改成已有工厂；例如用 SDK 自带的另一个包实现验证替换：
+
+```toml
+model = "model_packages.minimal_affinity_v1:MinimalAffinityV1Package"
+temporal = "temporal_packages.wall_clock_ms_v1:WallClockMillisecondsV1"
+scenario = "scenario.json"
+session_id = "dev:session"
+scope_ref = "dev:scope"
+subject_ref = "dev:agent"
+[model_kwargs]
+observation_unit = "milliseconds"
+```
+
+此包与默认场景字段相同，因此可直接运行上面的 check/run。换成你自己的 `my_company_package:YourPackage` 时，把模块放在包含 `tide.toml` 的项目目录下，或安装到 `$devPython` 对应环境；将 `model_kwargs` 改为该工厂实际接受的参数（不接受参数就删掉整个表），同时按它的 schema 修改场景。`temporal_kwargs` 也沿同样规则传给时间包工厂。包实现不了 `advance_progress` 时，此检查宿主会报告缺能力；这是该宿主的范围，不意味着通用 Runtime 要求所有产品采用墙钟或时间演化。
+
+现有算法可以保留在自己的模块内，由 `definition.py` 或标准包阶段调用。已有算法只有一个计算函数时，需用标准阶段封装其输入/输出；它尚不等于一个完整模型包。源代码接入更大产品宿主，仍使用 [Runtime 装配入口](runtime.md)，不要求绑定这份开发场景配置。
 
 ## 改一次定义
 
@@ -77,7 +102,7 @@ tide-dev run ./my-first-package --restore ./first-run.json
 用已安装该 wheel 的 Python，在任意工作目录执行（替换路径）：
 
 ```powershell
-python -B -m unittest discover -s <仓库路径>/devkit/tests -v
+& $devPython -B -m unittest discover -s .\devkit\tests -v
 ```
 
 用例在临时独立目录中建包，验证字段更名、公式变更、多事件、正式恢复以及错误拒绝。实际验证应另检查 wheel 内容和导入位置，避免误从源码目录导入。公共 Agent 接入说明见 [根目录 AGENTS.md](../../AGENTS.md)。

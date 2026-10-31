@@ -6,6 +6,8 @@
 
 在仓库根目录使用 Python 3.11：
 
+要接自己的包，先沿 [安装、建包与检查](docs/developer/devkit.md) 的可复制命令完成一轮；其中也有接入已有包的配置。下面是直接从源码跑参考示例的另一条路径，不需要先装桌宠依赖。改自己的包通常不需要通读下面的人设/记忆章节，按任务选择即可。
+
 ```powershell
 python -B -m examples.runtime_minimal
 python -B -m examples.existing_provider

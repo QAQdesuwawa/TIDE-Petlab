@@ -18,11 +18,10 @@
 
 ## 十分钟离线跑通
 
-在仓库根目录使用 Python 3.11。已有环境可直接执行下面三个示例；新环境先安装仓库锁定依赖：
+在仓库根目录使用 Python 3.11。下面三个源码示例仅用标准库；新环境不需要安装整套桌宠依赖：
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-pet.lock.txt
 .\.venv\Scripts\python.exe -B -m examples.runtime_minimal
 .\.venv\Scripts\python.exe -B -m examples.existing_provider
 .\.venv\Scripts\python.exe -B -m examples.existing_player

@@ -113,6 +113,27 @@ class DeveloperFlow(unittest.TestCase):
         self.call('new', '../bad', '--output', str(self.root/'bad'), ok=False)
         self.assertFalse((self.root/'bad').exists())
 
+    def test_reject_import_shadowing_and_windows_device_names(self):
+        for name in ('json', 'typing', 'framework', 'ops', 'tide_dev', 'con', 'nul', 'com1'):
+            path = self.root/('name-'+name)
+            self.call('new', name, '--output', str(path), ok=False)
+            self.assertFalse(path.exists(), name)
+
+    def test_existing_factory_and_existing_algorithm(self):
+        config = self.project/'tide.toml'
+        text = config.read_text('utf8')
+        config.write_text(text.replace('my_model:Package',
+            'model_packages.minimal_affinity_v1:MinimalAffinityV1Package'), encoding='utf8')
+        self.assertEqual(self.call('run', str(self.project))['package'], 'tide.minimal-affinity')
+        config.write_text(text, encoding='utf8')
+        # The user's existing algorithm stays independent of Runtime and package stages.
+        (self.project/'existing_algorithm.py').write_text('def apply(value):\n    return value / 2\n', encoding='utf8')
+        definition = self.project/'my_model/definition.py'
+        code = definition.read_text('utf8').replace('PACKAGE_ID =', 'from existing_algorithm import apply\n\nPACKAGE_ID =', 1)
+        code = code.replace('before["affinity"] + response * a', 'before["affinity"] + apply(response * a)')
+        definition.write_text(code, encoding='utf8')
+        self.assertAlmostEqual(self.call('run', str(self.project))['state']['affinity'], .625)
+
     def test_invalid_state_and_duplicate_event(self):
         scenario = self.scenario()
         scenario['state']['unexpected'] = .2

@@ -11,6 +11,9 @@ from framework.model_api.immutable_record import ImmutableModelRecord
 VERSION='petlab-owned-journal-rows-v2-shallow-reuse'
 
 _TABLES=(
+    ('cx67-retained-intention-planning-v1','nodes'),
+    ('cx67-intention-progress-evidence-v1',),
+    ('desktop-pet-intention-history-v1','items'),
     ("desktop_pet_product_v1","sources"),
     ("desktop_pet_product_v1","executions"),
     ("desktop_pet_idle_opening_v1","ticks"),
@@ -19,6 +22,7 @@ _TABLES=(
     ("desktop_pet_events_v1",),
     ("desktop_pet_temporal_measurements_v1",),
     ("desktop_pet_continuation_checks_v1",),
+    ("petlab-input-body-selection-v1",),
     ("desktop_pet_retired_writer_v1",),
 )
 _LISTS=("runtime_progress_transactions","runtime_product_expression_continuations",
@@ -38,6 +42,15 @@ def _owned(value,previous=None):
 def seal_session(session,*,previous_profile=None):
     profile=dict(session.profile)
     previous_profile={} if previous_profile is None else previous_profile
+    key='cx67-private-intention-facts-v1'
+    if key in profile:
+        previous=previous_profile.get(key,{})
+        chains={}
+        for identity,rows in profile[key].items():
+            old=previous.get(identity,())
+            chains[identity]=(rows if rows is old else tuple(
+                _owned(row,old[i] if i<len(old) else None) for i,row in enumerate(rows)))
+        profile[key]=chains
     for path in _TABLES:
         if path[0] not in profile:continue
         parent=profile

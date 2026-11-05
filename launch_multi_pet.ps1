@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory=$true)][string]$Config,
     [string]$Workspace = '',
     [string]$PythonPath = '',
-    [string]$Assets = ''
+    [string]$Assets = '',
+    [int]$PetCount = 0
 )
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
@@ -13,6 +14,8 @@ if (-not $PythonPath) {
     if (Test-Path -LiteralPath $localPython) { $PythonPath = $localPython } else { $PythonPath = 'python' }
 }
 if (-not $Workspace) { $Workspace = Join-Path $PSScriptRoot 'output/multi-pet' }
-if (-not $Assets) { $Assets = Join-Path $PSScriptRoot 'assets/pets/deepseek-maid-v1' }
-& $PythonPath -B -X utf8 -m petlab_app.multi_desktop --config $Config --workspace $Workspace --assets $Assets
+if (-not $Assets) { $Assets = Join-Path $PSScriptRoot 'assets/pets/deepseek-bound-original-face' }
+$countArgs = @()
+if ($PetCount -gt 0) { $countArgs = @('--count', $PetCount) }
+& $PythonPath -B -X utf8 -m petlab_app.multi_desktop --config $Config --workspace $Workspace --assets $Assets @countArgs
 exit $LASTEXITCODE

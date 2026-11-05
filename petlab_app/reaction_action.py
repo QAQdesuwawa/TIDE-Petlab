@@ -16,6 +16,8 @@ def selection(app,event_id):
 def authorization(app,event_id):
     from .idle_opening import is_idle_tick,authorize as idle_authorize
     if is_idle_tick(app,event_id):return idle_authorize(app,event_id)
+    from product_adapters.desktop_pet_v1 import deferred_reply
+    if deferred_reply.needed(app,event_id):return deferred_reply.authorize(app,event_id)
     from product_adapters.desktop_pet_v1.expression import PetExpressionService
     life,required=PetExpressionService(application=app).project_for_reply(event_id)
     if life.evidence.response_policy=='eligible':
@@ -30,13 +32,15 @@ def ensure(product,event_id):
     if event_id in app.runtime.session.profile.get(KEY,{}):return selection(app,event_id)
     supplier=getattr(app,'meal_snapshot',None)
     scene=supplier() if callable(supplier) else None
-    if scene is None:return None
     from product_adapters.desktop_pet_v1 import deferred_reply
-    if deferred_reply.needed(app,event_id):return None
+    if deferred_reply.needed(app,event_id):
+        # Formation is a newer private fact, not a reason to remove the
+        # original qualified intention's body choices. Authorization below
+        # still checks its grant and exact current planning source.
+        from .intention_continuation import current
+        if current(app,event_id) is None:return None
     auth=authorization(app,event_id)
     if auth is None:return None
-    if app.owner_ref not in scene['participants']:return None
-    if auth.target_ref not in scene['participants'] and not shared_meal.available(scene,app.owner_ref,auth.target_ref):return None
     from product_adapters.desktop_pet_v1.settled_presentation import snapshot
     settled=snapshot(app)
     if settled is None:return None
@@ -44,9 +48,10 @@ def ensure(product,event_id):
     from model_packages.desktop_pet_v1 import movement
     spatial_supplier=getattr(app,'scene_snapshot',None)
     spatial_scene=spatial_supplier() if callable(spatial_supplier) else None
-    base=movement.catalog(scene=spatial_scene,target_ref=auth.target_ref)
-    catalog=shared_meal.catalog(base,scene,app.owner_ref,auth.target_ref)
-    chosen=action_candidates.choose(eligible=True,tokens=action_candidates.compact_tokens(plan),source=auth.source_settlement_fingerprint,catalog=catalog,allow_speech=product.writer is not None)
+    from model_packages.desktop_pet_v1.action_targets import expand
+    from .destinations import audience
+    catalog=expand(getattr(product,'action_catalog',None),scene=spatial_scene,meal=scene,owner=app.owner_ref,primary=auth.target_ref,audience=audience(app,event_id))
+    chosen=action_candidates.propose(eligible=True,tokens=action_candidates.compact_tokens(plan),source=auth.source_settlement_fingerprint,catalog=catalog,allow_speech=product.writer is not None)
     from model_packages.desktop_pet_v1.action_sequence import offer
     offered=offer(chosen,catalog,owner_ref=app.owner_ref,target_ref=auth.target_ref)
     row=shared_meal.signed({'event_id':event_id,'selection':chosen,'authorization_ref':auth.fingerprint,

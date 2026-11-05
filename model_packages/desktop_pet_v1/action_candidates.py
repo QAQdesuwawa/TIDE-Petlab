@@ -1,10 +1,11 @@
-"""Package action entities matched against published symbolic tokens, never faces."""
+"""Physical candidates for model choice; v1 token matching is retained for replay."""
 import json
 from copy import deepcopy
 from pathlib import Path
 from framework.model_api import model_data_fingerprint,thaw_model_data
 
 VERSION='desktop-pet-symbolic-action-selection-v1'
+MODEL_VERSION='desktop-pet-model-action-candidates-v2'
 CATALOG=json.loads((Path(__file__).parent/'resources/action-candidates-v1.json').read_text(encoding='utf8'))
 
 def compact_tokens(plan):
@@ -45,6 +46,15 @@ def choose(*,eligible,tokens,source,catalog=None,allow_speech=True):
 
 def validate(value):
     value=thaw_model_data(value)
+    if value.get('version')==MODEL_VERSION:
+        if (value.get('mode')!='symbolic' or type(value.get('allow_speech')) is not bool
+                or not value.get('source')
+                or value.get('fingerprint')!=model_data_fingerprint({k:v for k,v in value.items() if k!='fingerprint'})):
+            raise ValueError('model action candidate integrity differs')
+        definition=value.get('definition')
+        if value['action_keys']!=([] if definition is None else [definition['key']]):
+            raise ValueError('model action result differs')
+        return value
     if (value.get('version')!=VERSION or value.get('mode')!='symbolic'
         or value.get('fingerprint')!=model_data_fingerprint({k:v for k,v in value.items() if k!='fingerprint'})
         or type(value.get('allow_speech')) is not bool):raise ValueError('symbolic action selection integrity differs')
@@ -52,3 +62,30 @@ def validate(value):
     if value['action_keys']!=([] if definition is None else [definition['key']]):raise ValueError('selected action differs from entity')
     if definition is not None and not _matches(definition,value['tokens']):raise ValueError('selected action differs from symbolic evidence')
     return value
+
+
+def propose(*,eligible,tokens,source,catalog=None,allow_speech=True):
+    """Physical catalog already assembled by host/package; tokens are context only."""
+    if type(eligible) is not bool or type(allow_speech) is not bool:raise ValueError('invalid eligibility')
+    if not eligible:return None
+    if not isinstance(source,str) or not source:raise ValueError('formal source required')
+    catalog=deepcopy(thaw_model_data(CATALOG if catalog is None else catalog))
+    keys=[c['key'] for c in catalog['candidates']]
+    if len(keys)!=len(set(keys)) or any(not isinstance(k,str) or not k for k in keys):raise ValueError('duplicate or empty action entity')
+    value={'version':MODEL_VERSION,'mode':'symbolic','action_keys':[], 'definition':None,
+        'allow_speech':allow_speech,'source':source,'tokens':deepcopy(thaw_model_data(tokens)),
+        'catalog_version':catalog['version'],'catalog_fingerprint':model_data_fingerprint(catalog),
+        'considered':[{'key':k,'available':True} for k in keys],'decision':'awaiting_model'}
+    return {**value,'fingerprint':model_data_fingerprint(value)}
+
+
+def bind_proposal(selection,definition):
+    """Called only after sequence membership validation; no psychological veto."""
+    value=validate(selection)
+    if value['version']!=MODEL_VERSION:raise ValueError('model offer required')
+    definition=deepcopy(thaw_model_data(definition))
+    if definition['key'] not in [r['key'] for r in value['considered']]:raise ValueError('action not offered')
+    if 'action_key' in definition:definition['key']=definition['action_key']
+    value.update(action_keys=[definition['key']],definition=definition,decision='selected_by_model')
+    value.pop('fingerprint')
+    return {**value,'fingerprint':model_data_fingerprint(value)}

@@ -10,13 +10,19 @@ _MAGIC=b'PETFRAME1\n'
 _MAX_RAW=128*1024*1024
 _MAX_FILE=64*1024*1024
 _CURRENT=ContextVar('petlab_visual_cache',default=None)
+_READONLY=ContextVar('petlab_visual_cache_readonly',default=False)
 
 @contextmanager
-def scope(directory,*,seed_directory=None):
+def scope(directory,*,seed_directory=None,readonly=False):
+    if type(readonly) is not bool:raise ValueError('readonly must be boolean')
+    # Environment policy also reaches spawned native windows/Actor processes.
+    read_token=_READONLY.set(_READONLY.get() or readonly or os.environ.get('PETLAB_VISUAL_CACHE_READONLY')=='1')
     stats={'hits':0,'misses':0,'invalid':0,'writes':0,'seed_hits':0}
     token=_CURRENT.set((Path(directory),stats,None if seed_directory is None else Path(seed_directory)))
     try:yield stats
-    finally:_CURRENT.reset(token)
+    finally:
+        _CURRENT.reset(token)
+        _READONLY.reset(read_token)
 
 @lru_cache(maxsize=1)
 def _implementation():
@@ -94,6 +100,7 @@ def cached_frames(kind,frame,config,produce):
     result=_read_scoped(active,key,frame,config['frame_count'])
     if result is not None:return result
     stats['misses']+=1;result=produce()
+    if _READONLY.get():return result
     try:written=_write(path,key,frame,result)
     except OSError:written=False
     if written:stats['writes']+=1
@@ -133,6 +140,7 @@ def cached_alpha_decode(image_path,grid,*,subsample,output_size,produce):
     if result is not None:return result
     stats['misses']+=1
     result=produce()
+    if _READONLY.get():return result
     try:
         # A changing source cannot earn a reusable cache entry.
         if source.read_bytes()!=raw:return result

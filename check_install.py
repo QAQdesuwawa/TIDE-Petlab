@@ -7,11 +7,12 @@ def main():
     if sys.version_info[:2]!=(3,11):
         raise SystemExit('This Alpha requires Python 3.11 including Tcl/Tk.')
     import tkinter
+    import cv2,numpy  # Required local whole-pose interpolation; fail at setup, not first action.
     from petlab_app.desktop_app import configuration_from_record
     from petlab_app.asset_inspection import inspect_asset_sources
     config=json.loads((root/'config.example.json').read_text(encoding='utf8'))
     configuration_from_record(config,require_api_key=False)
-    assets=inspect_asset_sources(root/'assets/pets/deepseek-maid-v1')
+    assets=inspect_asset_sources(root/'assets/pets/deepseek-bound-original-face')
     manifest=root/'RELEASE_MANIFEST.json'
     verified=0
     if manifest.exists():

@@ -3,6 +3,8 @@ from collections.abc import Mapping
 import json,math
 from framework.model_api import model_data_fingerprint as fp,thaw_model_data
 VERSION='desktop-pet-scene-v1'
+MULTI_VERSION='desktop-pet-scene-v2'
+MAX_PARTICIPANTS=16  # Bounded objective context; only four-pet deployment is tested.
 PRESENTATION='desktop-pet-face-gaze-v2'
 GAZE='desktop-pet-gaze-v1'
 
@@ -21,7 +23,7 @@ def _bounds(v):
 def create(*,owner_ref,source_ref,sampled_at_ms,viewport,participants):
  _ref(owner_ref);_ref(source_ref)
  if type(sampled_at_ms)is not int or sampled_at_ms<0:raise ValueError('invalid scene sample time')
- if not isinstance(participants,(list,tuple)) or not 1<=len(participants)<=2:raise ValueError('dual scene requires one or two visible participants')
+ if not isinstance(participants,(list,tuple)) or not 1<=len(participants)<=MAX_PARTICIPANTS:raise ValueError('scene visible participants exceed supported context bound')
  rows=[]
  for row in participants:
   if not isinstance(row,Mapping) or set(row)!={'ref','label','bounds'}:raise ValueError('scene is objective geometry only')
@@ -29,7 +31,7 @@ def create(*,owner_ref,source_ref,sampled_at_ms,viewport,participants):
   rows.append({'ref':_ref(row['ref']),'label':row['label'],'bounds':_bounds(row['bounds'])})
  if len({r['ref'] for r in rows})!=len(rows) or owner_ref not in {r['ref'] for r in rows}:raise ValueError('scene owner/identity differs')
  rows.sort(key=lambda r:(r['ref']!=owner_ref,r['ref']))
- body={'version':VERSION,'owner_ref':owner_ref,'source_ref':source_ref,'sampled_at_ms':sampled_at_ms,
+ body={'version':VERSION if len(rows)<=2 else MULTI_VERSION,'owner_ref':owner_ref,'source_ref':source_ref,'sampled_at_ms':sampled_at_ms,
        'coordinate_space':'desktop_pixels_top_left','viewport':_bounds(viewport),'participants':rows}
  return {**body,'fingerprint':fp(body)}
 
@@ -60,13 +62,30 @@ def direction(scene,target):
          'elevation_degrees':round(math.degrees(math.atan2(-dy,abs(dx))),2) if distance else 0.0}
 
 
-def card(scene):
+def separation(scene,target):
+ """Measured window geometry, not intimacy, audibility or permission."""
+ s=validate(scene)
+ if target=='front' or target not in targets(s):raise ValueError('distance target is not visible')
+ a=next(r['bounds'] for r in s['participants'] if r['ref']==s['owner_ref'])
+ b=next(r['bounds'] for r in s['participants'] if r['ref']==target)
+ dx=b[0]+b[2]/2-a[0]-a[2]/2;dy=b[1]+b[3]/2-a[1]-a[3]/2
+ gx=max(0,a[0]-b[0]-b[2],b[0]-a[0]-a[2])
+ gy=max(0,a[1]-b[1]-b[3],b[1]-a[1]-a[3])
+ return {'center_distance_px':round(math.hypot(dx,dy),3),
+         'window_gap_px':round(math.hypot(gx,gy),3),
+         'floor_difference_px':abs(a[1]+a[3]-b[1]-b[3]),
+         'scene_fingerprint':s['fingerprint'],'sampled_at_ms':s['sampled_at_ms']}
+
+
+def card(scene,*,include_distances=False):
  scene=validate(scene)
  rows=[]
  for r in scene['participants']:
   row={'对象':r['ref'],'称呼':r['label'],'窗口左上及宽高':r['bounds']}
   if r['ref']!=scene['owner_ref']:
    d=direction(scene,r['ref']);row['相对自己']=('右' if d['horizontal']>0 else '左' if d['horizontal']<0 else '同列')+('上方' if d['vertical']<0 else '下方' if d['vertical']>0 else '侧')
+   if include_distances:
+    row['距离']={k:v for k,v in separation(scene,r['ref']).items() if k not in {'scene_fingerprint','sampled_at_ms'}}
   rows.append(row)
  return json.dumps({'现场':'桌面窗口当前采样，单位像素，横轴向右/纵轴向下','自己':scene['owner_ref'],
   '采样毫秒':scene['sampled_at_ms'],'可见对象':rows,'视线可选目标':list(targets(scene)),

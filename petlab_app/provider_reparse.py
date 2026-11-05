@@ -8,14 +8,15 @@ from framework.receipt_adapters import adapt_provider_codec_parse
 from framework.receipt_dag import LifecycleArtifactEvidence,LifecycleFailureEvidence
 
 REVISION='petlab-source-bound-local-reparse-v1'
-def reparse_failed(gateway,*,session_binding,current_position,operation_kind,source_fact_ref,codec_contract,messages,temperature,require_json,parse,source_receipt_refs=()):
+def reparse_failed(gateway,*,session_binding,current_position,operation_kind,source_fact_ref,codec_contract,messages,temperature,require_json,parse,source_receipt_refs=(),invocation_id=None):
  body=gateway.transport_for(operation_kind).payload(messages=messages,temperature=temperature,require_json=require_json)
  rows=[]
  for path in gateway.trace_dir.glob('*.json'):
+  if invocation_id is not None and path.name!=invocation_id+'.json':continue
   record=json.loads(path.read_text(encoding='utf8'))
   if (record.get('version')=='petlab-provider-trace-v1' and record.get('source_fact_ref')==source_fact_ref
       and record.get('operation_kind')==operation_kind and record.get('status')=='failed'
-      and (record.get('codec_parse') or {}).get('failure_kind')=='invalid_memory_query_nodes'):
+      and (record.get('codec_parse') or {}).get('failure_kind') in {'invalid_memory_query_nodes','invalid_hierarchical_properties'}):
    rows.append((path,record))
  if not rows:return None
  # Oldest received attempt is authoritative for recovery, not a lucky later draw.
@@ -23,7 +24,9 @@ def reparse_failed(gateway,*,session_binding,current_position,operation_kind,sou
  raw=record['execution'];request=ProviderRequest(**raw['request'])
  request.verify_integrity(session_binding=session_binding,current_position=current_position)
  from model_packages.desktop_pet_v1.query_tree import accepts_received_contract
- compatible=request.codec_contract==codec_contract or (operation_kind=='semantic_measurement' and accepts_received_contract(request.codec_contract,codec_contract))
+ from model_packages.desktop_pet_v1.address_semantics import accepts_received_contract as accepts_received_address
+ compatible=request.codec_contract==codec_contract or (operation_kind=='semantic_measurement' and (
+  accepts_received_contract(request.codec_contract,codec_contract) or accepts_received_address(request.codec_contract,codec_contract)))
  if not compatible or fp(request.request_payload)!=fp(body):raise ValueError('local recovery request differs from received request')
  response=ProviderResponse(**raw['response']);attempt=ProviderAttempt(**raw['attempt'])
  execution=ProviderExecutionResult(version=request.version,status=raw['receipt']['status'],request=request,attempt=attempt,response=response,failure=None,receipt=raw['receipt'])

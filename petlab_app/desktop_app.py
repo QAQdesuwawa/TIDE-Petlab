@@ -157,7 +157,7 @@ class DesktopPetWindow:
         self.busy=False;self.closed=False;self.completed_jobs=0;self.last_error=None
         self.jobs=queue.Queue();self.results=queue.Queue();self._drag_origin=None;self._press_body_target=None;self._drag_moved=False
         self._recovery_drag_origin=None;self._actor_unavailable=False
-        self._speech_generation=0;self.observed_jobs=0;self._pending_ui_jobs=0;self._sampling=False
+        self._speech_generation=0;self.observed_jobs=0;self._pending_ui_jobs=0;self._pending_job_kinds=[];self._sampling=False
         self._follow_job=None
         self._tick_alarm=None;self._tick_plan=None
         self._desired_position=None
@@ -288,7 +288,9 @@ class DesktopPetWindow:
         if surface is self.speech_window:self.speech_bubble.set_tail(top<0)
         if top<0:top=anchor[1]+self.root.winfo_height()+8
         top=min(max(0,top),max(0,self.root.winfo_screenheight()-height))
-        surface.geometry(f"+{left}+{top}")
+        if surface is self.speech_window:
+            self.speech_bubble.place(left,top,anchor_x=anchor[0]+self.root.winfo_width()//2)
+        else:surface.geometry(f"+{left}+{top}")
 
     def _root_position_changed(self,event):
         if event.widget is not self.root or self.closed or self._follow_job is not None:return
@@ -371,13 +373,16 @@ class DesktopPetWindow:
             self._set_busy(self._pending_ui_jobs>0 or self._sampling or getattr(self,'_multi_processing',False),preserve_capture=True)
             self._show_failure(str(error));return False
         self._pending_ui_jobs+=1
+        self._pending_job_kinds.append(job['kind'])
         return True
 
     def _show_failure(self,result):
         self.last_error=str(result)
         summary,separator,_detail=self.last_error.partition("\n详细信息：")
         self.status.configure(text=summary if separator else "处理失败，可点继续："+self.last_error)
-        self.open_dialog()
+        # Background failures are diagnostics, not an invitation to converse.
+        # Keep an already-open dialog useful without stealing focus otherwise.
+        self.speech_bubble.stop_typing()
 
     def _set_busy(self,value,*,preserve_capture=False):
         self.busy=value
@@ -388,13 +393,14 @@ class DesktopPetWindow:
         self.retry.configure(state=state)
 
     def _needs_ingress_recovery(self):
+        # Called by startup and broadcast preflight too: never open/focus input UI.
         if getattr(self,'_actor_unavailable',False):
             self._show_failure(self.last_error or '后台进程已退出，请重新运行START.cmd恢复原存档。')
             return True
         if not getattr(self.product,'recovery_pending',0) or getattr(self.product,'recovering',False):return False
         if self.last_error:self._show_failure(self.last_error)
         else:
-            self.open_dialog();self.status.configure(text='有上次未完成的互动，请点“继续未完成的互动”。')
+            self.status.configure(text='有上次未完成的互动，请点“继续未完成的互动”。')
         return True
 
     def _submit(self,content,coordinate,policy,*,queue_while_busy=False):
@@ -426,6 +432,10 @@ class DesktopPetWindow:
         self._submit(content,coordinate,self.configuration.mouse_response_policy,queue_while_busy=True)
 
     def _cancel_drag(self,*,queue_end=True):
+        if getattr(self,'_recovery_drag_origin',None) is not None:
+            self._recovery_drag_origin=None;self._desired_position=None;self._drag_moved=False
+            self.view.finish_visual_feedback(cancelled=True)
+            return
         self._recovery_drag_origin=None
         was_dragging=self._drag_origin is not None
         if queue_end and self._batch is not None and self._batch.batch_id is not None:
@@ -444,8 +454,13 @@ class DesktopPetWindow:
         if self.view.body_map is not None and not self.view.is_sprite_opaque(event.x,event.y):return
         if getattr(self,'_actor_unavailable',False) or (getattr(self.product,'recovery_pending',0) and not getattr(self.product,'recovering',False)):
             # Recovery protects semantic ingress, not the physical window.
-            # Moving this surface does not become a new gesture/event and
-            # cannot settle, cancel, or replay the retained interaction.
+            # Physical acknowledgement remains local; it cannot settle or
+            # replay the retained interaction or enqueue semantic ingress.
+            target=self.view.hit_body_region(event.x,event.y)
+            self.view.set_phone_activity(None)
+            self.view.interrupt_activity(reason='user_contact',cause_ref='tk-press:'+uuid.uuid4().hex)
+            self.view.start_body_feedback(target)
+            self._drag_moved=False
             self._recovery_drag_origin=(event.x_root,event.y_root,self.root.winfo_x(),self.root.winfo_y())
             return
         # End old speech and its temporary face together at real new contact.
@@ -488,8 +503,9 @@ class DesktopPetWindow:
         recovery_origin=getattr(self,'_recovery_drag_origin',None)
         if recovery_origin is not None:
             x,y,*_=recovery_origin
-            if abs(event.x_root-x)>self._drag_slop[0] or abs(event.y_root-y)>self._drag_slop[1]:
-                self._place_drag(event,recovery_origin)
+            if not self._drag_moved and (abs(event.x_root-x)>self._drag_slop[0] or abs(event.y_root-y)>self._drag_slop[1]):
+                self._drag_moved=True;self.view.start_visual_feedback('drag')
+            if self._drag_moved:self._place_drag(event,recovery_origin)
             return
         if self._drag_origin is None:return
         self.mouse.move(x=event.x_root,y=event.y_root,coordinate=None if self.observer is not None else wall_clock_ms())
@@ -505,6 +521,17 @@ class DesktopPetWindow:
         x,y,left,top=origin
         left=max(0,min(self.root.winfo_screenwidth()-self.root.winfo_width(),left+event.x_root-x))
         top=max(0,min(self.root.winfo_screenheight()-self.root.winfo_height(),top+event.y_root-y))
+        snapshot=getattr(self.view,'scene_snapshot',None)
+        scene=snapshot() if callable(snapshot) else None
+        if scene is not None:
+            from .spatial_contact import limit
+            sx,sy=self.view.sprite.winfo_x(),self.view.sprite.winfo_y()
+            point,contact=limit(scene,[left+sx,top+sy])
+            left,top=point[0]-sx,point[1]-sy
+            capture=getattr(self,'contact_capture',None)
+            gesture=getattr(self.mouse,'current_gesture_id',None) if capture is not None else None
+            if capture is not None and gesture is not None:
+                capture.sample(gesture,contact,point,wall_clock_ms())
         self._desired_position=(left,top)
         self.root.geometry(f"+{left}+{top}")
         # Both windows receive the same target in this callback; normal Tk
@@ -513,8 +540,12 @@ class DesktopPetWindow:
         if self.dialog.winfo_viewable():self._position_surface(self.dialog,anchor=(left,top))
 
     def _release(self,event):
+        capture=getattr(self,'contact_capture',None)
+        if capture is not None:capture.cut(wall_clock_ms(),ended=True)
         if getattr(self,'_recovery_drag_origin',None) is not None:
-            self._recovery_drag_origin=None;self._desired_position=None;return
+            if self._drag_moved:self.view.finish_visual_feedback(cancelled=True)
+            self._recovery_drag_origin=None;self._desired_position=None;self._drag_moved=False
+            return
         if self._drag_origin is None:return
         self.speech_bubble.stop_contact();self.speech_bubble.stop_typing()
         start_x,start_y,*_=self._drag_origin
@@ -555,6 +586,8 @@ class DesktopPetWindow:
         self._schedule_batch()
 
     def _freeze_batch_part(self,gesture,*,ended):
+        capture=getattr(self,'contact_capture',None)
+        if capture is not None:capture.cut(wall_clock_ms(),ended=ended)
         if ended:observation=self.mouse.observe_finished(gesture)
         else:
             info=self.mouse.capture_info(gesture);point=info['last_point']
@@ -583,7 +616,7 @@ class DesktopPetWindow:
         if self._batch_alarm is not None:self.root.after_cancel(self._batch_alarm);self._batch_alarm=None
         gesture=self.mouse.current_gesture_id;held=gesture is not None and self.mouse.is_active(gesture)
         if held:self._freeze_batch_part(gesture,ended=False)
-        if reason!='explicit' and (self._pending_ui_jobs>0 or self._sampling or self.last_error is not None):
+        if reason!='explicit' and (any(k!='idle_tick' for k in self._pending_job_kinds) or self.last_error is not None):
             self._batch.defer(reason,wall_clock_ms())
             self._schedule_batch()
             return
@@ -683,7 +716,8 @@ class DesktopPetWindow:
                 or value.get('activity_generation')!=getattr(self.product,'_activity_generation',None)):
             return False
         acknowledged=self.view.acknowledge_input(value)
-        if acknowledged:self.speech_bubble.show_typing()
+        # Seeing an input is not a speech decision. The eligible callback owns
+        # typing; acknowledgement can remain a local look/body response.
         return acknowledged
 
     def _poll(self):
@@ -691,69 +725,79 @@ class DesktopPetWindow:
         if self.closed:return
         guard=getattr(self.view,"current_speech_guard",None)
         if guard is not None and guard():self.hide_speech()
-        try:kind,result=self.results.get_nowait()
-        except queue.Empty:pass
-        else:
-            if kind=='actor_exited':
-                self._actor_unavailable=True
-                self._pending_ui_jobs=0;self._sampling=False;self._multi_processing=False
-                # Clear only frontend pointer capture. The dead process's
-                # durable captures/effects remain untouched for host recovery.
-                self.mouse.cancel();self._drag_origin=None;self._press_body_target=None;self._drag_moved=False
-                self.view.finish_visual_feedback(cancelled=True)
-                self._set_busy(False,preserve_capture=True);self.speech_bubble.stop_typing()
-                self._show_failure(result)
-            elif kind=="multi_processing":
-                self._multi_processing=bool(result)
-                self._set_busy(self._pending_ui_jobs>0 or self._sampling or self._multi_processing,preserve_capture=True)
-                if not result:self.speech_bubble.stop_typing()
-            elif kind=="capture":
-                self.product.complete_capture(result,self.mouse)
-            elif kind=='observation_plan':
-                self._schedule_observation(result)
-            elif kind=='batch_advice':
-                self._batch_advice=result
-                if self._batch is not None:self._batch.interval_ms=result['interval_ms']
-            elif kind=='phone_status':
-                from .web_result import paused
-                self._reading_failure_id=result['event_id'] if paused(result) else None
-                self.context_menu.entryconfigure('恢复联网阅读',state='normal' if self._reading_failure_id is not None else 'disabled')
-                active=result['status'] in {'fetching','delivering'}
-                if active:
-                    if (self._drag_origin is None and result.get('input_generation')==getattr(self.product,'_input_generation',None)
-                            and result.get('activity_generation')==getattr(self.product,'_activity_generation',0)):
-                        self.view.set_phone_activity(result['event_id'])
-                elif getattr(self.view,'phone_activity_id',None)==result['event_id']:self.view.set_phone_activity(None)
-            elif kind=='input_feedback':
-                self._show_input_feedback(result)
-            elif kind=='settled_presentation':self.view.apply_settled_presentation(result)
-            elif kind=="sampling":
-                self._sampling=True;self._set_busy(True,preserve_capture=True)
-            elif kind=="typing":
-                if isinstance(result,dict):
-                    current=(result.get('input_generation')==getattr(self.product,'_input_generation',None)
-                        and result.get('speech_generation')==self._speech_generation)
-                else:current=result==self._speech_generation
-                if current:self.speech_bubble.show_typing()
-            else:
-                if kind in {"armed","done","tick_done","job_error"}:self._pending_ui_jobs=max(0,self._pending_ui_jobs-1)
-                if kind in {"sampled","error"}:self._sampling=False
-                self._set_busy(self._pending_ui_jobs>0 or self._sampling or getattr(self,'_multi_processing',False),preserve_capture=True);self.speech_bubble.stop_typing()
-                if kind=="armed":pass
-                elif kind=='tick_done':self.observed_jobs+=bool(result and result.get('observed'))
-                elif kind=="sampled":self.observed_jobs+=1
-                elif kind=="done":
-                    self.completed_jobs+=1
-                    self.status.configure(text="已保存本次互动" if result is not None else "没有待继续的发送")
-                else:
-                    self._show_failure(result)
-        if (self._batch is not None and not self.closed and not self._pending_ui_jobs
-                and not self._sampling and self.last_error is None):
+        # Drain ready notifications in order within a small UI work budget.
+        # This is not another observation Tick and never grants a response.
+        from time import perf_counter
+        deadline=perf_counter()+.004
+        while not self.closed:
+            try:kind,result=self.results.get_nowait()
+            except queue.Empty:break
+            self._consume_result(kind,result)
+            if perf_counter()>=deadline:break
+        if (self._batch is not None and not self.closed and not any(k!='idle_tick' for k in self._pending_job_kinds)
+                and self.last_error is None):
             # Completion only releases backpressure on an already-due batch.
             # It cannot create a Tick or grant response eligibility.
             reason=self._batch.ready_reason(wall_clock_ms())
             if reason is not None:self._flush_batch(reason)
         if not self.closed:self._poll_job=self.root.after(30,self._poll)
+
+    def _consume_result(self,kind,result):
+        if kind=='actor_exited':
+            self._actor_unavailable=True
+            self._pending_ui_jobs=0;self._pending_job_kinds=[];self._sampling=False;self._multi_processing=False
+            # Clear only frontend pointer capture. The dead process's
+            # durable captures/effects remain untouched for host recovery.
+            self.mouse.cancel();self._drag_origin=None;self._press_body_target=None;self._drag_moved=False
+            self.view.finish_visual_feedback(cancelled=True)
+            self._set_busy(False,preserve_capture=True);self.speech_bubble.stop_typing()
+            self._show_failure(result)
+        elif kind=="multi_processing":
+            self._multi_processing=bool(result)
+            self._set_busy(self._pending_ui_jobs>0 or self._sampling or self._multi_processing,preserve_capture=True)
+            if not result:self.speech_bubble.stop_typing()
+        elif kind=="capture":
+            self.product.complete_capture(result,self.mouse)
+        elif kind=='observation_plan':
+            self._schedule_observation(result)
+        elif kind=='batch_advice':
+            self._batch_advice=result
+            if self._batch is not None:self._batch.interval_ms=result['interval_ms']
+        elif kind=='phone_status':
+            from .web_result import paused
+            self._reading_failure_id=result['event_id'] if paused(result) else None
+            self.context_menu.entryconfigure('恢复联网阅读',state='normal' if self._reading_failure_id is not None else 'disabled')
+            active=result['status'] in {'fetching','delivering'}
+            if active:
+                if (self._drag_origin is None and result.get('input_generation')==getattr(self.product,'_input_generation',None)
+                        and result.get('activity_generation')==getattr(self.product,'_activity_generation',0)):
+                    self.view.set_phone_activity(result['event_id'])
+            elif getattr(self.view,'phone_activity_id',None)==result['event_id']:self.view.set_phone_activity(None)
+        elif kind=='input_feedback':
+            self._show_input_feedback(result)
+        elif kind=='settled_presentation':self.view.apply_settled_presentation(result)
+        elif kind=="sampling":
+            self._sampling=True;self._set_busy(True,preserve_capture=True)
+        elif kind=="typing":
+            if isinstance(result,dict):
+                current=(result.get('input_generation')==getattr(self.product,'_input_generation',None)
+                    and result.get('speech_generation')==self._speech_generation)
+            else:current=result==self._speech_generation
+            if current:self.speech_bubble.show_typing()
+        else:
+            if kind in {"armed","done","tick_done","job_error"}:
+                self._pending_ui_jobs=max(0,self._pending_ui_jobs-1)
+                if self._pending_job_kinds:self._pending_job_kinds.pop(0)
+            if kind in {"sampled","error"}:self._sampling=False
+            self._set_busy(self._pending_ui_jobs>0 or self._sampling or getattr(self,'_multi_processing',False),preserve_capture=True);self.speech_bubble.stop_typing()
+            if kind=="armed":pass
+            elif kind=='tick_done':self.observed_jobs+=bool(result and result.get('observed'))
+            elif kind=="sampled":self.observed_jobs+=1
+            elif kind=="done":
+                self.completed_jobs+=1
+                self.status.configure(text="已保存本次互动" if result is not None else "没有待继续的发送")
+            else:
+                self._show_failure(result)
 
     def open_diagnostics(self):
         if self.closed:return
@@ -841,7 +885,7 @@ def main():
         from .setup_dialog import read_configuration_record
         from .asset_inspection import inspect_asset_sources
         selected=configuration_from_record(read_configuration_record(args.config),require_api_key=False)
-        report=inspect_asset_sources(args.assets or base/"assets/pets/deepseek-maid-v1")
+        report=inspect_asset_sources(args.assets or base/"assets/pets/deepseek-bound-original-face")
         if selected.expression_codes:
             from model_packages.desktop_pet_v1.face_expression import CODES
             if set(report['expressions'])!=set(CODES):raise ValueError('素材包未提供完整的五种表情')
@@ -867,7 +911,7 @@ def main():
         root,choice=select_launch(config_path=args.config or remembered.get("config_path",base/"output/user-settings/config.json"),
             session_path=args.session or remembered.get("session_path",base/"output/single-pet/session.json"),
             trace_dir=args.traces or remembered.get("trace_dir",base/"output/single-pet/traces"),preferences_path=preferences,
-            asset_dir=args.assets or remembered.get('asset_dir',base/"assets/pets/deepseek-maid-v1"),
+            asset_dir=args.assets or remembered.get('asset_dir',base/"assets/pets/deepseek-bound-original-face"),
             **({'multi_workspace':args.workspace} if use_dual else {}))
         if choice is None:return
         selected=choice.configuration;args.session=choice.session_path;args.traces=choice.trace_dir
@@ -878,7 +922,7 @@ def main():
         selected=load_configuration(args.config)
         args.session=args.session or base/"output/single-pet/session.json"
         args.traces=args.traces or base/"output/desktop-product"
-    args.assets=args.assets or base/"assets/pets/deepseek-maid-v1"
+    args.assets=args.assets or base/"assets/pets/deepseek-bound-original-face"
     if use_dual:
         return _run_dual(root,configuration=selected,workspace_root=args.workspace,asset_dir=args.assets)
     product=None;window=None;preloaded=None;owner_lease=None

@@ -4,14 +4,19 @@ from framework.model_api import model_data_fingerprint as fp, thaw_model_data
 from ops.runtime_progress_transaction import execute_runtime_progress_transaction
 from model_packages.desktop_pet_v1.relation_package import META
 from .destinations import VERSION as DEST_VERSION,validate
-VERSION='petlab-idle-relationship-selection-v1'
+LEGACY_VERSION='petlab-idle-relationship-selection-v1'
+VERSION='petlab-idle-relationship-selection-v2-public-addressed'
+SUPPORTED_VERSIONS=frozenset((LEGACY_VERSION,VERSION))
 
-def make_destination(app,peer):
+def make_destination(app,peer,*,visibility='public'):
  w=app.multi_workspace
- key='private:'+w.aliases[app.owner_ref] if peer==app.user_ref else 'peers'
+ if visibility not in ('public','private'):raise ValueError('unknown destination visibility')
+ if visibility=='private':
+  key='private:'+w.aliases[app.owner_ref] if peer==app.user_ref else w.whisper_key(app.owner_ref,peer)
+ else:key='public' if peer==app.user_ref else 'peers'
  conversation=w.conversations[key]
  audience=[x for x in conversation.active_member_ids if x!=app.owner_ref]
- if audience!=[peer]:raise ValueError('idle target requires a single-peer registered conversation')
+ if peer not in audience:raise ValueError('idle target requires a registered addressed peer')
  row={'version':DEST_VERSION,'owner_ref':app.owner_ref,'session_binding':app.runtime.session.session_binding.fingerprint,
       'conversation':conversation.as_record(),'participants':[w.participants[x].as_record() for x in conversation.active_member_ids],
       'primary':peer,'audience':audience,'addressed':[peer],'addressing_policy':VERSION}
@@ -21,8 +26,12 @@ def choose(app,*,coordinate,bounds):
  if not hasattr(app,'multi_workspace') or META not in app.runtime.session.state.state:return None
  candidates=[]
  known=app.runtime.session.state.state[META]['roots_by_peer']
+ snapshot=getattr(app,'scene_snapshot',None)
+ scene=snapshot() if callable(snapshot) else None
+ present=None if scene is None else {r['ref'] for r in scene['participants']}|{app.user_ref}
  for peer in sorted(known):
   if peer not in app.multi_workspace.participants or peer==app.owner_ref:continue
+  if present is not None and peer not in present:continue
   # These immutable transaction results are previews, never published to the owner.
   progress=execute_runtime_progress_transaction(session=app.runtime.session,model_runtime=app.runtime.model_runtime,
    temporal_runtime=app.runtime.temporal_runtime,target_coordinate=coordinate,scope_ref=None,subject_ref=app.owner_ref,
@@ -36,8 +45,17 @@ def choose(app,*,coordinate,bounds):
    'assessment':thaw_model_data(assessment.payload),'assessment_receipt':assessment.receipt.to_record()})
  if not candidates:return None
  winner=max(candidates,key=lambda r:(r['margin'],r['peer']))
+ # A sealed direct input is an explicit privacy boundary; merely choosing the
+ # human as addressee is not. Keep a direct conversation's own continuation.
+ from .destinations import destination
+ context=destination(app)
+ private=(context is not None and context['primary']==winner['peer']
+          and context['conversation']['kind']=='direct')
+ if winner['peer']!=app.user_ref:
+  mode=app.multi_workspace.speech_mode(app.owner_ref,winner['peer'])
+  if mode is not None:private=mode=='private'
  row={'version':VERSION,'coordinate':coordinate,'state_fingerprint':app.runtime.session.state.fingerprint,
-      'peer':winner['peer'],'candidates':candidates,'destination':make_destination(app,winner['peer'])}
+      'peer':winner['peer'],'candidates':candidates,'destination':make_destination(app,winner['peer'],visibility='private' if private else 'public')}
  return {**row,'fingerprint':fp(row)}
 
 def visible_memories(app,target,memories):
@@ -52,6 +70,12 @@ def visible_memories(app,target,memories):
    destination=source['evidence']['fact']['model_payload']['execution_receipt']['realization_evidence'].get('participant_destination')
   else:destination=None
   visible=set(destination['audience'])|{app.owner_ref} if destination else {app.owner_ref,app.user_ref}
+  if event.event_kind=='npc_output':
+   # The parent destination bounds the request, while each committed content
+   # records the audience actually selected for that result. Whole-memory
+   # delivery must satisfy every child; a public gesture cannot expose speech.
+   for content in event.contents:
+    visible &= set(content.recipient_refs)|{app.owner_ref}
   # A mixed private-thought event is withheld whole, never exposed through links.
   if audience<=visible and not any(c.kind=='thought' for c in event.contents):kept.append(memory)
   else:excluded.append(event.event_id)

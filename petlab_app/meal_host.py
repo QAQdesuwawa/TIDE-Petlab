@@ -8,7 +8,7 @@ class MealHost:
     def __init__(self,path,participants):
         self._listeners=[]
         self.path=Path(path);self.path.parent.mkdir(parents=True,exist_ok=True);self.participants=tuple(participants)
-        if len(set(self.participants))!=2:raise ValueError('meal requires two distinct pets')
+        if not 2<=len(self.participants)<=16 or len(set(self.participants))!=len(self.participants) or any(not isinstance(p,str) or not p for p in self.participants):raise ValueError('invalid distinct meal participants')
         with self._db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS scene (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS effect (id TEXT PRIMARY KEY, value TEXT NOT NULL)')
@@ -26,7 +26,7 @@ class MealHost:
         return value
     def start(self,holder,*,interaction_id=None):
         if holder not in self.participants:raise ValueError('unknown meal holder')
-        value=m.signed({'version':m.VERSION,'interaction_id':interaction_id or 'meal:'+uuid.uuid4().hex,'revision':0,
+        value=m.signed({'version':m.VERSION if len(self.participants)==2 else m.MULTI_VERSION,'interaction_id':interaction_id or 'meal:'+uuid.uuid4().hex,'revision':0,
             'participants':list(self.participants),'holder_ref':holder,'portions':3,'request':None,'offer':None,'last_effect_ref':None})
         m.validate(value)
         with self._db() as db:db.execute('INSERT OR REPLACE INTO scene VALUES(1,?)',(json.dumps(value,ensure_ascii=False),))
@@ -68,7 +68,7 @@ class MealHost:
                     next_state['offer']=None;changed=True
             if changed:next_state.update(revision=s['revision']+1,last_effect_ref=identity)
             after=m.signed(next_state);m.validate(after)
-            result=m.signed({'version':m.VERSION,'effect_ref':identity,**args,'actor_ref':p['actor_ref'],'target_ref':p['target_ref'],
+            result=m.signed({'version':p['version'],'effect_ref':identity,**args,'actor_ref':p['actor_ref'],'target_ref':p['target_ref'],
                 'key':p['key'],'transferred':transferred,'holder_before':s['holder_ref'],'holder_after':after['holder_ref'],
                 'scene_before':s['fingerprint'],'scene_after':after['fingerprint'],'at_ms':time.time_ns()//1_000_000})
             db.execute('INSERT INTO effect VALUES(?,?)',(identity,json.dumps(result,ensure_ascii=False)))

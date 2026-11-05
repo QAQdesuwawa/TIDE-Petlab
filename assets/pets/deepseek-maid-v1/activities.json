@@ -819,6 +819,206 @@
         350,
         500
       ]
+    },
+    "head_bow": {
+      "source": "expression_motion",
+      "angle_degrees": 0,
+      "lower_fraction": 0.025,
+      "duration_ms": 1540
+    },
+    "head_tilt": {
+      "source": "expression_motion",
+      "angle_degrees": 8,
+      "lower_fraction": 0,
+      "duration_ms": 1180
+    },
+    "turn_left": {
+      "source": "facing_turn",
+      "duration_ms": 900,
+      "direction": -1
+    },
+    "turn_right": {
+      "source": "facing_turn",
+      "duration_ms": 900,
+      "direction": 1
+    },
+    "nod": {
+      "source": "expression_motion",
+      "angle_degrees": 0,
+      "lower_fraction": 0.021,
+      "duration_ms": 1400,
+      "curve": [
+        [
+          0,
+          0
+        ],
+        [
+          0.25,
+          1
+        ],
+        [
+          0.5,
+          0
+        ],
+        [
+          0.75,
+          0.65
+        ],
+        [
+          1,
+          0
+        ]
+      ]
+    },
+    "shake_head": {
+      "source": "expression_motion",
+      "angle_degrees": 1.5,
+      "lower_fraction": 0,
+      "horizontal_fraction": 0.022,
+      "duration_ms": 1500,
+      "curve": [
+        [
+          0,
+          0
+        ],
+        [
+          0.2,
+          1
+        ],
+        [
+          0.5,
+          -1
+        ],
+        [
+          0.8,
+          0.55
+        ],
+        [
+          1,
+          0
+        ]
+      ]
+    },
+    "wave_hand": {
+      "source": "whole_atlas",
+      "asset": {
+        "image": "social-rest-original-v562.png",
+        "image_sha256": "bdd6ed5da0e34c8417a85629cc6b3b1a77be7007b3e56366456aa7cdf23c31ea",
+        "grid": {
+          "columns": 3,
+          "rows": 3,
+          "cell_width": 418,
+          "cell_height": 418,
+          "source_size": [
+            1254,
+            1254
+          ]
+        }
+      },
+      "poses": [
+        0,
+        4,
+        0,
+        4,
+        0
+      ],
+      "durations_ms": [
+        350,
+        350,
+        350,
+        350,
+        350
+      ],
+      "registration": "standing-scale-floor-v1"
+    },
+    "beckon": {
+      "source": "whole_atlas",
+      "asset": {
+        "image": "social-rest-original-v562.png",
+        "image_sha256": "bdd6ed5da0e34c8417a85629cc6b3b1a77be7007b3e56366456aa7cdf23c31ea",
+        "grid": {
+          "columns": 3,
+          "rows": 3,
+          "cell_width": 418,
+          "cell_height": 418,
+          "source_size": [
+            1254,
+            1254
+          ]
+        }
+      },
+      "poses": [
+        0,
+        6,
+        0,
+        6,
+        0
+      ],
+      "durations_ms": [
+        350,
+        350,
+        350,
+        350,
+        350
+      ],
+      "registration": "standing-scale-floor-v1"
+    },
+    "lie_down": {
+      "source": "whole_atlas",
+      "asset": {
+        "image": "social-rest-original-v562.png",
+        "image_sha256": "bdd6ed5da0e34c8417a85629cc6b3b1a77be7007b3e56366456aa7cdf23c31ea",
+        "grid": {
+          "columns": 3,
+          "rows": 3,
+          "cell_width": 418,
+          "cell_height": 418,
+          "source_size": [
+            1254,
+            1254
+          ]
+        }
+      },
+      "poses": [
+        0,
+        7,
+        8
+      ],
+      "durations_ms": [
+        350,
+        350,
+        350
+      ],
+      "registration": "standing-scale-floor-v1"
+    },
+    "stand_up": {
+      "source": "whole_atlas",
+      "asset": {
+        "image": "social-rest-original-v562.png",
+        "image_sha256": "bdd6ed5da0e34c8417a85629cc6b3b1a77be7007b3e56366456aa7cdf23c31ea",
+        "grid": {
+          "columns": 3,
+          "rows": 3,
+          "cell_width": 418,
+          "cell_height": 418,
+          "source_size": [
+            1254,
+            1254
+          ]
+        }
+      },
+      "poses": [
+        8,
+        7,
+        0
+      ],
+      "durations_ms": [
+        350,
+        350,
+        350
+      ],
+      "registration": "standing-scale-floor-v1"
     }
-  }
+  },
+  "head_binding": "head-binding.json"
 }

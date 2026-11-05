@@ -141,3 +141,7 @@ print("USER:\n", user)
 - 收尾说明“量测完成／正式历史已接受／召回命中／Writer 已交付／实际执行”分别验证到了哪里。独立 Runtime 示例不具备完整记忆能力，注册成功或 JSON 可解析都不代表整条记忆链完成。
 
 更多入口见 [开发者指南](docs/developer/README.md) 与 [贡献指南](CONTRIBUTING.md)。
+
+## 先用合成旅程验证接线
+
+创建、导入、检查点间隙恢复、归属和实际记忆交付的可运行样例见 [功能样例](docs/user/test-scenarios.md)。运行 `python -B -m examples.petlab_scenarios` 或 `python -B -m unittest examples.test_examples examples.test_petlab_scenarios`；使用原包/适配器和正式历史，提供方是明确标注的离线夹具，不证明真实LLM理解。修改前后沿此入口检查，不另造测试用调度器；不要使用个人存档充当夹具。

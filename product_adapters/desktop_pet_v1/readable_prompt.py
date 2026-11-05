@@ -14,7 +14,7 @@ def public_value(value):
     if isinstance(value,(tuple,list)):return [public_value(v) for v in value]
     return value
 
-def project(packet, *, memory_evidence=False,shared_bodies=False,optional_context=False,independent_children=False,current_time=False,subtype_references=False,speaker_framing=False,conversation_context=False,shared_metadata=False,body_context=None,action_sequence_context=None):
+def project(packet, *, memory_evidence=False,shared_bodies=False,optional_context=False,independent_children=False,current_time=False,subtype_references=False,speaker_framing=False,conversation_context=False,shared_metadata=False,grouped_metadata=False,body_context=None,action_sequence_context=None,contextual=False,intention_time_labels=False,property_owners=False,property_owner_events=None):
     sections={}
     owner=packet.output_identity.speaker_participant_id
     bodies={}
@@ -30,9 +30,11 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
         for card in cards:
             fields=thaw_model_data(card.fields)
             if lane=='persona':fields={k:v for k,v in fields.items() if k in {'name','background'}}
-            elif lane=='current_input':fields={k:public_value(v) for k,v in fields.items() if k in {'说话者','对象','接收者','正文','内容属性','事实时序','触发来源','本轮来源','当前事实','已发生事实','内容归属注解','本轮指代参照'}}
+            elif lane=='current_input':fields={k:public_value(v) for k,v in fields.items() if k in {'说话者','对象','接收者','父级回应对象','本次观察者','正文','内容属性','事实时序','触发来源','本轮来源','当前事实','已发生事实','内容归属注解','本轮指代参照'}}
             elif lane=='conversation' and conversation_context and card.kind=='witnessed_conversation_context':
                 fields={k:public_value(v) for k,v in fields.items() if k in {'上下文范围','已见的同会话前文'}}
+            elif lane=='conversation' and card.kind=='actual_execution_progress':
+                fields={k:public_value(v) for k,v in fields.items() if k=='最近一次执行的实际进度'}
             elif lane=='conversation':
                 at=fields.get('时间')
                 fields={'状态参照':'当前正式态度见本轮已选表达资源。'}
@@ -76,11 +78,19 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
                         # single-action common role for this versioned contract.
                         render_guidance(guidance)
                         fields['子类表达参照']='\n'.join([*guidance['source_references'].values(),*guidance['output_references'].values()])
+                if contextual:
+                    fields.pop('子类表达参照',None)
+                    fields['情境表达参照']='收到的话语、动作和表情是外界事实；结合各对象的关系词元、人物资料与已交付记忆，选择自己的关注、活动和表达。'
             else:fields=public_value(fields)
             if lane=='memory':
+                if property_owners:
+                    from .property_owner_delivery import annotate
+                    fields=annotate(fields,card.provenance,owner=owner,events=property_owner_events)
                 def event_time(row):
                     if not isinstance(row,dict):return row
                     row=dict(row);position=row.pop('位置',None)
+                    if intention_time_labels and '自身意图进度' in row and '语义属性' in row:
+                        row['意图形成时的语义属性']=row.pop('语义属性')
                     if memory_evidence and '正文' in row:
                         attrs=row.get('内容属性',[])
                         kinds={item.get('类型') for item in attrs if isinstance(item,dict)}
@@ -110,6 +120,9 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
                 if shared_metadata:
                     from .memory_metadata import compact_fields
                     fields=compact_fields(fields)
+                if grouped_metadata:
+                    from .memory_metadata import compact_grouped_fields
+                    fields=compact_grouped_fields(fields)
             if speaker_framing and lane=='current_input':
                 from .speaker_view import frame_event
                 fields=frame_event(fields,owner=owner,historical=False)

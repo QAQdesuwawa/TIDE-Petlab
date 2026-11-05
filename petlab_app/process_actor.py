@@ -17,6 +17,53 @@ from .composition import PetDefinition
 from .ingress import ContinuousMouseInputAdapter
 
 
+def _run_idle_playback(multi,idle,operation,**kwargs):
+    if multi is None:return operation(**kwargs)
+    prior=getattr(multi,'_defer_playback_settlement',False)
+    multi._defer_playback_settlement=True
+    try:return operation(**kwargs)
+    except Exception as error:
+        from .live_execution import PlaybackSettlementPending
+        if not isinstance(error,PlaybackSettlementPending):raise
+        if getattr(multi,'_pending_playback_intake',None) is None:raise
+        multi._suspended_idle=idle
+        from .idle_opening import journal
+        return {'observed':True,'tick_id':journal(idle.app)['pending_tick'],
+                'eligible':True,'replied':False,'settlement_pending':True}
+    finally:multi._defer_playback_settlement=prior
+
+
+def _finish_host_playback(multi,observer,journal,outgoing):
+    job=getattr(multi,'_suspended_host_job',None)
+    if job is None:return
+    if job['kind']=='resume':
+        # Resume includes ingress restoration beyond the sealed playback. Run
+        # those remaining idempotent steps before completing the original job.
+        multi._resume_host_job=job;multi._suspended_host_job=None
+        return False
+    if job['kind'] in {'gesture_end','interaction_tick'} and observer is not None:
+        # Existing resume reconciles the sealed execution and mouse acceptance.
+        # No executor is supplied, so this cannot replay physical effects.
+        observer.resume(executor=None)
+    journal.complete(job['_journal_sequence'])
+    multi._suspended_host_job=None
+    outgoing.put(('tick_done',{'observed':True,'settlement_pending':False})
+                 if job['kind']=='interaction_tick' else ('done',True))
+
+
+def _continue_playback_settlement(multi,publish_presentation,idle,finish_host_job=lambda:None):
+    """Complete an existing owner-thread settlement, then refresh its host view."""
+    if getattr(multi,'_pending_playback_intake',None) is None:return True
+    from .playback_intake import finish_pending
+    if not finish_pending(multi):return False
+    if finish_host_job() is False:return True
+    from .measurement_pipeline import pending
+    if not pending(multi.product.application):
+        publish_presentation()
+        if idle is not None:idle.arm()
+    return True
+
+
 class ProcessDesktopActor:
     is_isolated=True
     startup_timeout_seconds=120
@@ -170,11 +217,12 @@ class ProcessDesktopActor:
         self.request_stop();self.process.join(self.startup_timeout_seconds if self._deferred_startup and not self._activated else 10)
 
     def run_window(self,*,results,executor,mouse,is_closed,speech_generation):
-        late_slots={}
+        late_slots={};playback_slots={};playback_workers=[]
         def execute_message(value,late=None):
             try:
                 gesture=value['gesture_id'];generation=value.get('input_generation',0)
-                cancelled=lambda:(is_closed() or (not value.get('batch_scope',False) and getattr(self,'_input_generation',0)!=generation)
+                slot=playback_slots[value['id']]
+                cancelled=lambda:(slot['cancelled'].is_set() or is_closed() or (not value.get('batch_scope',False) and getattr(self,'_input_generation',0)!=generation)
                     or (gesture is not None and not mouse.is_active(gesture))
                     or value.get('activity_generation',0)!=getattr(self,'_activity_generation',0))
                 contents=tuple(Content.from_record(x) for x in value['contents'])
@@ -188,10 +236,13 @@ class ProcessDesktopActor:
                     else:outcome=executor.execute_composite(value['action_id'],contents,plan=plan,is_cancelled=cancelled)
                 else:outcome=executor.execute_guarded(value['action_id'],contents,is_cancelled=cancelled)
                 response={'outcome':outcome.to_record()}
-            except ExecutionCancelled:response={'error':'cancelled'}
+            except ExecutionCancelled as error:
+                from product_adapters.desktop_pet_v1.execution import ExecutionBlocked
+                response={'error':'cancelled',**({'obstruction':error.observation} if isinstance(error,ExecutionBlocked) else {})}
             except BaseException:response={'error':'uncertain'}
             finally:
                 late_slots.pop(value['id'],None)
+                playback_slots.pop(value['id'],None)
                 if value.get('execution_context') is not None:executor.clear_execution_context(value['action_id'])
             self.incoming.put(('response',{'id':value['id'],**response}))
         try:
@@ -217,10 +268,17 @@ class ProcessDesktopActor:
                 if kind=='recovery_failed':
                     self.recovering=False;continue
                 if kind=='execute':
+                    late=None
                     if value.get('staged'):
                         late=Future();late_slots[value['id']]=late
-                        threading.Thread(target=execute_message,args=(value,late),name='pet-bridge-playback',daemon=True).start()
-                    else:execute_message(value)
+                    playback_slots[value['id']]={'action_id':value['action_id'],'cancelled':threading.Event()}
+                    playback_workers[:]=[worker for worker in playback_workers if worker.is_alive()]
+                    worker=threading.Thread(target=execute_message,args=(value,late),name='pet-bridge-playback',daemon=True)
+                    playback_workers.append(worker);worker.start()
+                elif kind=='cancel_execution':
+                    slot=playback_slots.get(value['id'])
+                    if slot is not None and slot['action_id']==value['action_id']:
+                        slot['cancelled'].set()
                 elif kind=='late_speech':
                     late=late_slots.get(value['id'])
                     # A terminated parent must never be recreated by a late result.
@@ -242,6 +300,8 @@ class ProcessDesktopActor:
         finally:
             for late in tuple(late_slots.values()):
                 if not late.done():late.set_exception(RuntimeError('UI connection closed'))
+            for slot in tuple(playback_slots.values()):slot['cancelled'].set()
+            for worker in playback_workers:worker.join(3)
             self.request_stop();self.process.join(10)
 
 
@@ -266,6 +326,13 @@ class _Bridge(ExecutionContexts):
                 'activity_generation':self.processing_activity}))
 
     def rpc(self,kind,*,_late_speech=None,**fields):
+        factory=getattr(self,'playback_intake',None)
+        if kind=='execute' and factory is not None:
+            with factory(fields['action_id']) as intake:
+                return self._rpc(kind,_late_speech=_late_speech,_intake=intake,**fields)
+        return self._rpc(kind,_late_speech=_late_speech,**fields)
+
+    def _rpc(self,kind,*,_late_speech=None,_intake=None,**fields):
         identity=uuid.uuid4().hex;self.outgoing.put((kind,{'id':identity,**fields}))
         if _late_speech is not None:
             def deliver(future):
@@ -277,18 +344,35 @@ class _Bridge(ExecutionContexts):
                     value={'quiet':{'request_id':error.decision.request_id,'evidence':error.decision.evidence}} if isinstance(error,SpeechNotSelected) else {'failed':True}
                 self.outgoing.put(('late_speech',{'id':identity,**value}))
             _late_speech.add_done_callback(deliver)
+        sent_takeover=None
         while True:
-            try:response=self.responses.get(timeout=.1)
+            # Consume actual playback progress before admitting more work.
+            # A queued completion must not create a fresh measurement whose
+            # finish would then hold that already-completed playback hostage.
+            try:response=self.responses.get_nowait()
             except queue.Empty:
-                if self.closed.is_set():
-                    if kind=='capture_request':return {'point':None}
-                    raise ExecutionUncertain('UI connection closed before execution was confirmed')
-                continue
+                if _intake is not None and sent_takeover is None:
+                    proof=_intake.poll()
+                    if proof is not None and not self.is_cancelled():
+                        sent_takeover=proof
+                        self.outgoing.put(('cancel_execution',{'id':identity,'action_id':fields['action_id']}))
+                try:response=self.responses.get(timeout=.03 if _intake is not None else .1)
+                except queue.Empty:
+                    if self.closed.is_set():
+                        if kind=='capture_request':return {'point':None}
+                        raise ExecutionUncertain('UI connection closed before execution was confirmed')
+                    continue
             if response['id']!=identity:raise ExecutionUncertain('desktop response identity differs')
             if 'visible_effect' in response:
                 observer=self.execution_observer(fields.get('action_id'))
                 if observer is None:raise ExecutionUncertain('unexpected visible effect')
                 observer(response['visible_effect']);continue
+            if _intake is not None:
+                _intake.finish()
+                if sent_takeover is not None and 'outcome' in response:
+                    outcome=response['outcome']
+                    response={**response,'outcome':{**outcome,'details':{**outcome.get('details',{}),
+                        'qualification_takeover':sent_takeover}}}
             return response
 
     def __call__(self,action_id,contents):return self.execute_guarded(action_id,contents)
@@ -313,7 +397,11 @@ class _Bridge(ExecutionContexts):
         response=self.rpc('execute',action_id=action_id,contents=[x.to_record() for x in contents],
             gesture_id=self.gesture_id,input_generation=self.input_generation,activity_generation=self.processing_activity,batch_scope=self.batch_scope,
             _late_speech=late_speech,**extra)
-        if response.get('error')=='cancelled':raise ExecutionCancelled('UI cancelled before any effect')
+        if response.get('error')=='cancelled':
+            if 'obstruction' in response:
+                from product_adapters.desktop_pet_v1.execution import ExecutionBlocked
+                raise ExecutionBlocked(response['obstruction'])
+            raise ExecutionCancelled('UI cancelled before any effect')
         if 'error' in response:raise ExecutionUncertain('UI effect lacks a confirmed outcome')
         self.confirmed_effects.append({'action_id':action_id,'confirmed_at_unix_ms':wall_clock_ms()})
         return ExecutionOutcome(**response['outcome'])
@@ -361,12 +449,19 @@ def _actor_main(spec,incoming,outgoing):
         if spec.get('multi_workspace'):
             from .multi_actor import MultiPetActorLink
             multi=MultiPetActorLink(product,spec['multi_workspace']['root'],spec['multi_workspace']['alias'])
+            from .playback_intake import PlaybackIntake
+            multi.playback_intake=lambda action_id:PlaybackIntake(multi,action_id,bridge.is_cancelled)
+            bridge.playback_intake=multi.playback_intake
         if spec.get('checkpoint_storage_mode')=='delta-v1':
             product.application.store.enable_incremental(product.application.runtime.session)
         from .ingress_journal import IngressJournal,apply_capture,recover_ingress,complete_accepted_jobs
         journal=IngressJournal(spec['session_path']+'.ingress.jsonl',definition_fingerprint=product.application.definition.fingerprint,
             session_binding_fingerprint=product.application.runtime.session.session_binding.fingerprint,
             capture_configuration={key:spec[key] for key in ('mouse_definitions','observe','bounds','response_policy')})
+        pending_jobs=journal.pending_jobs()
+        # A separately restored formal input may still have an old host job.
+        # Reconcile exact accepted contents before deciding ingress is blocked.
+        complete_accepted_jobs(journal,product,current_sequence=-1)
         pending_jobs=journal.pending_jobs()
         # A prior host's wake/resume opportunity is not a user input fact.
         # Retire only a purely operational backlog, with no unresolved effect.
@@ -385,7 +480,12 @@ def _actor_main(spec,incoming,outgoing):
         pending_reply_count=len(set(recovery_replies)-pending_input_ids)
         ingress_recovery_pending=bool(journal.pending_jobs() or journal.pending_batches())
         participant_recovery_pending=multi is not None and multi.requires_recovery()
-        recovery_pending=bool(ingress_recovery_pending or recovery_replies or recovery_readings or participant_recovery_pending)
+        from .startup_recovery import pending_settlement
+        settlement_recovery_pending=pending_settlement(product.application)
+        # Unanswered but already-settled inputs are not pending state/effects.
+        # Keep their explicit resume inventory without locking out new contact
+        # or idle observation. Actual ingress/effect recovery still blocks.
+        recovery_pending=bool(ingress_recovery_pending or recovery_readings or participant_recovery_pending or settlement_recovery_pending)
         capture_lock=threading.RLock();buffered_captures=[];buffered_batch_parts=[]
         buffering_capture=recovery_pending
         # Establish process loss as an operation boundary; never a fake release.
@@ -448,7 +548,8 @@ def _actor_main(spec,incoming,outgoing):
             'settled_presentation':None if recovery_pending else presentation_snapshot(product.application),
             # A retained peer delivery blocks this Actor just like retained UI
             # ingress. The host must see that same recovery condition on restart.
-            'input_generation':journal.generation,'pending_ingress_count':len(journal.pending_jobs())+len(journal.pending_batches())+pending_reply_count+len(recovery_readings)+int(participant_recovery_pending),
+            'input_generation':journal.generation,'pending_ingress_count':len(journal.pending_jobs())+len(journal.pending_batches())+len(recovery_readings)+int(participant_recovery_pending)+int(settlement_recovery_pending),
+            'pending_reply_count':pending_reply_count,
             'pending_participant_count':int(participant_recovery_pending),'pending_reading_count':len(recovery_readings),'batch_sampling_advice':initial_batch_advice,
             'local_retrieval':{'enabled':True,'status':product.rag_memory.provider.status,'model':product.rag_memory.provider.model},
             'interaction_observation_policy_version':('desktop-pet-interaction-observation-policy-v1' if spec['observe'] else None),
@@ -539,6 +640,21 @@ def _actor_main(spec,incoming,outgoing):
             except BaseException as error:
                 outgoing.put(('job_error','desktop input bridge failed: '+type(error).__name__));closed.set();jobs.put(None)
         threading.Thread(target=read,name='pet-capture-reader',daemon=True).start()
+        def waiting_input():
+            # Peek only the first durable host job. The regular dispatcher still
+            # owns dequeue, reply, input generation and completion acknowledgements.
+            with jobs.mutex:
+                next_job=jobs.queue[0] if jobs.queue else None
+            if recovery_pending:return None
+            if not next_job or next_job['kind']!='input':
+                return multi.prepare_waiting_input() if multi is not None else None
+            if next_job['event_id'] in product.application._product()['sources']:return None
+            return {'event_id':next_job['event_id'],'scope_ref':product.application.definition.scope_ref,
+                'actor_ref':product.application.user_ref,'contents':next_job['contents'],
+                'coordinate':next_job['coordinate'],'response_policy':next_job['response_policy'],
+                'admission_coordinate':max(wall_clock_ms(),product.application.runtime.session.position.position.coordinate),
+                'admission_version':ADMISSION_VERSION if next_job.get('batch_id') else POINT_ADMISSION_VERSION}
+        product.semantic.waiting_input=waiting_input
         if idle is not None and not recovery_pending:
             from .idle_opening import journal as idle_journal
             data=idle_journal(product.application)
@@ -551,12 +667,31 @@ def _actor_main(spec,incoming,outgoing):
             publish_presentation()
         if spec.get('batch_quiet_ms') is not None and not recovery_pending:publish_batch_advice()
         while not closed.is_set():
+            from .retired_transport import drain
+            drain(product)
+            if multi is not None and getattr(multi,'_pending_playback_intake',None) is not None:
+                from .playback_intake import waiting,finish_pending
+                if waiting(multi):
+                    # UI/ingress remain responsive; only this Actor's ordered
+                    # settlement is suspended. No new event is accepted here.
+                    time.sleep(.01)
+                    continue
+                try:_continue_playback_settlement(multi,publish_presentation,idle,
+                    lambda:_finish_host_playback(multi,observer,journal,outgoing))
+                except Exception as error:
+                    multi._pending_playback_intake=None
+                    recovery_pending=True
+                    outgoing.put(('recovery_required',1))
+                    outgoing.put(('error','播放已留档，后续结算未完成：'+type(error).__name__))
             # A delivered source already waiting needs no extra polling sleep.
             # Queued user work still wins; idle discovery keeps its old cadence.
             peer_ready=(multi is not None and not recovery_pending
                 and mouse.current_gesture_id is None and not journal.pending_batches()
                 and multi.pending_count())
-            try:job=jobs.get(timeout=0 if peer_ready else .1 if multi is not None else None)
+            try:
+                job=getattr(multi,'_resume_host_job',None) if multi is not None else None
+                if job is not None:multi._resume_host_job=None
+                else:job=jobs.get(timeout=0 if peer_ready else .1 if multi is not None else None)
             except queue.Empty:
                 current=mouse.current_gesture_id
                 held=current is not None and mouse.is_active(current)
@@ -569,8 +704,10 @@ def _actor_main(spec,incoming,outgoing):
                         changed=multi.pump(executor=bridge,is_cancelled=bridge.is_cancelled,
                             on_reply_ready=lambda:outgoing.put(('typing',{'input_generation':bridge.input_generation})))
                         if changed:
-                            publish_presentation()
-                            if idle is not None:idle.arm()
+                            from .measurement_pipeline import pending as prefetched_pending
+                            if not prefetched_pending(product.application):
+                                publish_presentation()
+                                if idle is not None:idle.arm()
                             outgoing.put(('multi_delivery',multi.last_receipt))
                     except Exception as error:
                         recovery_pending=True;outgoing.put(('recovery_required',1))
@@ -610,6 +747,9 @@ def _actor_main(spec,incoming,outgoing):
             product.semantic.gateway.last_failure=None
             product.semantic.gateway.diagnostic_job={'run_id':diagnostic_run_id,'job_sequence':job['_journal_sequence']}
             product.semantic.gateway.diagnostic_invocations=[]
+            if multi is not None:
+                multi._defer_playback_settlement=job['kind'] in {
+                    'input','gesture_end','interaction_tick','web_read','idle_tick','resume'}
             try:
                 if idle is not None and job['kind']!='idle_tick' and idle.target_coordinate is not None:
                     idle.cancel('external_activity')
@@ -624,7 +764,7 @@ def _actor_main(spec,incoming,outgoing):
                     else:
                         before_events=len(product.application.runtime.events)
                         if phone is not None:product.action_catalog=phone.catalog()
-                        tick_result=idle.sample(coordinate=job['coordinate'],executor=bridge,is_cancelled=bridge.is_cancelled,
+                        tick_result=_run_idle_playback(multi,idle,idle.sample,coordinate=job['coordinate'],executor=bridge,is_cancelled=bridge.is_cancelled,
                             on_reply_ready=lambda:outgoing.put(('typing',{'input_generation':bridge.input_generation})))
                         if phone is not None and not bridge.is_cancelled():
                             phone.consume_result(tick_result.get('tick_id'))
@@ -692,7 +832,7 @@ def _actor_main(spec,incoming,outgoing):
                     else:
                         from .idle_opening import journal as idle_journal
                         if idle is not None and idle_journal(product.application)['pending_tick'] is not None:
-                            idle.resume(executor=bridge,is_cancelled=bridge.is_cancelled)
+                            _run_idle_playback(multi,idle,idle.resume,executor=bridge,is_cancelled=bridge.is_cancelled)
                         else:
                             (observer.resume(executor=bridge,is_cancelled=bridge.is_cancelled,on_reply_ready=lambda:outgoing.put(('typing',{'input_generation':bridge.input_generation})))
                                 if observer is not None else product.resume(executor=bridge,is_cancelled=bridge.is_cancelled))
@@ -716,11 +856,18 @@ def _actor_main(spec,incoming,outgoing):
                         # arm reconciles a new formal source and preserves an unchanged plan.
                         idle.arm()
                 if multi is not None and not recovery_pending:multi.flush_outputs()
-                if not recovery_pending:publish_presentation()
-                if spec.get('batch_quiet_ms') is not None and not recovery_pending:publish_batch_advice()
+                from .measurement_pipeline import pending as prefetched_pending
+                measurement_waiting=prefetched_pending(product.application)
+                if not recovery_pending and not measurement_waiting:publish_presentation()
+                if spec.get('batch_quiet_ms') is not None and not recovery_pending and not measurement_waiting:publish_batch_advice()
                 outgoing.put((kind,tick_result if kind=='tick_done' else True))
                 host_status=kind
             except Exception as error:
+                from .live_execution import PlaybackSettlementPending
+                if isinstance(error,PlaybackSettlementPending) and multi is not None and getattr(multi,'_pending_playback_intake',None) is not None:
+                    multi._suspended_host_job=job
+                    host_status='settlement_pending'
+                    continue
                 # Persist code locations only; never provider text, keys or locals.
                 import traceback
                 host_error={'type':type(error).__name__,'frames':[
@@ -730,6 +877,7 @@ def _actor_main(spec,incoming,outgoing):
                 from .provider_diagnostics import format_product_error
                 outgoing.put(('job_error',format_product_error(error,product.semantic.gateway)))
             finally:
+                if multi is not None:multi._defer_playback_settlement=False
                 # Operational timing only; this log never participates in model state.
                 row={'version':'petlab-host-job-timing-v1','job_sequence':job['_journal_sequence'],
                     'kind':job['kind'],'input_generation':job['_input_generation'],
@@ -748,7 +896,18 @@ def _actor_main(spec,incoming,outgoing):
                     with (Path(spec['trace_dir'])/'host-jobs.jsonl').open('a',encoding='utf-8') as trace:
                         trace.write(json.dumps(row,separators=(',',':'))+'\n')
                 except OSError:pass
-    except BaseException as error:outgoing.put(('startup_error',type(error).__name__))
+    except BaseException as error:
+        import traceback
+        # Keep private local stack locations, without serializing configuration,
+        # request bodies, credentials, or exception arguments into the UI.
+        frames=[{'file':Path(f.filename).name,'line':f.lineno,'function':f.name}
+                for f in traceback.extract_tb(error.__traceback__)]
+        try:
+            Path(spec['trace_dir']).mkdir(parents=True,exist_ok=True)
+            (Path(spec['trace_dir'])/'startup-error.json').write_text(
+                json.dumps({'error_type':type(error).__name__,'frames':frames}),encoding='utf-8')
+        except OSError:pass
+        outgoing.put(('startup_error',type(error).__name__))
     finally:
         if phone is not None:phone.close()
         if observer is not None:observer.stop()
@@ -756,3 +915,4 @@ def _actor_main(spec,incoming,outgoing):
         if journal is not None:
             journal.append('host_stop',{'reason':'closed'});journal.close()
         outgoing.put(('stopped',None))
+

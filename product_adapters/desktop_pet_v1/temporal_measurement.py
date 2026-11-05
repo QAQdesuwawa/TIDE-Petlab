@@ -51,6 +51,13 @@ def capture_position(app,event):
         if position.to_record()!=evidence['capture_position']:raise ValueError('physical capture position differs')
         app.runtime.temporal_runtime.prove_order(position,event.position)
         return position
+    from petlab_app.participant_input import HUMAN_INTERACTION_VERSION, captured_coordinate
+    receipt=evidence.get('input_source',{})
+    if receipt.get('version')==HUMAN_INTERACTION_VERSION and observations(event):
+        coordinate=captured_coordinate(app,receipt,event.contents,event_id=event.event_id)
+        position=app.runtime.temporal_runtime.normalize_position(coordinate)
+        app.runtime.temporal_runtime.prove_order(position,event.position)
+        return position
     return event.position
 
 
@@ -181,7 +188,18 @@ def load(app,gateway,event,row,*,allow_failed=False):
     if (isinstance(end,bool) or not isinstance(end,int)
             or timing['transport_finished_at_unix_ms'] is None or end<timing['transport_finished_at_unix_ms']):
         raise ValueError('processing completion clock order differs')
-    if record['status']=='failed':
+    local=row.get('local_parse')
+    if local is not None:
+        from petlab_app.provider_reparse import REVISION
+        reparsed=ProviderCodecParseReceipt(**local['receipt'])
+        reparsed.verify_integrity(response=response)
+        if (record['status']!='failed' or parsed is None or parsed.status!='failed'
+                or reparsed.status!='parsed' or reparsed.codec_contract!=request.codec_contract+':'+REVISION
+                or local['original_parse_fingerprint']!=parsed.fingerprint
+                or type(local['completed_at_ms']) is not int or local['completed_at_ms']<end):
+            raise ValueError('local temporal reparse differs from received failure')
+        end=local['completed_at_ms'];parsed=reparsed
+    if record['status']=='failed' and local is None:
         if not allow_failed:raise ExecutionUncertain('semantic query has a confirmed failure; use explicit resume')
         complete={**{k:v for k,v in row.items() if k!='fingerprint'},'status':'failed',
             'provider_trace_fingerprint':fingerprint(record),
@@ -199,7 +217,7 @@ def load(app,gateway,event,row,*,allow_failed=False):
     return complete,thaw_model_data(parsed.parsed_payload)
 
 
-def measure(app,gateway,event,*,codec_contract,messages,temperature,require_json,parse,retry_failed=False):
+def measurement_steps(app,gateway,event,*,codec_contract,messages,temperature,require_json,parse,retry_failed=False):
     verify_capture_chain(app,event)
     journal=app.runtime.session.profile.get(KEY,{})
     row=journal.get(event.event_id)
@@ -221,7 +239,7 @@ def measure(app,gateway,event,*,codec_contract,messages,temperature,require_json
         # Durable identity precedes any dispatch; a crash can never silently
         # turn this logical query into a second paid invocation.
         publish(app,event.event_id,{k:v for k,v in row.items() if k!='fingerprint'})
-        gateway.run(session_binding=app.runtime.session.session_binding,current_position=app.runtime.session.position,
+        yield gateway.prepare(session_binding=app.runtime.session.session_binding,current_position=app.runtime.session.position,
             operation_kind='semantic_measurement',source_fact_ref=event.event_id,codec_contract=codec_contract,
             messages=messages,temperature=temperature,require_json=require_json,parse=parse,
             source_receipt_refs=(event.source_receipt_ref,),invocation_id=row['invocation_id'])
@@ -249,4 +267,6 @@ def verify_saved(app,gateway):
             _complete,payload=load(app,gateway,event,row)
             cached=sources[event_id].get('measurement')
             if cached is not None and fingerprint(cached)!=fingerprint(payload):
-                raise ValueError('settled measurement differs from temporal query')
+                from petlab_app.measurement_pipeline import verify_payload
+                if not verify_payload(app,event,payload,cached):
+                    raise ValueError('settled measurement differs from temporal query')

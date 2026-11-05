@@ -31,21 +31,24 @@ def results_for(contents, *, actual_ids, child_results=None, declarations=None):
         if item.kind=='expression':row['token']=item.parameters['presentation']['expression']
         elif item.kind=='action':row['token']=item.semantic_key
         else:row['token']=item.kind
+        if item.kind=='speech' and row['status']=='completed' and item.parameters.get('presentation'):
+            result['expression']={'status':'completed','token':item.parameters['presentation']['expression'],'content_ids':[item.content_id]}
     for identity,item in (declarations or {}).items():
         if identity in seen:continue
         row=result[item['kind']]
         row['content_ids'].append(identity)
         row['status']=rows.get(identity,{}).get('status','cancelled')
-    action=result['action']
-    if len(action['content_ids'])>1:
+    for channel in ('action','speech','expression'):
+        action=result[channel]
+        if len(action['content_ids'])<=1:continue
         by_id={item.content_id:item for item in contents}
         items=[]
         for identity in action['content_ids']:
             item=by_id.get(identity)
             status=rows.get(identity,{}).get('status','completed' if identity in actual else 'cancelled')
             items.append({'content_id':identity,'status':status,
-                'token':item.semantic_key if item is not None and identity in actual else None})
-        completed=[r['token'] for r in items if r['status']=='completed' and r['token'] is not None]
+                'token':(item.semantic_key if channel=='action' else item.parameters['presentation']['expression'] if channel=='expression' else 'speech') if item is not None and identity in actual else None})
+        completed=[r['token'] for r in items if (r['status']=='completed' or channel=='expression' and r['status']=='interrupted') and r['token'] is not None]
         action.update(items=items,token=completed[-1] if completed else None,
             status='completed' if all(r['status']=='completed' for r in items) else 'interrupted' if actual.intersection(action['content_ids']) else 'cancelled')
     return result
@@ -87,7 +90,7 @@ def build(*, previous, before, after, source, ordinal, results=None, constant_bi
         item=channels[kind]
         if item['status']=='hold':item['token']=feedback[kind]['token']
         # A cancelled or interrupted action is never a new reusable action token.
-        if (item['status']=='completed' or (kind=='action' and 'items' in item)) and item['token'] is not None:
+        if (item['status']=='completed' or (kind in ('action','expression') and 'items' in item)) and item['token'] is not None:
             feedback[kind]={'token':item['token'],'source':source}
     numeric=[]
     for axis in ROOTS:
@@ -96,15 +99,11 @@ def build(*, previous, before, after, source, ordinal, results=None, constant_bi
             raise ValueError('invalid settled numeric token input')
         numeric.append({'axis':axis,'before':old,'value':new,'delta':new-old,
                         'domain':{'low':-1.0,'high':1.0},'neutral':0.0})
-    from .expression_tokens import project
-    if constant_binding is None:
-        expression_plan=project(before=before,after=after,source=source)
-    else:
-        from .expression_tokens import project_existing
-        expression_plan=project_existing(before=before,after=after,source=source,constant_binding=constant_binding,version="pet-existing-token-expression-v2")
+    from .expression_tokens import project_presented
+    expression_plan=project_presented(before=before,after=after,source=source,constant_binding=constant_binding,selected=feedback['expression']['token'])
     feedback['expression']={'token':expression_plan['selected'],'source':source}
     channels['expression']['next_token']=expression_plan['selected']
-    value={'version':SEQUENCE_VERSION if 'items' in channels['action'] else THOUGHT_VERSION if 'thought' in channels else VERSION,'source':source,'ordinal':ordinal,'channels':channels,
+    value={'version':SEQUENCE_VERSION if any('items' in channels[k] for k in ('action','speech')) else THOUGHT_VERSION if 'thought' in channels else VERSION,'source':source,'ordinal':ordinal,'channels':channels,
            'feedback':feedback,'numeric_tokens':numeric,'expression_plan':expression_plan}
     value['fingerprint']=model_data_fingerprint(value)
     validate(value)

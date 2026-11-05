@@ -34,10 +34,15 @@ class Reconstruction:
 
     def initialize(self):
         saved=self.workspace.setting('initial_background')
-        if saved is not None:return saved
         system,user=build_background_request('角色名称：'+self.definition.name+'\n'+self.definition.background)
         result=self._call('initial-background','import-background:'+self.definition.fingerprint,
             self.coordinates[0],BACKGROUND,[{'role':'system','content':system},{'role':'user','content':user}],parse_background)
+        if saved is not None:
+            if fingerprint(saved)!=fingerprint(result):raise ValueError('initial background differs from sealed provider result')
+            # Settings serialize keys in sorted order. Reuse the exact parsed
+            # provider payload so an interrupted first joint request rebuilds
+            # the original prompt bytes instead of a reordered JSON string.
+            return result
         return self.workspace.setting('initial_background',result)
 
     def advance(self,*,max_records=1):

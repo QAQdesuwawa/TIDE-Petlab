@@ -84,20 +84,26 @@ def _flow(constants,before,version,params):
     return result.receipt['rest_point'],result.receipt['effective_rate_per_hour']
 
 
-def profile_for_node(package,node,edges):
+def profile_for_node(package,node,edges,*,flow_cache=None):
+    def flow(constants,before,version,params):
+        if flow_cache is None:return _flow(constants,before,version,params)
+        # Rest points/rates depend on role and time parameters, not X_before.
+        key=model_data_fingerprint({'constants':constants,'version':version,'params':params})
+        if key not in flow_cache:flow_cache[key]=_flow(constants,before,version,params)
+        return flow_cache[key]
     projection=CanonicalMemoryProjection.from_record(node['projection']);evolution=node['evolution_binding']
     if projection.event.event_id!=node['event_id']:raise ValueError('canonical source event differs')
     if projection.root_time_operator_version!=ROOT_TIME_FLOW_VERSION:raise ValueError('unsupported canonical Phi version')
     params=evolution['root_time_parameters']
     if params['version']!=projection.root_time_parameter_version:raise ValueError('canonical Phi parameter binding differs')
     if model_data_fingerprint(evolution['forward_readout_parameters'])!=model_data_fingerprint(package._package_params('memory_forward_readout')):raise ValueError('unsupported forward readout binding')
-    rest,rates=_flow(projection.effective_constants,projection.x_before,projection.effective_constants_version,params)
+    rest,rates=flow(projection.effective_constants,projection.x_before,projection.effective_constants_version,params)
     terms=[]
     for edge in edges:
         e=edge.evidence['edge_evidence']['evolution_binding']
         if model_data_fingerprint({k:v for k,v in e.items() if k!='fingerprint'})!=e['fingerprint']:raise ValueError('edge evolution fingerprint differs')
         if e['root_time_operator_version']!=ROOT_TIME_FLOW_VERSION:raise ValueError('unsupported edge Phi version')
-        binding=e['constant_binding'];_,edge_rates=_flow(binding['effective_constants'],projection.x_before,binding['effective_constants_version'],e['root_time_parameters'])
+        binding=e['constant_binding'];_,edge_rates=flow(binding['effective_constants'],projection.x_before,binding['effective_constants_version'],e['root_time_parameters'])
         vector={k:float(edge.contribution_payload[k]) for k in ROOT_ORDER}
         if any(not math.isfinite(v) for v in vector.values()):raise ValueError('invalid frozen edge delta')
         terms.append({'delta':vector,'rates':dict(edge_rates)})

@@ -7,9 +7,33 @@ It is deliberately separate from numbering/rendering and model packages.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from collections import OrderedDict
+from threading import Lock
+from framework.model_api import model_data_fingerprint
 
 from framework.history import HistoryAuthority, HistoryRead, ActualRecall, InfluenceEdge
 from interaction_extensions.memory_links import MemoryLinkSubcard, build_memory_link_subcard
+
+_EDGE_PARSES=OrderedDict()
+_EDGE_PARSE_LOCK=Lock()
+
+
+def _checked_edge(edge):
+    record={'version':edge.version,'edge_id':edge.edge_id,'recall_id':edge.recall_id,
+        'parent_fact_id':edge.parent_fact_id,'child_fact_id':edge.child_fact_id,
+        'contribution_payload':edge.contribution_payload,'evidence':edge.evidence}
+    fingerprint=model_data_fingerprint(record)
+    if fingerprint!=edge.fingerprint:raise ValueError('influence edge fingerprint is invalid')
+    with _EDGE_PARSE_LOCK:
+        checked=_EDGE_PARSES.get(fingerprint)
+        if checked is not None:
+            _EDGE_PARSES.move_to_end(fingerprint)
+            return checked
+    checked=InfluenceEdge.from_record({**record,'fingerprint':fingerprint})
+    with _EDGE_PARSE_LOCK:
+        _EDGE_PARSES[fingerprint]=checked
+        while len(_EDGE_PARSES)>4096:_EDGE_PARSES.popitem(last=False)
+    return checked
 
 
 def history_memory_link_subcard(
@@ -54,6 +78,11 @@ def history_memory_link_subcard(
     reads = {history_read.fingerprint: history_read}
     recalls = {}
     for edge in edges:
+        # One accepted recall can contribute several distinct edges. Its
+        # source record is identical for all of them; verify it once in this
+        # projection, while every edge still receives its own check below.
+        if edge.recall_id in recalls:
+            continue
         recall = ActualRecall.from_record(history.actual_recall(edge.recall_id).to_record())
         original = history._reads.get(recall.history_read_fingerprint)
         if original is None:
@@ -64,7 +93,7 @@ def history_memory_link_subcard(
     fact_ids.update(edge.child_fact_id for edge in edges)
     facts = [history.fact(identity) for identity in fact_ids]
     for fact in sorted(facts,key=lambda value:value.accepted_runtime_ordinal):
-        fact.verify_integrity()
+        # append_fact performs the integrity and binding checks itself.
         verified.append_fact(fact)
     for read in reads.values():
         checked = HistoryRead.from_record(read.to_record(),facts_by_id=verified._facts)
@@ -75,7 +104,10 @@ def history_memory_link_subcard(
             raise ValueError("memory link source read fingerprint differs")
     for recall in recalls.values():
         verified.append_actual_recall(recall,history_read=verified._reads[recall.history_read_fingerprint])
-    edges = [verified.append_influence_edge(InfluenceEdge.from_record(edge.to_record())) for edge in edges]
+    # from_record already normalizes/freezes every payload and checks its hash.
+    # Supplying the original fields avoids to_record's additional deep copy;
+    # this is still the original parser, not an unchecked edge insertion.
+    edges = [verified.append_influence_edge(_checked_edge(edge)) for edge in edges]
     ordinals = tuple(verified.fact(value).accepted_runtime_ordinal for value in selected)
     if any(left >= right for left, right in zip(ordinals, ordinals[1:])):
         raise ValueError("selected memory IDs must already follow occurrence order")

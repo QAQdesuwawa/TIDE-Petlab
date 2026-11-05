@@ -59,3 +59,15 @@ class ScopedRecipientVisibleSemanticCodec(ConstrainedVisibleSemanticCodec):
 
 class AtomicGroundedScopedRecipientVisibleSemanticCodec(AtomicGroundedRecallCueMixin,GroundedRecallCueMixin,ScopedRecipientVisibleSemanticCodec):
  request_version='desktop-pet-grounded-peer-visible-recipient-effect-v3'
+
+
+class HierarchicalRecipientVisibleSemanticCodec(ScopedRecipientVisibleSemanticCodec):
+ """Same visible semantics, typed source envelope for the property codec."""
+ request_version='desktop-pet-peer-visible-recipient-effect-v4-typed-source'
+ def build_request(self,*,event,recall_hint):
+  system,user=super().build_request(event=event,recall_hint=recall_hint)
+  prefix,raw=user.rsplit('【观察到对方的实际内容】\n',1)
+  facts=json.loads(raw)
+  for row in facts['内容']:
+   row['正文']=row.pop('实际内容')
+  return system,prefix+'【当前已发生事件】\n'+json.dumps(facts,ensure_ascii=False)

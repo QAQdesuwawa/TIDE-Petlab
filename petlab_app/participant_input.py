@@ -12,11 +12,20 @@ from model_packages.cx_six_seven_v1.multi_participant.local_projection import pr
 from model_packages.desktop_pet_v1.events import Speech
 from .multi_pet import _immutable,_key,_verify
 VERSION='pet-participant-delivery-input-v1'
+OBSERVED_HUMAN_VERSION='pet-participant-human-observation-v1'
+ADDRESSED_SPEECH_VERSION='pet-participant-human-speech-v2'
+OBSERVED_SPEECH_VERSION='pet-participant-human-observation-v2'
+OBSERVED_VERSIONS={OBSERVED_HUMAN_VERSION,OBSERVED_SPEECH_VERSION}
+SPEECH_VERSIONS={ADDRESSED_SPEECH_VERSION,OBSERVED_SPEECH_VERSION}
 from .human_interaction import VERSION as HUMAN_INTERACTION_VERSION,content as human_content
 NPC_VERSION='pet-participant-delivery-input-v2'
 VISIBLE_VERSION='pet-participant-delivery-input-v3-visible'
 NPC_VERSIONS={NPC_VERSION,VISIBLE_VERSION}
-VERSIONS={VERSION,HUMAN_INTERACTION_VERSION,*NPC_VERSIONS}
+VERSIONS={VERSION,*OBSERVED_VERSIONS,*SPEECH_VERSIONS,HUMAN_INTERACTION_VERSION,*NPC_VERSIONS}
+
+def is_human_observation(row,workspace):
+ return (row.get('sender_kind')=='human' and row['delivery']['delivery_scope']=='observed'
+  and 'visible' not in row and 'human_content' not in workspace.source_event(row['delivery']['source_event_id']))
 
 def prepare(app,row,workspace,*,coordinate=None):
  alias=workspace.aliases.get(app.owner_ref)
@@ -27,8 +36,10 @@ def prepare(app,row,workspace,*,coordinate=None):
  from model_packages.desktop_pet_v1.relation_package import META
  if row['sender_kind']=='npc' and META not in app.runtime.session.state.state:raise ValueError('NPC input awaits directed-relation adapter')
  if row['sender_kind'] not in {'human','npc'}:raise ValueError('unsupported participant kind')
- if row['delivery']['delivery_scope']!='addressed' and 'visible' not in row:raise ValueError('observed message is not a relation input')
+ observed=is_human_observation(row,workspace)
+ if row['delivery']['delivery_scope']!='addressed' and 'visible' not in row and not observed:raise ValueError('observed message is not a relation input')
  source=workspace.source_event(row['delivery']['source_event_id'])
+ if observed and 'human_content' in source:raise ValueError('typed human observation requires its own visibility adapter')
  event_id='participant:'+_key(row['delivery']['delivery_id'])
  saved=app._product()['sources'].get(event_id)
  at=saved['event']['position']['coordinate'] if saved is not None else time.time_ns()//1000000 if coordinate is None else coordinate
@@ -40,17 +51,35 @@ def prepare(app,row,workspace,*,coordinate=None):
   **({'visible':row['visible']} if 'visible' in row else {})}
  path=app.store.path.with_suffix('.resources')/relative
  _immutable(path,artifact);digest=hashlib.sha256(path.read_bytes()).hexdigest()
- receipt={'version':VISIBLE_VERSION if 'visible' in row else NPC_VERSION if row['sender_kind']=='npc' else HUMAN_INTERACTION_VERSION if 'human_content' in source else VERSION,'event_id':event_id,'actor_ref':row['projection']['sender_participant_id'],'reader_ref':app.owner_ref,
+ receipt={'version':OBSERVED_HUMAN_VERSION if observed else VISIBLE_VERSION if 'visible' in row else NPC_VERSION if row['sender_kind']=='npc' else HUMAN_INTERACTION_VERSION if 'human_content' in source else VERSION,'event_id':event_id,'actor_ref':row['projection']['sender_participant_id'],'reader_ref':app.owner_ref,
   'session_binding_fingerprint':app.runtime.session.session_binding.fingerprint,
   'artifact':relative,'artifact_sha256':digest,'received_at_ms':at}
  receipt['fingerprint']=fp(receipt)
+ if saved is not None:
+  receipt=saved['evidence']['input_source']
+ elif row['sender_kind']=='human' and 'human_content' not in source:
+  receipt['version']=OBSERVED_SPEECH_VERSION if observed else ADDRESSED_SPEECH_VERSION
+  receipt['fingerprint']=fp({k:v for k,v in receipt.items() if k!='fingerprint'})
  if 'visible' in row:
   from .visible_delivery import validate_projection
   contents=validate_projection(source,app.owner_ref,row['visible'])
  elif 'human_content' in source:contents=(human_content(source),)
  else:contents=(Speech(content_id='speech',description=row['projection']['text'],recipient_refs=(app.owner_ref,)),)
  validate(app,receipt,contents,event_id=event_id)
- return {'event_id':event_id,'contents':contents,'coordinate':at,'response_policy':row['response_policy'],'input_source':receipt}
+ return {'event_id':event_id,'contents':contents,'coordinate':at,'response_policy':'eligible' if observed else row['response_policy'],'input_source':receipt}
+
+def captured_coordinate(app, receipt, contents, *, event_id):
+ """Physical time of a source-bound human capture, separate from receipt time."""
+ row=validate(app,receipt,contents,event_id=event_id)
+ if row['version']!=HUMAN_INTERACTION_VERSION:
+  raise ValueError('physical mouse capture requires typed human source')
+ path=app.store.path.with_suffix('.resources')/row['artifact']
+ raw=path.read_bytes()
+ if hashlib.sha256(raw).hexdigest()!=row['artifact_sha256']:
+  raise ValueError('participant artifact differs')
+ source=json.loads(raw)['source']
+ return source['event']['committed_at_ms']
+
 
 def validate(app,receipt,contents,*,event_id=None):
  row=thaw_model_data(receipt)
@@ -77,7 +106,7 @@ def validate(app,receipt,contents,*,event_id=None):
    or conversation.active_member_ids!=event.member_snapshot_ids):raise ValueError('participant snapshot differs')
   if app.user_ref in people and people[app.user_ref]!=make_human_participant(app.user_ref):raise ValueError('human participant identity differs')
  if event.sender_participant_id!=row['actor_ref']:raise ValueError('participant sender differs')
- if row['version'] in {VERSION,HUMAN_INTERACTION_VERSION}:
+ if row['version'] in {VERSION,*OBSERVED_VERSIONS,*SPEECH_VERSIONS,HUMAN_INTERACTION_VERSION}:
   if source['origin']!={'kind':'human','participant_id':app.user_ref} or event.sender_participant_id!=app.user_ref or event.sender_action_id is not None:raise ValueError('participant human origin differs')
  else:
   from model_packages.desktop_pet_v1.relation_package import META
@@ -90,7 +119,8 @@ def validate(app,receipt,contents,*,event_id=None):
       or event.event_id!=canonical_npc_output_event_id(conversation_id=event.conversation_id,sender_participant_id=event.sender_participant_id,action_id=event.sender_action_id)):
    raise ValueError('participant NPC origin differs')
  deliveries=[x for x in route_committed_event(event) if x.recipient_participant_id==app.owner_ref]
- if len(deliveries)!=1 or artifact['delivery']!=deliveries[0].as_record() or deliveries[0].delivery_scope!='addressed' and row['version']!=VISIBLE_VERSION:raise ValueError('participant delivery is not addressed to owner')
+ if len(deliveries)!=1 or artifact['delivery']!=deliveries[0].as_record() or deliveries[0].delivery_scope!='addressed' and row['version'] not in {VISIBLE_VERSION,*OBSERVED_VERSIONS}:raise ValueError('participant delivery is not addressed to owner')
+ if row['version'] in OBSERVED_VERSIONS and deliveries[0].delivery_scope!='observed':raise ValueError('human observation scope differs')
  projection=project_delivery(event,deliveries[0],recipient_participant_id=app.owner_ref)
  if (row['event_id']!='participant:'+_key(deliveries[0].delivery_id) or type(row['received_at_ms'])is not int
   or row['received_at_ms']<event.committed_at_ms):raise ValueError('participant receipt identity or time differs')

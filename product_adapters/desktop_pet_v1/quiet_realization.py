@@ -17,8 +17,15 @@ def quiet_candidate(request,candidate):
     if not request.control.get('action_sequence_contract') and request.control['version'].removesuffix(MEMORY_MARKER_SUFFIX)not in {OPTIONAL_IDLE_VERSION,PRIVATE_EXPRESSION_VERSION}:return None
     if candidate.candidate_payload.get('contents')!=():return None
     if candidate.realization_evidence.get('speech_decision')!='silent':raise ValueError('empty candidate lacks quiet decision')
-    if request.control.get('action_sequence_contract'):
+    payload=candidate.candidate_payload
+    if request.control.get('audience_contract'):
+        from .audience_delivery import canonical_payload
+        payload=canonical_payload(request,payload)
+    if request.control.get('whisper_contract'):
+        from model_packages.desktop_pet_v1.whisper import verify
+        verify(request,payload)
+    elif request.control.get('action_sequence_contract'):
         from model_packages.desktop_pet_v1.action_sequence import validate_candidate
-        validate_candidate(request,candidate.candidate_payload)
+        validate_candidate(request,payload)
     return QuietRealization(request.readonly_facts['writer_packet']['writer_request_id'],
         thaw_model_data({'request_fingerprint':request.fingerprint,'candidate':candidate.to_record()}))

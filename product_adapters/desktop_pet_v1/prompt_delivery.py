@@ -37,11 +37,51 @@ METADATA_VERSION="desktop-pet-prompt-delivery-v29-shared-memory-metadata"
 METADATA_MARKER_VERSION="desktop-pet-prompt-delivery-v30-shared-memory-metadata-markers"
 CONTINUITY_VERSION="desktop-pet-prompt-delivery-v31-typed-continuity"
 CONTINUITY_MARKER_VERSION="desktop-pet-prompt-delivery-v32-typed-continuity-markers"
+GROUPED_VERSION="desktop-pet-prompt-delivery-v33-grouped-memory"
+GROUPED_MARKER_VERSION="desktop-pet-prompt-delivery-v34-grouped-memory-markers"
+REQUIRED_VERSION="desktop-pet-prompt-delivery-v35-required-grouped"
+REQUIRED_MARKER_VERSION="desktop-pet-prompt-delivery-v36-required-grouped-markers"
+ACTUAL_VERSION="desktop-pet-prompt-delivery-v37-actual-capabilities"
+ACTUAL_MARKER_VERSION="desktop-pet-prompt-delivery-v38-actual-capabilities-markers"
+SITUATED_VERSION="desktop-pet-prompt-delivery-v39-situated"
+SITUATED_MARKER_VERSION="desktop-pet-prompt-delivery-v40-situated-markers"
+SITUATED_PAIR_VERSION="desktop-pet-prompt-delivery-v41-situated-pair"
+SITUATED_PAIR_MARKER_VERSION="desktop-pet-prompt-delivery-v42-situated-pair-markers"
+SITUATED_VERSIONS={SITUATED_VERSION,SITUATED_MARKER_VERSION,SITUATED_PAIR_VERSION,SITUATED_PAIR_MARKER_VERSION}
+
+RELATION_VERSION="desktop-pet-prompt-delivery-v43-relations"
+RELATION_MARKER_VERSION="desktop-pet-prompt-delivery-v44-relations-markers"
+RELATION_PAIR_VERSION="desktop-pet-prompt-delivery-v45-relations-pair"
+RELATION_PAIR_MARKER_VERSION="desktop-pet-prompt-delivery-v46-relations-pair-markers"
+RELATION_VERSIONS={RELATION_VERSION,RELATION_MARKER_VERSION,RELATION_PAIR_VERSION,RELATION_PAIR_MARKER_VERSION}
 CONTINUITY_GUIDANCE='前文中本角色已经说出口的话与实际动作阶段各自成立，当前回应沿这些既有表态和进展继续。当下态度落实为措辞、语气与节奏；本轮speech与actions共同表达同一次选择，动作完成进度由实际执行记录提供。'
 DEFAULT_PET_PROMPT_BUDGET_CHARS = 16384
 
-def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body_context=None,action_sequence_context=None):
+def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body_context=None,action_sequence_context=None,interaction_mode=None,relationship_context=None,input_layout_version=None,property_owner_events=None):
+    from .current_turn_delivery import VERSION as INPUT_LAYOUT, LEGACY_VERSION as OLD_INPUT_LAYOUT, PROPERTY_VERSION, SOURCE_VERSION, place_current_input
+    if input_layout_version not in (None, OLD_INPUT_LAYOUT, PROPERTY_VERSION, SOURCE_VERSION, INPUT_LAYOUT):raise ValueError("unsupported current input layout")
+    from .required_prompt import preserves_required_selection
+    required_budget=preserves_required_selection(delivery_version)
     actual_version=delivery_version
+    from .persona_layout import SUFFIX as PERSONA_SUFFIX
+    layered=delivery_version.endswith(PERSONA_SUFFIX)
+    if layered:delivery_version=delivery_version.removesuffix(PERSONA_SUFFIX)
+    stationary_choice=delivery_version.endswith("-stationary-v1")
+    if stationary_choice:delivery_version=delivery_version.removesuffix("-stationary-v1")
+    relation_delivery=delivery_version in RELATION_VERSIONS
+    if relation_delivery:
+        delivery_version={RELATION_VERSION:SITUATED_VERSION,RELATION_MARKER_VERSION:SITUATED_MARKER_VERSION,
+            RELATION_PAIR_VERSION:SITUATED_PAIR_VERSION,RELATION_PAIR_MARKER_VERSION:SITUATED_PAIR_MARKER_VERSION}[delivery_version]
+    situated=delivery_version in SITUATED_VERSIONS
+    if situated:
+        if interaction_mode not in {'direct_user','contextual'}:raise ValueError('situated delivery needs source classification')
+        delivery_version={SITUATED_VERSION:ACTUAL_VERSION,SITUATED_MARKER_VERSION:ACTUAL_MARKER_VERSION,
+            SITUATED_PAIR_VERSION:CONTINUITY_VERSION,SITUATED_PAIR_MARKER_VERSION:CONTINUITY_MARKER_VERSION}[delivery_version]
+    actual_capabilities=delivery_version in {ACTUAL_VERSION,ACTUAL_MARKER_VERSION}
+    if actual_capabilities:delivery_version=REQUIRED_MARKER_VERSION if delivery_version==ACTUAL_MARKER_VERSION else REQUIRED_VERSION
+    if required_budget:delivery_version=GROUPED_MARKER_VERSION if delivery_version==REQUIRED_MARKER_VERSION else GROUPED_VERSION
+    grouped_metadata=delivery_version in {GROUPED_VERSION,GROUPED_MARKER_VERSION}
+    if grouped_metadata:delivery_version=CONTINUITY_MARKER_VERSION if delivery_version==GROUPED_MARKER_VERSION else CONTINUITY_VERSION
     continuity=delivery_version in {CONTINUITY_VERSION,CONTINUITY_MARKER_VERSION}
     if continuity:delivery_version=METADATA_MARKER_VERSION if delivery_version==CONTINUITY_MARKER_VERSION else METADATA_VERSION
     shared_metadata=delivery_version in {METADATA_VERSION,METADATA_MARKER_VERSION}
@@ -87,7 +127,7 @@ def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body
     original_packet=packet
     if delivery_version in {READABLE_VERSION,MARKER_VERSION,EVIDENCE_VERSION,EVIDENCE_MARKER_VERSION}:
         from .readable_prompt import project
-        packet=project(packet,memory_evidence=delivery_version in {EVIDENCE_VERSION,EVIDENCE_MARKER_VERSION},shared_bodies=optional_idle or shared_all,optional_context=opportunity,independent_children=independent,current_time=timed,subtype_references=typed_references,speaker_framing=speaker_framing,conversation_context=conversation_context,shared_metadata=shared_metadata,body_context=body_context,action_sequence_context=action_sequence_context)
+        packet=project(packet,memory_evidence=delivery_version in {EVIDENCE_VERSION,EVIDENCE_MARKER_VERSION},shared_bodies=optional_idle or shared_all,optional_context=opportunity,independent_children=independent,current_time=timed,subtype_references=typed_references,speaker_framing=speaker_framing,conversation_context=conversation_context,shared_metadata=shared_metadata,grouped_metadata=grouped_metadata,body_context=body_context,action_sequence_context=action_sequence_context,contextual=relation_delivery and interaction_mode=="contextual",intention_time_labels=input_layout_version is not None,property_owners=input_layout_version in (PROPERTY_VERSION,SOURCE_VERSION,INPUT_LAYOUT),property_owner_events=property_owner_events if input_layout_version in (SOURCE_VERSION,INPUT_LAYOUT) else None)
         core_text=("以当前角色的身份，依据人物资料直接回应当前输入。性格和当下态度体现在自然口语与句子节奏中。日常回应通常一两句、约8–35个汉字，详细问题按实际需要展开。\n"
             "当前输入和正式记忆给出已经发生的事实，已选表达资源给出本轮态度。身体行动的选择和播放由外部完成；本轮讲话与已选行动计划配合，具体往事以交付的记忆正文为据。\n"
             "输出JSON：speech为对对方说出的感受、观点或回应；其中身体姿势与运动的事实沿已交付的完成记录表达。reported_used_memory_ids为实际参考的记忆标记数组，未参考时填空数组。")
@@ -101,7 +141,7 @@ def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body
     if delivery_version in {MARKER_VERSION,EVIDENCE_MARKER_VERSION}:
         core_text+="\nreported_used_memory_ids逐项填写本轮已交付的记忆标记，支持标记字符串或对应整数，例如[\"1\"]或[1]。"
     if continuity:
-        core_text+='\n'+CONTINUITY_GUIDANCE
+        core_text+='\n'+(('历史话语记录已说出的内容，动作记录实际发生的阶段和结果；本轮表达依据当前输入与这些已发生事实。' if action_sequence_context is None else '历史话语与动作是已发生事实；本轮actions从当前获准候选中选择，speech表达当前回应，执行进展由回执提供。') if actual_capabilities else CONTINUITY_GUIDANCE)
     if optional_idle:
         core_text+="\n本轮是获准的主动表达机会，眼前没有新用户输入。speech可为null，表示此刻选择安静；有当下想说的内容时才填写话语。安静时reported_used_memory_ids填空数组。历史中的自身话语是已经说过的话，其中的提问或要求属于当时，不是本轮待完成任务。相同正文参照只共享文字，每次发生仍保留自己的时间与标记。"
     if opportunity:
@@ -127,8 +167,43 @@ def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body
         core_text=core_text.replace('身体行动的选择和播放由外部完成；本轮讲话与已选行动计划配合，','本轮动作从已获准候选中组织为顺序计划，由本地执行；讲话可与动作同时呈现，')
         core_text=core_text.replace('本轮已选行动由外部执行，完成事实以回执为据。','本轮动作从已获准候选中组织为顺序计划，本地执行的实际范围以回执为据。')
         core_text+='\n另含actions字段：按先后顺序填写可选动作编码数组，可为空。各片段在同一父反应内由本地时间轴连续执行。speech可为null；另一角色如何回应由它独立选择。'
+        core_text+='\n可选speech_timing字段为null或{"action_index":0,"phase":"start"}。action_index从0开始，引用本轮actions中的一项；start表示该动作开始时说，end表示该动作完成后说。省略或null表示本轮即可说话。speech为null时此字段也为空；阶段由本地实际执行推进，未执行到的阶段不会提前说出。'
+        core_text+='\n需要分阶段说话时，speech也可填写按时间顺序排列的数组（最多4段），例如[{"text":"我过来啦。","timing":null},{"text":"给你。","timing":{"action_index":0,"phase":"end"}}]。各段timing沿上述动作阶段格式，可为空或关联同一阶段；同通道仍按数组顺序呈现；此时省略顶层speech_timing。每段沿原日常句长适配，各段共用本轮受众，表情可由独立expressions序列安排，未播放后缀可被打断取消。一次生成完整计划，本地不会为每段再调用模型。'
+    if action_sequence_context is not None and any('presentation_contract' in c.fields for c in original_packet.sections['form']):
+        core_text+='\n三条通道各自依次执行，彼此并行：actions是身体动作序列，speech是话语序列，expressions是可选表情序列。expressions格式为[{"expression":"happy","hold_ms":1200,"timing":null},{"expression":"normal","hold_ms":800,"timing":{"action_index":0,"phase":"end"}}]，最多4项，hold_ms为100到10000毫秒的本地表现时长。表情码从已有能力选择；timing同话语，可为空或引用动作开始/完成。每项同时等待自己通道的上一项完成，不要求其他通道同步结束。填写expressions时它独立控制表情，讲话不会重复覆盖它；省略则沿原expression字段。打断后实际进度与未执行计划分开，结合新交互重新选择下一段安排。'
+    if grouped_metadata:core_text+="\n记忆字段组在本卡内共享相同属性；每行按字段组参照继承该组字段，各次记忆的编号、时间与正文仍分别成立。"
+    if situated:
+        if interaction_mode=='contextual':
+            core_text=core_text.replace('以当前角色的身份，依据人物资料直接回应当前输入。',
+                '以当前角色的身份，依据人物资料、正式状态与已交付记忆，决定此刻想做或表达的内容。')
+            core_text=core_text.replace('当前输入是眼前正在回应的内容，已选表达资源给出本轮态度。',
+                '当前输入是本次新获得的情境事实，已选表达资源给出本轮态度。')
+            core_text=core_text.replace('回应的重点是对方本轮实际表达的问题或感受，态度体现在回应的语气里。',
+                '触发本轮的事件提供情境；表达主题结合角色自己的关注、既有意图与已交付记忆选择，可以继续自己的事、产生联想或保持安静。')
+            core_text=core_text.replace('speech表达当前回应','speech表达此刻自主选择的话语')
+            core_text+='\n本轮是情境触发的表达机会。对这件事的关注程度由人物、状态和记忆共同体现；speech可为null，actions可为空，已有的私有思绪通道仍按原可见性处理。'
+        else:
+            core_text+='\n本轮是用户直接与角色交互：围绕用户的问题或操作给予可感知的反馈，表情、动作和讲话沿本轮可用通道组织。'
+    if stationary_choice and action_sequence_context is not None:
+        core_text+='\n身体行动可选结果：保持当前姿态（actions: []），或从可用动作中安排活动。保持姿态时可以只说话、看着或听着，表情与视线仍独立选择；这是完整的本轮选择，身体沿当前持物状态及基础呼吸、眨眼表现。'
+    if layered:
+        from .persona_layout import core, project as layered_project
+        packet=layered_project(packet)
+        core_text=core(private=private_expression,sequence=action_sequence_context is not None,
+            expression=any('presentation_contract' in c.fields for c in original_packet.sections['form']),
+            mode=interaction_mode,idle=optional_idle)
+    if relation_delivery:
+        from .relationship_context import text as relationship_text
+        core_text+=relationship_text(relationship_context)
     cap = DEFAULT_PET_PROMPT_BUDGET_CHARS if budget_chars is None else budget_chars
+    if required_budget:
+        from .required_prompt import preserve_required
+        packet=preserve_required(packet,cap=cap,core_text=core_text)
     assembly=compose_responder_packet(packet,budget_chars=cap,return_assembly=True,core_text=core_text)
+    if input_layout_version is not None:assembly=place_current_input(assembly,packet)
+    if layered:
+        from .persona_layout import persona_first
+        assembly=persona_first(assembly,packet)
     delivered=tuple(item["card_id"] for item in assembly.delivered_materials)
     # These are already selected facts, not competing optional personality hints.
     # Never dispatch a degraded request that silently loses its character or intent.
@@ -137,13 +212,14 @@ def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body
         if lane in required_lanes for card in cards if card.card_id not in delivered]
     if missing:
         raise ValueError("required Writer materials excluded by prompt budget: " + ", ".join(missing))
-    record={"version":actual_version,"system":assembly.system,"user":assembly.user,
+    record={"version":actual_version,**({"interaction_mode":interaction_mode} if situated else {}),"system":assembly.system,"user":assembly.user,
         "budget_chars":assembly.budget_chars,"core_over_budget":assembly.core_over_budget,
         "packet_fingerprint":original_packet.packet_fingerprint,"prompt_fingerprint":assembly.prompt_fingerprint,
         "delivered_materials":assembly.delivered_materials,"rejected_materials":assembly.rejected_materials,
         "budget_overflow_materials":assembly.budget_overflow_materials,
         "memory_aliases":memory_aliases(packet,delivered),
         "expression_ids":[card.source_id for card in packet.sections["expression"] if card.card_id in delivered]}
+    if input_layout_version is not None:record["input_layout_version"]=input_layout_version
     if private_expression:record['private_expression_version']=codec.PRIVATE_EXPRESSION_VERSION
     if delivery_version in {READABLE_VERSION,MARKER_VERSION,EVIDENCE_VERSION,EVIDENCE_MARKER_VERSION}:
         record['rendered_packet_fingerprint']=assembly.source_packet_fingerprint
@@ -158,6 +234,7 @@ def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body
     if conversation_context:record['rendering_view_version']='desktop-pet-readable-card-view-v10-conversation-context'
     if shared_metadata:record['rendering_view_version']='desktop-pet-readable-card-view-v11-shared-memory-metadata'
     if continuity:record['rendering_view_version']='desktop-pet-readable-card-view-v12-typed-continuity'
+    if grouped_metadata:record['rendering_view_version']='desktop-pet-readable-card-view-v13-grouped-memory'
     if body_context is not None:
         if delivery_version not in {READABLE_VERSION,MARKER_VERSION,EVIDENCE_VERSION,EVIDENCE_MARKER_VERSION}:
             raise ValueError('selected body projection requires readable delivery')

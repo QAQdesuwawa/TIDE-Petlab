@@ -16,7 +16,7 @@ def request_for(app, event_id, *, private_thought=False):
     staged=staged_selection(selection)
     combined=staged or selection==select_idle(eligible=True,mode='play_tail_composite')
     key=selected_action(selection)
-    combined=combined or key=="move_near"
+    combined=combined or key in ('move_near','stroll','move_away','relocate')
     if key is None:
         raise ValueError('idle tick did not select this behavior')
     authorization = authorize(app, event_id)
@@ -28,7 +28,7 @@ def request_for(app, event_id, *, private_thought=False):
     if chosen is not None and selection.get('catalog_version') in AUDIENCE_CATALOG_VERSIONS:
         facts['meal_appearance_audience']=chosen['audience']
     scene=tick.row.get('scene_context') if tick is not None else None
-    if scene is not None and key=='move_near':
+    if scene is not None and key in ('move_near','stroll','move_away','relocate'):
         from model_packages.desktop_pet_v1 import spatial
         scene=spatial.validate(scene)
         if scene['owner_ref']!=app.owner_ref:raise ValueError('movement scene belongs to another actor')
@@ -116,6 +116,27 @@ def prepare(product, event_id, *, private_thought=None):
                 'candidate':candidate.to_record()},stream,ensure_ascii=False)
     return PreparedExecution(position=app.runtime.session.position,scope_ref=app.definition.scope_ref,
         authorization=authorization,request=request,attempt=attempt,candidate=candidate)
+
+
+def restore_admitted(product,source,*,position):
+    from framework.action_protocol import ActionAuthorization
+    raw=source['request'];auth=source['local_authorization']
+    request=RealizerRequest(**{**raw,'control':freeze_model_payload(raw['control']),
+        'readonly_facts':freeze_model_payload(raw['readonly_facts'])})
+    authorization=ActionAuthorization(**{**auth,
+        'package_eligibility_evidence':freeze_model_payload(auth['package_eligibility_evidence']),
+        'host_authorization_evidence':freeze_model_payload(auth['host_authorization_evidence'])})
+    record=json.loads((product.gateway.trace_dir/('behavior-'+request.fingerprint+'.json')).read_text(encoding='utf8'))
+    if record['request']!=request.to_record():raise ValueError('sealed local request differs')
+    prepared=PreparedExecution(position=position,scope_ref=source['scope_ref'],authorization=authorization,
+        request=request,attempt=RealizerAttempt(**{**record['attempt'],
+            'invocation_evidence':freeze_model_payload(record['attempt']['invocation_evidence'])}),
+        candidate=RealizerCandidate(**{**record['candidate'],
+            'candidate_payload':freeze_model_payload(record['candidate']['candidate_payload']),
+            'realization_evidence':freeze_model_payload(record['candidate']['realization_evidence'])}))
+    prepared.validate(binding=product.application.runtime.session.session_binding,
+        owner_ref=product.application.owner_ref,user_ref=authorization.target_ref)
+    return prepared
 
 
 def verify(product, prepared, source):

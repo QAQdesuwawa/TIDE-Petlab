@@ -11,10 +11,7 @@ venv/
 .coverage
 htmlcov/
 
-# 本地探针、导出与可再生成的论文 release 不属于 TIDE 实现快照
 tmp/
-TIDE_AAMAS_CN_LaTeX_v1_4_release/
-TIDE_AAMAS_CN_LaTeX_v1_4_release.zip
 
 # PetLab local runtime
 .tmp/

@@ -17,7 +17,8 @@ def execute_staged(product,event_id,prepared,parent_id,contents,executor,is_canc
     private=prepared.request.control.get('staged_version')=='desktop-pet-staged-v2-private-thought'
     slots={'speech':slot}
     if private:slots['thought']=prepared.candidate.candidate_payload['late_speech']['thought_content_id']
-    source={'prepared_fingerprint':prepared.fingerprint,'request':prepared.request.to_record(),'source_event_id':event_id}
+    from .composite_execution import source_for
+    source=source_for(prepared)
     journal=ParentJournal(product.gateway.trace_dir/'parents',parent_id)
     state=journal.state()
     if 'plan' in state:raise ExecutionUncertain('staged parent already exists; resume sealed execution')

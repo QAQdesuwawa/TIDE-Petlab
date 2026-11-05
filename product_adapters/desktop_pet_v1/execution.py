@@ -16,6 +16,13 @@ class ExecutionCancelled(RuntimeError):
     """Executor confirms cancellation before any physical effect."""
 
 
+class ExecutionBlocked(ExecutionCancelled):
+    """Zero physical effect, with an actual host-observed obstruction."""
+    def __init__(self, observation):
+        self.observation = thaw_model_data(observation)
+        super().__init__('movement destination occupied before first frame')
+
+
 class ExecutionUncertain(RuntimeError):
     """External effects need reconciliation; repeating them is not permitted."""
 
@@ -67,15 +74,30 @@ class PreparedExecution:
         # Request/candidate payloads are immutable. Parse the same sealed
         # declaration once; final source and cancellation guards stay live.
         from model_packages.desktop_pet_v1.composite import CompositePlan
+        payload=self.candidate.candidate_payload
+        if self.request.control.get('audience_contract'):
+            from .audience_delivery import canonical_payload
+            payload=canonical_payload(self.request,payload)
+        if self.request.control.get('whisper_contract'):
+            from model_packages.desktop_pet_v1.whisper import verify
+            return verify(self.request,payload)
         if 'action_sequence_contract' in self.request.control:
             from model_packages.desktop_pet_v1.action_sequence import validate_candidate
-            return validate_candidate(self.request,self.candidate.candidate_payload)
+            plan=validate_candidate(self.request,payload)
+            if self.request.control.get('audience_motion_contract'):
+                return CompositePlan.create(self.candidate.candidate_payload['audience_plan'])
+            return plan
         declaration=self.request.control.get('composite')
-        if declaration is None:return None
+        if declaration is None:
+            if self.request.control.get('audience_motion_contract'):
+                return CompositePlan.create(self.candidate.candidate_payload['audience_plan'])
+            return None
         if not isinstance(declaration,Mapping) or set(declaration)!={'version','children'}:
             raise ValueError('invalid composite declaration')
         plan=CompositePlan.create(declaration['children'])
         if declaration['version']!=plan.version:raise ValueError('composite version differs from child contract')
+        if self.request.control.get('audience_motion_contract'):
+            return CompositePlan.create(self.candidate.candidate_payload['audience_plan'])
         return plan
 
     def validate(self, *, binding, owner_ref, user_ref):
@@ -93,18 +115,25 @@ class PreparedExecution:
         if not isinstance(self.scope_ref, str) or not self.scope_ref:
             raise ValueError("execution scope is missing")
         payload = self.candidate.candidate_payload
+        audience_contract=bool(self.request.control.get('audience_contract'))
+        if audience_contract:
+            from .audience_delivery import canonical_payload
+            canonical_payload(self.request,payload)
+            payload={k:v for k,v in payload.items() if k not in {'audience','audience_plan'}}
         private_staged=self.request.control.get('staged_version')=='desktop-pet-staged-v2-private-thought'
         staged=private_staged or self.request.control.get('staged_version')=='desktop-pet-staged-v1'
         if 'staged_version' in self.request.control and not staged:raise ValueError('unknown staged execution version')
         sequence='action_sequence_contract' in self.request.control
         if staged and sequence:raise ValueError('sequence is already sealed; staged speech is incompatible')
-        if set(payload) != ({'contents','action_sequence'} if sequence else {'contents','late_speech'} if staged else {"contents"}) or not isinstance(payload["contents"], (tuple, list)) or not payload["contents"]:
+        whisper=bool(self.request.control.get('whisper_contract'))
+        if set(payload) != (({'contents','action_sequence'} if sequence else {'contents','late_speech'} if staged else {"contents"})|({'whisper_plan'} if whisper else set())) or not isinstance(payload["contents"], (tuple, list)) or not payload["contents"]:
             raise ValueError("candidate requires the unified content contract")
         contents = tuple(Content.from_record(record) for record in payload["contents"])
         if len({item.content_id for item in contents}) != len(contents):
             raise ValueError("candidate content identities are duplicated")
         allowed={"speech", "action"}
-        if sequence or 'composite' in self.request.control:
+        audience_motion=bool(self.request.control.get('audience_motion_contract'))
+        if sequence or whisper or audience_motion or 'composite' in self.request.control:
             from model_packages.desktop_pet_v1.composite import CompositePlan
             composite=self.composite_plan()
             if staged:
@@ -126,7 +155,7 @@ class PreparedExecution:
             if item.kind=='thought':
                 if item.recipient_refs!=(owner_ref,) or self.request.control.get('allow_thought') is not True:
                     raise ValueError('thought requires explicit permission and exact owner-only visibility')
-            elif user_ref not in item.recipient_refs:
+            elif not audience_contract and user_ref not in item.recipient_refs:
                 raise ValueError('external candidate includes non-deliverable content')
         from model_packages.desktop_pet_v1 import spatial
         for item in contents:
@@ -139,7 +168,7 @@ class PreparedExecution:
         # from the frozen authorized catalog and compared exact contents.
         # Writer intent keys need not include locally compiled approach steps.
         keys = ([row['key'] for row in composite.children.values() if row['kind']=='action']
-                if sequence else self.request.control.get("selected_action_keys", ()))
+                if sequence or whisper or audience_motion else self.request.control.get("selected_action_keys", ()))
         if not isinstance(keys, (tuple, list)) or any(not isinstance(key, str) or not key for key in keys):
             raise ValueError("selected action contract is invalid")
         if Counter(item.semantic_key for item in contents if item.kind == "action") != Counter(keys):

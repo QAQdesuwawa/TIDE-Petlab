@@ -1,0 +1,232 @@
+{
+  "version": "petlab-face-expression-assets-v2",
+  "image": "expressions-original-v1.png",
+  "image_sha256": "2a3efa9eb037074cd026914ee7c1048da8cfbe7bf6de108a99ca84f408613d35",
+  "grid": {
+    "columns": 3,
+    "rows": 2,
+    "cell_width": 512,
+    "cell_height": 512
+  },
+  "codes": {
+    "normal": 0,
+    "happy": 1,
+    "sad": 2,
+    "aggrieved": 3,
+    "angry": 4
+  },
+  "neutral_blink_frame": 5,
+  "source_face_box": [
+    0.36,
+    0.3,
+    0.64,
+    0.47
+  ],
+  "idle_face_box": [
+    0.36,
+    0.33,
+    0.64,
+    0.5
+  ],
+  "drag_face_box": [
+    0.35,
+    0.32,
+    0.62,
+    0.46
+  ],
+  "references": [
+    {
+      "file": "chibi-reference.jpg",
+      "sha256": "e2653e1518460ea4db71613e717d10eeff199c70a4585b5d5ff50034eccf7338",
+      "original_upload_filename": "6257211c4ca0f0f8dde0270df91701ee.jpg",
+      "origin": "existing original upload archive; visually verified against conversation attachments",
+      "original_temp_path_available": false
+    },
+    {
+      "file": "palette-reference.jpg",
+      "sha256": "97edbf6410293b78ad14a724ab9367b07fd6f4fd134e398126feee18740e1f2c",
+      "original_upload_filename": "0dbe7581c5a77236b3cce3b9769b16a7.jpg",
+      "origin": "existing original upload archive; visually verified against conversation attachments",
+      "original_temp_path_available": false
+    }
+  ],
+  "generation_source": "original-user-images-only",
+  "blend": "face-region-only-at-render-time-no-asset-rewrite",
+  "frame_transforms": [
+    {
+      "target_box": [
+        0.36,
+        0.33,
+        0.64,
+        0.5
+      ],
+      "rotation_degrees": -5
+    },
+    {
+      "target_box": [
+        0.3485309,
+        0.3280682,
+        0.6348945,
+        0.5019318
+      ],
+      "rotation_degrees": -4
+    },
+    {
+      "target_box": [
+        0.3481115,
+        0.3261364,
+        0.6408388,
+        0.5038636
+      ],
+      "rotation_degrees": -3
+    },
+    {
+      "target_box": [
+        0.3544751,
+        0.33,
+        0.6344751,
+        0.5
+      ],
+      "rotation_degrees": -4
+    },
+    {
+      "target_box": [
+        0.3718885,
+        0.3228139,
+        0.6391612,
+        0.4850866
+      ],
+      "rotation_degrees": -4
+    },
+    {
+      "target_box": [
+        0.3481115,
+        0.3150866,
+        0.6408388,
+        0.4928139
+      ],
+      "rotation_degrees": -8
+    },
+    {
+      "target_box": [
+        0.3553139,
+        0.3228139,
+        0.6225866,
+        0.4850866
+      ],
+      "rotation_degrees": 2
+    },
+    {
+      "target_box": [
+        0.3655249,
+        0.3189503,
+        0.6455249,
+        0.4889503
+      ],
+      "rotation_degrees": -8
+    },
+    {
+      "target_box": [
+        0.3489503,
+        0.4073481,
+        0.6289503,
+        0.5773481
+      ],
+      "rotation_degrees": -6
+    },
+    {
+      "target_box": [
+        0.3544751,
+        0.2526519,
+        0.6344751,
+        0.4226519
+      ],
+      "rotation_degrees": -6
+    },
+    {
+      "target_box": [
+        0.3438448,
+        0.365081,
+        0.6174812,
+        0.5312174
+      ],
+      "rotation_degrees": -8
+    },
+    {
+      "target_box": [
+        0.3655249,
+        0.3079006,
+        0.6455249,
+        0.4779006
+      ],
+      "rotation_degrees": -4
+    },
+    {
+      "target_box": [
+        0.35,
+        0.32,
+        0.62,
+        0.46
+      ],
+      "rotation_degrees": -3
+    },
+    {
+      "target_box": [
+        0.35,
+        0.3255249,
+        0.62,
+        0.4655249
+      ],
+      "rotation_degrees": 4
+    },
+    {
+      "target_box": [
+        0.35,
+        0.3310497,
+        0.62,
+        0.4710497
+      ],
+      "rotation_degrees": 7
+    },
+    {
+      "target_box": [
+        0.3605195,
+        0.3182927,
+        0.6371048,
+        0.4617073
+      ],
+      "rotation_degrees": 2
+    },
+    {
+      "target_box": [
+        0.35,
+        0.3144751,
+        0.62,
+        0.4544751
+      ],
+      "rotation_degrees": -5
+    },
+    {
+      "target_box": [
+        0.35,
+        0.32,
+        0.62,
+        0.46
+      ],
+      "rotation_degrees": -3
+    }
+  ],
+  "animation_sources": [
+    {
+      "image": "sprites.png",
+      "sha256": "7d7bdbdf87fb76496a790361c24e403d9320010e324bfb37b2c242498fc6af5d",
+      "frame_count": 12
+    },
+    {
+      "image": "drag-feedback-v5.png",
+      "sha256": "51e72ccfef4a192ed4ae97a0f9c4b8369986e626c54b5ca44df8a342789c49df",
+      "frame_count": 6
+    }
+  ],
+  "registration_note": "Per-frame graphical registration only; bound to actual animation atlas bytes, not mood/state."
+}

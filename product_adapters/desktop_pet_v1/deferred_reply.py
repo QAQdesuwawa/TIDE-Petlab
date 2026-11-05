@@ -15,6 +15,10 @@ def needed(app,event_id):
 
 
 def authorize(app,event_id):
+    source=app._product()['sources'][event_id]
+    if source['origin']=='input' and source['evidence'].get('response_policy')=='eligible':
+        from petlab_app.intention_continuation import authorize as authorize_intention
+        return authorize_intention(app,event_id)
     lifecycle=PetExpressionService(application=app).project(event_id,historical=True)
     proof=authorize_required_product_reply(lifecycle)
     memory=app.runtime.memory_instance(event_id)
@@ -56,7 +60,8 @@ def verify_delivery(app,delivery):
     delivery=thaw_model_data(delivery)
     memory=app.runtime.memory_instance(delivery['event_id']);app._verify_source(memory.event)
     source=app._product(source_id=memory.event.event_id)['sources'][memory.event.event_id]
-    if (source['origin']!='input' or source['evidence'].get('response_policy')!='required'
+    private_continuation=delivery.get('intention_continuation_version')=='cx67-intention-continuation-v1'
+    if (source['origin']!='input' or source['evidence'].get('response_policy')!=('eligible' if private_continuation else 'required')
             or delivery['source_binding_ref']!=memory.event.source_binding_ref
             or delivery['source_acceptance_fingerprint']!=memory.fact.settlement_ref['acceptance_fingerprint']):
         raise ValueError('deferred delivery differs from original required input')
@@ -68,6 +73,12 @@ def verify_delivery(app,delivery):
             or thaw_model_data(projection.semantic_resource_execution.payload)!=delivery['semantic_payload']):
         raise ValueError('deferred delivery differs from accepted planning projection')
     position=view['acceptance']['position']
+    if private_continuation:
+        from petlab_app.intention_continuation import validate_planning
+        planned=validate_planning(app,delivery['event_id'],projection.context.event_ref)
+        if (planned.fact.accepted_runtime_ordinal!=position['runtime_ordinal']
+                or planned.fact.temporal_position_fingerprint!=position['position']['fingerprint']):
+            raise ValueError('intention delivery planning position differs')
     if position['runtime_ordinal']<=memory.fact.accepted_runtime_ordinal:
         raise ValueError('deferred planning does not follow original input')
     return position['runtime_ordinal'],position['position']['fingerprint']

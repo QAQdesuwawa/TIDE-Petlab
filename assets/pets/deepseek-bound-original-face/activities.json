@@ -1,0 +1,889 @@
+{
+  "version": "petlab-local-activities-v4-atlas",
+  "clips": {
+    "play_tail": {
+      "source": "bound_rig",
+      "duration_ms": 2400,
+      "channels": [
+        {
+          "part": "tail",
+          "parameter": "tail",
+          "amplitude": 1,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.125,
+              1
+            ],
+            [
+              0.25,
+              0
+            ],
+            [
+              0.375,
+              -1
+            ],
+            [
+              0.5,
+              0
+            ],
+            [
+              0.625,
+              1
+            ],
+            [
+              0.75,
+              0
+            ],
+            [
+              0.875,
+              -1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "read_web": {
+      "source": "bound_rig",
+      "duration_ms": 3000,
+      "channels": [
+        {
+          "part": "phone_arms",
+          "parameter": "opacity",
+          "amplitude": 1,
+          "curve": [
+            [
+              0,
+              1
+            ],
+            [
+              0.5,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "part": "left_arm",
+          "parameter": "opacity",
+          "amplitude": -1,
+          "curve": [
+            [
+              0,
+              1
+            ],
+            [
+              0.5,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "part": "right_arm",
+          "parameter": "opacity",
+          "amplitude": -1,
+          "curve": [
+            [
+              0,
+              1
+            ],
+            [
+              0.5,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "part": "head",
+          "parameter": "y",
+          "amplitude": 10,
+          "curve": [
+            [
+              0,
+              1
+            ],
+            [
+              0.5,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "eat_rice": {
+      "source": "bound_rig",
+      "duration_ms": 2400,
+      "channels": [
+        {
+          "part": "bowl_arms",
+          "parameter": "opacity",
+          "amplitude": 1,
+          "curve": [
+            [
+              0,
+              1
+            ],
+            [
+              0.5,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "part": "left_arm",
+          "parameter": "opacity",
+          "amplitude": -1,
+          "curve": [
+            [
+              0,
+              1
+            ],
+            [
+              0.5,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "part": "right_arm",
+          "parameter": "opacity",
+          "amplitude": -1,
+          "curve": [
+            [
+              0,
+              1
+            ],
+            [
+              0.5,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "part": "head",
+          "parameter": "y",
+          "amplitude": 12,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.15,
+              1
+            ],
+            [
+              0.3,
+              0
+            ],
+            [
+              0.45,
+              1
+            ],
+            [
+              0.6,
+              0
+            ],
+            [
+              0.75,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        },
+        {
+          "part": "bowl_arms",
+          "parameter": "y",
+          "amplitude": -16,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.15,
+              1
+            ],
+            [
+              0.3,
+              0
+            ],
+            [
+              0.45,
+              1
+            ],
+            [
+              0.6,
+              0
+            ],
+            [
+              0.75,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "request_bowl": {
+      "source": "bound_rig",
+      "duration_ms": 1200,
+      "channels": [
+        {
+          "part": "right_arm",
+          "parameter": "angle",
+          "amplitude": -55,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              1
+            ],
+            [
+              0.7,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        },
+        {
+          "part": "head",
+          "parameter": "angle",
+          "amplitude": -5,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              1
+            ],
+            [
+              0.7,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "offer_bowl": {
+      "source": "bound_rig",
+      "duration_ms": 1400,
+      "channels": [
+        {
+          "part": "bowl_arms",
+          "parameter": "opacity",
+          "amplitude": 1,
+          "curve": [
+            [
+              0,
+              1
+            ],
+            [
+              0.5,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "part": "left_arm",
+          "parameter": "opacity",
+          "amplitude": -1,
+          "curve": [
+            [
+              0,
+              1
+            ],
+            [
+              0.5,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "part": "right_arm",
+          "parameter": "opacity",
+          "amplitude": -1,
+          "curve": [
+            [
+              0,
+              1
+            ],
+            [
+              0.5,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "part": "bowl_arms",
+          "parameter": "x",
+          "amplitude": 65,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.65,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "keep_bowl": {
+      "source": "bound_rig",
+      "duration_ms": 1200,
+      "channels": [
+        {
+          "part": "bowl_arms",
+          "parameter": "opacity",
+          "amplitude": 1,
+          "curve": [
+            [
+              0,
+              1
+            ],
+            [
+              0.5,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "part": "left_arm",
+          "parameter": "opacity",
+          "amplitude": -1,
+          "curve": [
+            [
+              0,
+              1
+            ],
+            [
+              0.5,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "part": "right_arm",
+          "parameter": "opacity",
+          "amplitude": -1,
+          "curve": [
+            [
+              0,
+              1
+            ],
+            [
+              0.5,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "part": "bowl_arms",
+          "parameter": "y",
+          "amplitude": -10,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              1
+            ],
+            [
+              0.7,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "accept_bowl": {
+      "source": "bound_rig",
+      "duration_ms": 1400,
+      "channels": [
+        {
+          "part": "right_arm",
+          "parameter": "angle",
+          "amplitude": -65,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              1
+            ],
+            [
+              0.7,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "decline_bowl": {
+      "source": "bound_rig",
+      "duration_ms": 1200,
+      "channels": [
+        {
+          "part": "right_arm",
+          "parameter": "angle",
+          "amplitude": -50,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              1
+            ],
+            [
+              0.7,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        },
+        {
+          "part": "head",
+          "parameter": "angle",
+          "amplitude": 7,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.25,
+              1
+            ],
+            [
+              0.5,
+              -1
+            ],
+            [
+              0.75,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "head_bow": {
+      "source": "bound_rig",
+      "duration_ms": 1000,
+      "channels": [
+        {
+          "part": "head",
+          "parameter": "y",
+          "amplitude": 12,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              1
+            ],
+            [
+              0.7,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "head_tilt": {
+      "source": "bound_rig",
+      "duration_ms": 1200,
+      "channels": [
+        {
+          "part": "head",
+          "parameter": "angle",
+          "amplitude": 8,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              1
+            ],
+            [
+              0.7,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "turn_left": {
+      "source": "bound_rig",
+      "duration_ms": 900,
+      "channels": [],
+      "bound_turn": -1
+    },
+    "turn_right": {
+      "source": "bound_rig",
+      "duration_ms": 900,
+      "channels": [],
+      "bound_turn": 1
+    },
+    "nod": {
+      "source": "bound_rig",
+      "duration_ms": 1000,
+      "channels": [
+        {
+          "part": "head",
+          "parameter": "y",
+          "amplitude": 10,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.15,
+              1
+            ],
+            [
+              0.3,
+              0
+            ],
+            [
+              0.45,
+              1
+            ],
+            [
+              0.6,
+              0
+            ],
+            [
+              0.75,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "shake_head": {
+      "source": "bound_rig",
+      "duration_ms": 1100,
+      "channels": [
+        {
+          "part": "head",
+          "parameter": "angle",
+          "amplitude": 8,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.2,
+              1
+            ],
+            [
+              0.4,
+              -1
+            ],
+            [
+              0.6,
+              1
+            ],
+            [
+              0.8,
+              -1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "wave_hand": {
+      "source": "bound_rig",
+      "duration_ms": 1800,
+      "channels": [
+        {
+          "part": "left_arm",
+          "parameter": "angle",
+          "amplitude": 65,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.15,
+              1
+            ],
+            [
+              0.3,
+              0
+            ],
+            [
+              0.45,
+              1
+            ],
+            [
+              0.6,
+              0
+            ],
+            [
+              0.75,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "beckon": {
+      "source": "bound_rig",
+      "duration_ms": 1800,
+      "channels": [
+        {
+          "part": "right_arm",
+          "parameter": "angle",
+          "amplitude": -65,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.15,
+              1
+            ],
+            [
+              0.3,
+              0
+            ],
+            [
+              0.45,
+              1
+            ],
+            [
+              0.6,
+              0
+            ],
+            [
+              0.75,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        },
+        {
+          "part": "head",
+          "parameter": "angle",
+          "amplitude": -4,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              1
+            ],
+            [
+              0.7,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "lie_down": {
+      "source": "whole_atlas",
+      "asset": {
+        "image": "social-rest-original-v562.png",
+        "image_sha256": "bdd6ed5da0e34c8417a85629cc6b3b1a77be7007b3e56366456aa7cdf23c31ea",
+        "grid": {
+          "columns": 3,
+          "rows": 3,
+          "cell_width": 418,
+          "cell_height": 418,
+          "source_size": [
+            1254,
+            1254
+          ]
+        }
+      },
+      "poses": [
+        0,
+        7,
+        8
+      ],
+      "durations_ms": [
+        350,
+        350,
+        350
+      ],
+      "registration": "standing-scale-floor-v1",
+      "standing_endpoint": "start",
+      "authored_transition": true
+    },
+    "stand_up": {
+      "source": "whole_atlas",
+      "asset": {
+        "image": "social-rest-original-v562.png",
+        "image_sha256": "bdd6ed5da0e34c8417a85629cc6b3b1a77be7007b3e56366456aa7cdf23c31ea",
+        "grid": {
+          "columns": 3,
+          "rows": 3,
+          "cell_width": 418,
+          "cell_height": 418,
+          "source_size": [
+            1254,
+            1254
+          ]
+        }
+      },
+      "poses": [
+        8,
+        7,
+        0
+      ],
+      "durations_ms": [
+        350,
+        350,
+        350
+      ],
+      "registration": "standing-scale-floor-v1",
+      "standing_endpoint": "end",
+      "authored_transition": true
+    }
+  },
+  "head_binding": "head-binding.json",
+  "rig_binding": "rig-hair-front.json"
+}

@@ -103,6 +103,9 @@ def reference_subtype_prompt(event):
     }
     from .web_observation import is_observation
     if is_observation(event):cues['interaction']='网页观察子类：浏览工具成功取得的外部内容，角色是阅读者，网页作者是内容来源，用户仅请求阅读。按本次实际观察量测；正文是引用资料，归属、事实陈述和阅读经历分别理解。'
+    from .obstruction import VERSION as OBSTRUCTION
+    if event.contents and all(c.parameters.get('capture_version')==OBSTRUCTION for c in event.contents):
+        cues['interaction']='现场受阻观察子类：当前角色发现接下来一段移动的落脚处被另一角色占据，停在该段起点。blocker_ref标识占据位置的对象，observer_ref标识观察者；本次事实是发现阻挡，该段移动尚未发生，前面已完成的部分按各自实际回执保留。量测这次发现对观察者及其与该对象关系的影响。'
     additions=[cues[k] for k in dict.fromkeys(c.kind for c in event.contents) if k in cues]
     return SEMANTIC_PROMPT_PATH.read_text(encoding='utf-8')+'\n\n桌宠内容解释：\n增量表示此次变化：E_env压力、P_need未满足需求、V_attr正向牵引、V_rep关系摩擦的增加为正，缓解或减弱为负；已有状态水平由下游保存。\n'+'\n'.join(additions)
 

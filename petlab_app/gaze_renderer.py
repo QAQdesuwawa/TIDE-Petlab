@@ -42,5 +42,8 @@ class GazeRenderer:
      a,b,c,d=(ay*w+ax)*4,(ay*w+bx)*4,(by*w+ax)*4,(by*w+bx)*4;target=(y*w+x)*4
      for ch in range(4):data[target+ch]=round((frame.bgra[a+ch]*(1-fx)+frame.bgra[b+ch]*fx)*(1-fy)+(frame.bgra[c+ch]*(1-fx)+frame.bgra[d+ch]*fx)*fy)
   result=AlphaFrame(w,h,bytes(data));self.cache[key]=(frame,result)
-  while len(self.cache)>64:self.cache.popitem(last=False)
+  # Local rig materials can be much larger than a displayed sprite. Retaining
+  # 64 complete 512px source/result pairs per pet would grow the display cache.
+  while len(self.cache)>64 or sum((a.width*a.height+b.width*b.height)*4 for a,b in self.cache.values())>8*1024*1024:
+   self.cache.popitem(last=False)
   return result

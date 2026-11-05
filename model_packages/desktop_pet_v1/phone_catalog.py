@@ -1,4 +1,4 @@
-"""Optional phone binding over existing published tokens, not new state math."""
+"""Optional phone capability; token conditions are legacy v1 replay metadata."""
 from copy import deepcopy
 from .action_candidates import CATALOG
 from .web_activity import content

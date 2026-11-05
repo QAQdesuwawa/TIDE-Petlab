@@ -23,7 +23,7 @@ class CompositePlan:
         if not isinstance(self.children,Mapping) or not self.children:
             raise ValueError('composite needs children')
         sequence=any(isinstance(r,Mapping) and 'after' in r for r in self.children.values())
-        if sequence and len(self.children)>16:raise ValueError('sequence exceeds bounded child capacity')
+        if sequence and len(self.children)>20:raise ValueError('sequence exceeds bounded child capacity')
         channels=set()
         for identity,row in self.children.items():
             if not isinstance(identity,str) or not identity.strip():
@@ -33,7 +33,7 @@ class CompositePlan:
             kind,key=row['kind'],row['key']
             if kind not in {'action','expression','speech','thought'} or not isinstance(key,str) or not key:
                 raise ValueError('invalid child channel or key')
-            if kind in channels and not (sequence and kind=='action'):raise ValueError('channel already occupied')
+            if kind in channels and not (sequence and kind in {'action','speech','expression'}):raise ValueError('channel already occupied')
             if kind=='expression' and key not in (*CODES,'selected_presentation'):raise ValueError('unknown expression')
             channels.add(kind)
             if sequence:
@@ -55,6 +55,16 @@ class CompositePlan:
                 for right in bodies[i+1:]:
                     if left not in ancestors[right] and right not in ancestors[left]:
                         raise ValueError('whole-body actions require an execution order')
+            voices=[k for k,r in self.children.items() if r['kind']=='speech']
+            for i,left in enumerate(voices):
+                for right in voices[i+1:]:
+                    if left not in ancestors[right] and right not in ancestors[left]:
+                        raise ValueError('speech segments require an execution order')
+        if sequence:
+            faces=[k for k,r in self.children.items() if r['kind']=='expression']
+            for i,left in enumerate(faces):
+                for right in faces[i+1:]:
+                    if left not in ancestors[right] and right not in ancestors[left]:raise ValueError('expression segments require an execution order')
         object.__setattr__(self,'children',freeze_model_payload(self.children))
 
     @classmethod
@@ -114,10 +124,10 @@ class ChildResult:
             raise ValueError('actual effect requires start evidence')
         if self.status in {'cancelled','failed'} and self.started_at_ms is not None:
             raise ValueError('partial actual effects require interrupted result')
-        if self.reason not in {None,'user_contact','source_expired','technical_failure','window_closed','unknown','no_speech_selected','no_content_selected'}:
+        if self.reason not in {None,'user_contact','source_expired','technical_failure','window_closed','physical_contact','destination_occupied','unknown','no_speech_selected','no_content_selected'}:
             raise ValueError('unknown interruption reason')
         if self.status!='completed' and self.reason is None:raise ValueError('termination reason required')
-        if self.reason in {'user_contact','source_expired'} and not self.cause_ref:
+        if self.reason in {'user_contact','source_expired','physical_contact','destination_occupied'} and not self.cause_ref:
             raise ValueError('causal source required')
         if self.cause_ref is not None and (not isinstance(self.cause_ref,str) or not self.cause_ref.strip()):
             raise ValueError('invalid causal source')

@@ -34,7 +34,9 @@ class DisclosureAwareMultiPetPackage(MultiPetPackage):
   state=payload['state'];peer,_=self._selected(state,context)
   if scope['primary']!=peer or not scope['content_ids'] or len(scope['peers'])!=len(set(scope['peers'])) or peer in scope['peers'] or self.owner_ref in scope['peers']:
    raise ValueError('public disclosure recipients differ from primary')
-  progressed=self._progress(payload['progress_contribution'],state,peer)['relations_after']
+  progress=payload.get('progress_contribution')
+  progressed=(self._progress(progress,state,peer)['relations_after'] if progress is not None
+              else thaw_model_data(state[META]['roots_by_peer']))
   # This is the same measured public episode, not the primary relation's level
   # or actual delta, and never its other five psychological effects.
   measurement=thaw_model_data(payload['measurement'])

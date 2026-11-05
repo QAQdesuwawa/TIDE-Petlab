@@ -25,16 +25,16 @@ def validate(value,root):
 
 
 def embed(frame,size,offset):
- w,h=size;dx,dy=offset;data=bytearray(w*h*4)
+ w,h=size;dx,dy=offset;data=bytearray(w*h*4);pixels=frame.bgra
  x0=max(0,dx);x1=min(w,dx+frame.width)
  for y in range(max(0,dy),min(h,dy+frame.height)):
   start=((y-dy)*frame.width+x0-dx)*4;end=start+(x1-x0)*4
-  data[(y*w+x0)*4:(y*w+x1)*4]=frame.bgra[start:end]
+  data[(y*w+x0)*4:(y*w+x1)*4]=pixels[start:end]
  return AlphaFrame(w,h,bytes(data))
 
 
 class FacingAssets:
- def __init__(self,asset_dir,base_size):
+ def __init__(self,asset_dir,base_size,*,eager_cycles=True):
   root=Path(asset_dir);path=root/'facing.json';self.available=False;self.base_size=base_size;self.size=base_size;self.front_offset=(0,0);self.cache=OrderedDict()
   self.profiles={};self.body_maps={}
   if not path.exists():return
@@ -45,7 +45,6 @@ class FacingAssets:
   self.source_size=tuple(round(v*self.value['profile_scale']) for v in base_size)
   target=tuple(round(v*base_size[i]/512) for i,v in enumerate(self.value['target_anchor']))
   walk=json.loads((root/'walk.json').read_text(encoding='utf8'))
-  from .frame_cache import cached_frames
   from .body_regions import BodyRegionMap
   implementation=hashlib.sha256(Path(__file__).read_bytes()+Path(__file__).with_name('walk_renderer.py').read_bytes()).hexdigest()
   for side,direction in (('left',-1),('right',1)):
@@ -59,13 +58,22 @@ class FacingAssets:
     def box(b):return [max(0,min(.999,v+(tx if i%2==0 else ty))) for i,v in enumerate(b)]
     config={**walk,'feet':[box(b) for b in row['feet']],'tail':box(row['tail']),'tail_origin':'right' if side=='right' else 'left'}
     cached={**config,'frame_count':config['frame_count']*2,'phase_count':config['frame_count'],'implementation':implementation,'asset':row['image_sha256'],'code':code}
-    gait=cached_frames('target-facing-gait',source,cached,lambda source=source,config=config:_poses(source,config))
-    start=0 if direction<0 else config['frame_count'];gait=gait[start:start+config['frame_count']]
     idle_config={**config,'frame_count':24,'foot_sway_px':0,'foot_lift_px':0,'body_bob_px':0,'tail_sway_px':3}
-    idle=cached_frames('target-facing-idle',source,{**idle_config,'implementation':implementation},lambda source=source,config=idle_config:tuple(_local_cycle(source,config)))
-    group[code]={'gait':tuple(embed(f,self.size,offset) for f in gait),'idle':tuple(embed(f,self.size,offset) for f in idle),
+    group[code]={
+     'cycle_recipe':(cached,idle_config,implementation,direction),
      'offset':offset,'source':source,'config':config,'index':index,'eyes':[box(b) for b in row['eye_regions']],'body':body}
+    if eager_cycles:self._prepare_cycles(group[code])
    self.profiles[direction]=group
+ def _prepare_cycles(self,row):
+  if 'gait' in row:return
+  from .frame_cache import cached_frames
+  cached,idle_config,implementation,direction=row['cycle_recipe']
+  source=row['source'];config=row['config'];offset=row['offset']
+  gait=cached_frames('target-facing-gait',source,cached,lambda:_poses(source,config))
+  start=0 if direction<0 else config['frame_count'];gait=gait[start:start+config['frame_count']]
+  idle=cached_frames('target-facing-idle',source,{**idle_config,'implementation':implementation},lambda:tuple(_local_cycle(source,idle_config)))
+  row['gait']=tuple(embed(f,self.size,offset) for f in gait)
+  row['idle']=tuple(embed(f,self.size,offset) for f in idle)
  def front(self,frame):
   if not self.available:return frame
   key=id(frame)
@@ -76,6 +84,7 @@ class FacingAssets:
   return result
  def frame(self,code,direction,*,phase=None,rest_phase=0):
   row=self.profiles[direction][code]
+  self._prepare_cycles(row)
   return row['idle'][rest_phase%24] if phase is None else row['gait'][phase%len(row['gait'])]
  def gaze_layout(self,code,direction,*,phase=None,front_shift=(0,0),front_regions=None):
   if direction==0:
@@ -92,3 +101,11 @@ class FacingAssets:
    sx,sy=pose_shift(row['config'],phase,direction,self.source_size);ox+=sx;oy+=sy
   return row['body'].hit(frame_index=row['index'],x=x-ox,y=y-oy,width=self.source_size[0],height=self.source_size[1],
    is_opaque=lambda px,py:is_opaque(px+ox,py+oy))
+
+
+def turn_frame(assets,front,code,origin,destination,progress):
+ """One pose phase, evaluated with current expression on both endpoints."""
+ from .pose_transition import morph
+ start=assets.frame(code,origin,rest_phase=0) if origin else assets.front(front)
+ end=assets.frame(code,destination,rest_phase=0)
+ return morph(start,end,progress)

@@ -84,17 +84,24 @@ def source(app,event_id,*,current=False):
     due=app.runtime.temporal_runtime.prove_observation_due(target,position.position)
     if (target.to_record()!=row['plan']['target'] or not due.due
             or due.fingerprint!=grant.authorization.observation_due_fingerprint):raise ValueError('idle tick due lineage differs')
-    if current and (session.position!=position or session.state!=state):raise ValueError('idle tick grant is stale')
+    if current and (session.position!=position or session.state!=state):
+        from .intention_continuation import current as current_intention
+        if current_intention(app,event_id) is None:raise ValueError('idle tick grant is stale')
     return IdleTickSource(event_id,row),grant
 
 def authorize(app,event_id):
     tick,grant=source(app,event_id,current=True);role=PetDefinition.from_record(app.runtime.session.profile[DEFINITION_KEY])
+    from .intention_continuation import current as current_intention
+    intention=current_intention(app,event_id)
+    if intention is not None and event_id in _stored(app)['outcomes']:
+        raise ValueError('idle intention opportunity is closed')
     return ActionAuthorization.create(session_binding=app.runtime.session.session_binding,current_position=app.runtime.session.position,
         action_kind='autonomous_opening',subject_ref=app.owner_ref,target_ref=destination_primary(app,event_id),source_fact_ref=event_id,
         source_settlement_fingerprint=tick.row['source_acceptance_fingerprint'],
         package_eligibility_evidence={'version':KEY,'assessment_receipt_fingerprint':grant.authorization.action_assessment_receipt_fingerprint},
         host_authorization_evidence={'origin':'dynamic_idle_tick','tick_receipt_fingerprint':tick.row['fingerprint'],
-            'scope_ref':role.scope_ref,'opening_proof_fingerprint':grant.authorization.fingerprint})
+            'scope_ref':role.scope_ref,'opening_proof_fingerprint':grant.authorization.fingerprint,
+            **({'planning_event_ref':intention.event.event_id} if intention is not None else {})})
 
 def projection(app,event_id,*,writer_request_id,cards_by_lane):
     _tick,grant=source(app,event_id,current=True)
@@ -124,11 +131,30 @@ def projection(app,event_id,*,writer_request_id,cards_by_lane):
         if tuple(chosen['addressed'])!=destination.addressed_participant_ids or tuple(chosen['audience'])!=destination.audience_participant_ids:
             raise ValueError('idle original destination policy differs from frozen audience')
     state=restore_runtime_expression_state(app.runtime.session.profile,session_binding=app.runtime.session.session_binding)
-    return build_autonomous_product_writer_packet_shadow(runtime=app.runtime.model_runtime,observation=grant,destination=destination,
+    shadow=build_autonomous_product_writer_packet_shadow(runtime=app.runtime.model_runtime,observation=grant,destination=destination,
         shadow_request_id=writer_request_id,cards_by_lane=cards_by_lane,committed_remainders=state.committed_remainders)
+    from .intention_continuation import current as current_intention
+    if current_intention(app,event_id) is not None:
+        from product_adapters.desktop_pet_v1.settlement_view import current_projection
+        shadow=replace(shadow,destination_expression=current_projection(app))
+    return shadow
 
 def recalled_memories(app,event_id):
     _tick,grant=source(app,event_id,current=True)
+    from .intention_continuation import current as current_intention
+    intention=current_intention(app,event_id)
+    if intention is not None:
+        from types import SimpleNamespace
+        history=app.runtime._history()
+        recalls=[r for r in history.actual_recalls() if r.trigger_fact_id==intention.event.event_id]
+        if len(recalls)!=1:raise ValueError('idle intention requires its exact formal recall')
+        recall=recalls[0]
+        read=history.authorize_read(reader_ref=app.owner_ref,trigger_fact_id=intention.event.event_id,
+            before_runtime_ordinal=intention.fact.accepted_runtime_ordinal,
+            requested_fact_ids=recall.recalled_fact_ids,authorization_ref={'intention_fact_fingerprint':intention.fact.fingerprint})
+        selection=SimpleNamespace(receipt={'fingerprint':recall.fingerprint},history_read=read,history_source=history,
+                                  recall=SimpleNamespace(recalled_event_ids=recall.recalled_fact_ids))
+        return selection,app.runtime.read_memory(read,event_ids=recall.recalled_fact_ids)
     from product_adapters.desktop_pet_v1.shared_tick_memory import select
     selection=select(app,grant)
     return selection,app.runtime.read_memory(selection.history_read,event_ids=selection.recall.recalled_event_ids)
@@ -151,7 +177,10 @@ class IdleOpeningHost:
     def cancel(self,reason='external_activity'):
         with self.app._lock:
             data=journal(self.app)
-            if data['pending_tick'] is not None:data['outcomes'][data['pending_tick']]={'status':'cancelled_before_effect','reason':reason}
+            if data['pending_tick'] is not None:
+                from .intention_progress import stopped
+                stopped(self.app,data['pending_tick'],'cancelled')
+                data['outcomes'][data['pending_tick']]={'status':'cancelled_before_effect','reason':reason}
             data['plan']=None;data['pending_tick']=None;publish(self.app,data)
 
     def arm(self,*,coordinate=None):
@@ -161,6 +190,8 @@ class IdleOpeningHost:
             # this owner's history. Planning must not advance past it.
             try:app._require_ready()
             except (RuntimeError,ExecutionUncertain):return None
+            from .peer_reaction import has_pending_qualification
+            if has_pending_qualification(app):return None
             if data['pending_tick'] is not None:return None
             # Reconcile after an event; do not keep postponing an unchanged Tick.
             if data['plan'] is not None:
@@ -225,7 +256,7 @@ class IdleOpeningHost:
             chosen=(plan['target_selection']['destination'] if 'target_selection' in plan else autonomous_destination(participant_destination(app)))
             scene=None
             if mode=='symbolic':
-                from model_packages.desktop_pet_v1.action_candidates import choose,compact_tokens
+                from model_packages.desktop_pet_v1.action_candidates import propose as choose,compact_tokens
                 from model_packages.desktop_pet_v1 import movement,spatial
                 from product_adapters.desktop_pet_v1.settlement_view import KEY as SETTLEMENT_KEY
                 supplier=getattr(app,'scene_snapshot',None)
@@ -238,13 +269,14 @@ class IdleOpeningHost:
                 from model_packages.desktop_pet_v1 import shared_meal
                 meal_supplier=getattr(app,'meal_snapshot',None)
                 meal_scene=meal_supplier() if callable(meal_supplier) else None
-                catalog=shared_meal.catalog(catalog,meal_scene,app.owner_ref,target_ref)
+                from model_packages.desktop_pet_v1.action_targets import expand
+                catalog=expand(getattr(self.product,'action_catalog',None),scene=scene,meal=meal_scene,owner=app.owner_ref,primary=target_ref,audience=() if chosen is None else chosen['audience'])
                 token_plan=viewed.profile[SETTLEMENT_KEY]['reaction']['expression_plan']
                 selection=choose(eligible=observed.assessment.eligible,tokens=compact_tokens(token_plan),source=progress.acceptance.fingerprint,catalog=catalog,allow_speech=self.product.writer is not None)
             else:selection=select_idle(eligible=observed.assessment.eligible,mode=mode)
             scene_facts={}
             from model_packages.desktop_pet_v1 import shared_meal
-            if selection is not None and selection.get('catalog_version') in shared_meal.SEQUENCE_CATALOG_VERSIONS:
+            if selection is not None and (selection.get('version')=='desktop-pet-model-action-candidates-v2' or selection.get('catalog_version') in shared_meal.SEQUENCE_CATALOG_VERSIONS):
                 from model_packages.desktop_pet_v1.action_sequence import offer
                 offered=offer(selection,catalog,owner_ref=app.owner_ref,target_ref=target_ref)
                 if offered is not None:scene_facts['action_sequence_context']=offered
@@ -264,24 +296,67 @@ class IdleOpeningHost:
             data['ticks'][tick_id]=row;data['plan']=None
             data['pending_tick']=tick_id if observed.assessment.eligible else None
             publish(app,data,viewed)
+            if observed.assessment.eligible:
+                from .intention_idle import settle
+                settle(self.product,tick_id)
             replied=False
             has_content=selection is None or selection.get('mode')!='symbolic' or bool(selection['action_keys']) or selection['allow_speech']
             if observed.assessment.eligible and not has_content:
+                from .intention_progress import stopped
+                stopped(app,tick_id,'quiet')
                 data=journal(app);data['pending_tick']=None;data['outcomes'][tick_id]={'status':'no_content_selected'};publish(app,data)
             if observed.assessment.eligible and has_content and executor is not None and not is_cancelled():
-                result=self.product._reply(tick_id,executor=executor,completion_coordinate=completion_coordinate,
+                from .intention_idle import reply
+                result=reply(self.product,tick_id,executor=executor,completion_coordinate=completion_coordinate,
                     is_cancelled=is_cancelled,on_reply_ready=on_reply_ready)
                 replied=result is not None
-                data=journal(app);data['pending_tick']=None;data['outcomes'][tick_id]={'status':'executed' if replied else 'no_speech_selected' if getattr(self.product,'last_quiet_realization',None) is not None else 'cancelled_before_effect'};publish(app,data)
+                data=journal(app);data['pending_tick']=None;data['outcomes'].setdefault(tick_id,{'status':'executed' if replied else 'no_speech_selected' if getattr(self.product,'last_quiet_realization',None) is not None else 'cancelled_before_effect'});publish(app,data)
             if data['pending_tick'] is None and not is_cancelled():self.arm(coordinate=app.runtime.session.position.position.coordinate)
             return {'observed':True,'tick_id':tick_id,'eligible':observed.assessment.eligible,'replied':replied}
+
+    def finish_playback(self,action_id):
+        """Finish an already committed Tick effect without preparing or replaying it."""
+        with self.app._lock:
+            app=self.app;data=journal(app)
+            effect=app._product()['sources'][action_id]
+            from model_packages.desktop_pet_v1.events import PetEvent
+            app._verify_source(PetEvent.from_record(effect['event']))
+            if effect['origin']!='execution':raise ValueError('idle continuation requires actual execution')
+            receipt=effect['evidence']['fact']['model_payload']['execution_receipt']
+            delivery=receipt['realization_evidence'].get('expression_delivery',{})
+            tick=delivery.get('event_id')
+            if delivery.get('source_kind')!='idle_tick' or tick not in data['ticks']:
+                raise ValueError('idle continuation source differs')
+            source(app,tick)  # Validate the original Tick grant and its lineage.
+            if data['outcomes'].get(tick,{}).get('status')=='executed':return
+            if data['pending_tick']!=tick:raise ValueError('idle continuation is not pending')
+            from .intention_progress import actual,stopped
+            actual(app,tick,effect);stopped(app,tick,'executed')
+            data=journal(app);data['pending_tick']=None
+            data['outcomes'][tick]={'status':'executed'};publish(app,data)
 
     def resume(self,*,executor,completion_coordinate=wall_clock_ms,is_cancelled=lambda:False):
         with self.app._lock:
             data=journal(self.app);tick=data['pending_tick']
             if tick is None:return None
-            result=self.product._reply(tick,executor=executor,completion_coordinate=completion_coordinate,is_cancelled=is_cancelled)
+            # A restart may lose the in-memory continuation, never the actual
+            # effect. Reconcile that receipt before asking Writer to plan again.
+            for action_id,effect in self.app._product()['sources'].items():
+                if effect['origin']!='execution':continue
+                delivery=effect['evidence']['fact']['model_payload']['execution_receipt']['realization_evidence'].get('expression_delivery',{})
+                if delivery.get('source_kind')=='idle_tick' and delivery.get('event_id')==tick:
+                    result=self.product.resume(executor=None)
+                    self.finish_playback(action_id)
+                    self.arm(coordinate=self.app.runtime.session.position.position.coordinate)
+                    return result
+            from .intention_idle import reply
+            result=reply(self.product,tick,executor=executor,completion_coordinate=completion_coordinate,is_cancelled=is_cancelled)
             quiet=getattr(self.product,'last_quiet_realization',None)
-            if result is None and quiet is None:return None
+            if result is None and quiet is None:
+                if is_cancelled():
+                    data=journal(self.app);data['pending_tick']=None
+                    data['outcomes'].setdefault(tick,{'status':'cancelled_before_effect'})
+                    publish(self.app,data)
+                return None
             data=journal(self.app);data['pending_tick']=None;data['outcomes'][tick]={'status':'no_speech_selected' if quiet is not None and result is None else 'executed'};publish(self.app,data)
             self.arm(coordinate=self.app.runtime.session.position.position.coordinate);return result

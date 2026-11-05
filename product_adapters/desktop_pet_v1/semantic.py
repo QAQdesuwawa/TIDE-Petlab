@@ -35,8 +35,8 @@ class PetSemanticService:
             from model_packages.desktop_pet_v1.semantic import DesktopPetAtomicGroundedSemanticCodec
             self.codec=DesktopPetAtomicGroundedSemanticCodec()
         if memory_recall_version=='desktop-pet-property-address-recall-v8':
-            from model_packages.desktop_pet_v1.address_semantics import AddressPropertyCodec
-            self.codec=AddressPropertyCodec(DesktopPetConstrainedSemanticCodec())
+            from model_packages.desktop_pet_v1.address_semantics import QueryAddressPropertyCodec
+            self.codec=QueryAddressPropertyCodec(DesktopPetConstrainedSemanticCodec())
         from .temporal_measurement import verify_saved
         verify_saved(application,gateway)
         from .continuation import verify_saved as verify_continuations
@@ -46,10 +46,35 @@ class PetSemanticService:
         """Explicit host recovery only; unknown dispatch is never retried."""
         return self.measure(event,retry_failed=True)
 
-    @_readonly_scope
     def measure(self,event,*,retry_failed=False):
+        from petlab_app.measurement_pipeline import measure as pipeline_measure,rebase
+        source=self.application._product()['sources'][event.event_id]
+        if 'prefetched_payload' in source:
+            if model_data_fingerprint(source['prefetched_payload'])!=source['prefetched_payload_fingerprint']:
+                raise ValueError('prefetched semantic payload differs')
+            getattr(self,'_prefetched',{}).pop(event.event_id,None)
+            return rebase(self,event,thaw_model_data(source['prefetched_payload']))
+        cached=getattr(self,'_prefetched',{}).get(event.event_id)
+        if cached is not None:
+            work,future=cached
+            future.result()
+            from petlab_app.measurement_pipeline import stash
+            original=work.finish()
+            stash(self.application,event.event_id,original)
+            value=rebase(self,event,original)
+            del self._prefetched[event.event_id]
+            return value
+        work=self.prepare(event,retry_failed=retry_failed)
+        return rebase(self,event,pipeline_measure(self,event,work))
+
+    @_readonly_scope
+    def prepare(self,event,*,retry_failed=False):
+        from .prepared_measurement import PreparedMeasurement
+        return PreparedMeasurement(self.application,event,self._steps(event,retry_failed=retry_failed))
+
+    def _steps(self,event,*,retry_failed=False):
         app=self.application
-        from model_packages.desktop_pet_v1.address_semantics import AddressPropertyCodec
+        from model_packages.desktop_pet_v1.address_semantics import AddressPropertyCodec,QueryAddressPropertyCodec
         from model_packages.desktop_pet_v1.hierarchy_semantics import HierarchyReferentCodec
         hierarchy_codec_type=HierarchyReferentCodec
         # A source already received or executed is required before measuring it.
@@ -59,7 +84,7 @@ class PetSemanticService:
         from model_packages.desktop_pet_v1.semantic import DesktopPetContactSemanticCodec
         is_contact=any(c.kind=='interaction' and c.parameters.get('capture_version')=='petlab-mouse-contact-v4' for c in event.contents)
         address_mode=self.memory_recall_version=='desktop-pet-property-address-recall-v8'
-        if address_mode:hierarchy_codec_type=AddressPropertyCodec
+        if address_mode:hierarchy_codec_type=QueryAddressPropertyCodec
         hierarchy_mode=address_mode or self.memory_recall_version=='desktop-pet-hierarchical-property-recall-v7'
         owner_mode=self.memory_recall_version=='desktop-pet-owner-bound-reference-recall-v6'
         source_bound_mode=owner_mode or self.memory_recall_version=='desktop-pet-source-bound-reference-recall-v5'
@@ -79,7 +104,7 @@ class PetSemanticService:
             from model_packages.desktop_pet_v1.semantic import DesktopPetNaturalInteractionSemanticCodec,DesktopPetReferenceInteractionSemanticCodec,DesktopPetEvidenceInteractionSemanticCodec,DesktopPetCleanEvidenceInteractionSemanticCodec,DesktopPetMagnitudeInteractionSemanticCodec,DesktopPetCalibratedInteractionSemanticCodec,DesktopPetConstrainedInteractionSemanticCodec,DesktopPetGroundedInteractionSemanticCodec,DesktopPetAtomicGroundedInteractionSemanticCodec
             from .temporal_measurement import KEY
             saved=app.runtime.session.profile.get(KEY,{}).get(event.event_id)
-            if saved is not None and saved['codec_contract'].endswith((':participant-source-v1',':participant-pair-source-v2',':information-holder-v1',':query-parent-fallback-v1')):
+            if saved is not None and saved['codec_contract'].endswith((':participant-source-v1',':participant-pair-source-v2',':structured-participants-v1',':information-holder-v1',':query-parent-fallback-v1')):
                 # Restore the sealed result, not a new reconstruction of its prompt.
                 from .temporal_measurement import load,verify_capture_chain,publish
                 verify_capture_chain(app,event)
@@ -98,12 +123,12 @@ class PetSemanticService:
             if saved is not None:
                 contract=saved['codec_contract']
                 from model_packages.desktop_pet_v1.hierarchy_semantics import SUFFIX,EVIDENCE_SUFFIX,SEPARATED_SUFFIX,REFERENT_SUFFIX,HierarchyCodec,HierarchyEvidenceCodec,HierarchySeparatedEvidenceCodec,HierarchyReferentCodec
-                from model_packages.desktop_pet_v1.address_semantics import SUFFIX as ADDRESS_SUFFIX,AddressPropertyCodec
-                hierarchy_suffix=next((suffix for suffix in (ADDRESS_SUFFIX,REFERENT_SUFFIX,SEPARATED_SUFFIX,EVIDENCE_SUFFIX,SUFFIX) if contract.endswith(suffix)),None)
+                from model_packages.desktop_pet_v1.address_semantics import SUFFIX as ADDRESS_SUFFIX,QUERY_SUFFIX,AddressPropertyCodec,QueryAddressPropertyCodec
+                hierarchy_suffix=next((suffix for suffix in (QUERY_SUFFIX,ADDRESS_SUFFIX,REFERENT_SUFFIX,SEPARATED_SUFFIX,EVIDENCE_SUFFIX,SUFFIX) if contract.endswith(suffix)),None)
                 hierarchy_mode=hierarchy_suffix is not None
                 if hierarchy_mode:
                     contract=contract[:-len(hierarchy_suffix)]
-                    hierarchy_codec_type={ADDRESS_SUFFIX:AddressPropertyCodec,SUFFIX:HierarchyCodec,EVIDENCE_SUFFIX:HierarchyEvidenceCodec,SEPARATED_SUFFIX:HierarchySeparatedEvidenceCodec,REFERENT_SUFFIX:HierarchyReferentCodec}[hierarchy_suffix]
+                    hierarchy_codec_type={QUERY_SUFFIX:QueryAddressPropertyCodec,ADDRESS_SUFFIX:AddressPropertyCodec,SUFFIX:HierarchyCodec,EVIDENCE_SUFFIX:HierarchyEvidenceCodec,SEPARATED_SUFFIX:HierarchySeparatedEvidenceCodec,REFERENT_SUFFIX:HierarchyReferentCodec}[hierarchy_suffix]
                 owner_suffix=':reference-property-owners-v1'
                 owner_mode=contract.endswith(owner_suffix)
                 contract=contract[:-len(owner_suffix)] if owner_mode else contract
@@ -118,9 +143,10 @@ class PetSemanticService:
             else:codec=DesktopPetAtomicGroundedInteractionSemanticCodec() if self.memory_recall_version and not hierarchy_mode else DesktopPetConstrainedInteractionSemanticCodec()
         if is_visible:
             import json
-            from model_packages.desktop_pet_v1.visible_semantic import ScopedRecipientVisibleSemanticCodec,AtomicGroundedScopedRecipientVisibleSemanticCodec
+            from model_packages.desktop_pet_v1.visible_semantic import ScopedRecipientVisibleSemanticCodec,AtomicGroundedScopedRecipientVisibleSemanticCodec,HierarchicalRecipientVisibleSemanticCodec
             artifact=json.loads((app.store.path.with_suffix('.resources')/visible_receipt['artifact']).read_text(encoding='utf8'))
             codec_type=AtomicGroundedScopedRecipientVisibleSemanticCodec if self.memory_recall_version and not hierarchy_mode and not tree_mode else ScopedRecipientVisibleSemanticCodec
+            if hierarchy_mode:codec_type=HierarchicalRecipientVisibleSemanticCodec
             codec=codec_type(target_refs=artifact['visible']['target_refs'])
         elif any(c.kind=='expression' or c.parameters.get('composite_version') in {'desktop-pet-composite-v1','desktop-pet-composite-v4-sequence'} for c in event.contents):
             from model_packages.desktop_pet_v1.composite_semantic import ConstrainedCompositeSemanticCodec,AtomicGroundedCompositeSemanticCodec
@@ -190,11 +216,16 @@ class PetSemanticService:
                     from model_packages.desktop_pet_v1.visible_context import CurrentVisibleConversationContextCodec as VisibleConversationContextCodec
                     codec=VisibleConversationContextCodec(codec,prior_visible['text'])
         from model_packages.desktop_pet_v1.relation_package import META
+        from petlab_app.participant_input import SPEECH_VERSIONS
+        if visible_receipt.get('version') in SPEECH_VERSIONS:
+            from petlab_app.visible_delivery import source_context
+            from model_packages.desktop_pet_v1.speech_address import SpeechAddressCodec
+            codec=SpeechAddressCodec(codec,source_context(app,event))
         if META in app.runtime.session.state.state:
-            from model_packages.desktop_pet_v1.participant_semantic import ParticipantSemanticCodec,BoundParticipantSemanticCodec
+            from model_packages.desktop_pet_v1.participant_semantic import ParticipantSemanticCodec,StructuredParticipantSemanticCodec
             if public_disclosure_enabled(app.runtime):
                 from .public_disclosure import counterparty
-                codec=BoundParticipantSemanticCodec(codec,owner_ref=app.owner_ref,human_ref=app.user_ref,counterparty_ref=counterparty(app.runtime,event))
+                codec=StructuredParticipantSemanticCodec(codec,owner_ref=app.owner_ref,human_ref=app.user_ref,counterparty_ref=counterparty(app.runtime,event))
             else:codec=ParticipantSemanticCodec(codec,owner_ref=app.owner_ref,human_ref=app.user_ref)
         if literal_parent_mode:
             from model_packages.desktop_pet_v1.visible_context import LiteralParentGroundingCodec
@@ -205,6 +236,9 @@ class PetSemanticService:
         if tree_mode:
             from model_packages.desktop_pet_v1.query_tree import ResilientTreeQueryCodec
             codec=ResilientTreeQueryCodec(codec)
+        if app.runtime.session.profile['desktop_pet_product_v1']['sources'][event.event_id]['origin']=='cx67_private_intention':
+            from model_packages.cx_six_seven_v1.intention_semantics import IntentionSemanticCodec
+            codec=IntentionSemanticCodec(codec)
         system,user=codec.build_request(event=event,recall_hint=hint)
         def parse(wire):
             projection=(codec.parse_event_response(completion_text(wire),event=event)
@@ -232,6 +266,8 @@ class PetSemanticService:
                     from model_packages.desktop_pet_v1.hierarchy_semantics import parse_response as parse_properties
                     if getattr(codec,'memory_recall_version',None)=='desktop-pet-property-address-recall-v8':
                         from model_packages.desktop_pet_v1.address_semantics import parse_response as parse_properties
+                        if getattr(codec,'normalize_query_candidates',False):
+                            from model_packages.desktop_pet_v1.address_semantics import parse_available_response as parse_properties
                     try:parsed_cues=parse_properties(completion_text(wire),event)
                     except ValueError:
                         raise ProviderCodecParseFailureSignal(failure_kind="invalid_hierarchical_properties",
@@ -266,23 +302,48 @@ class PetSemanticService:
                 "measurement_source":{"version":"cx67-committed-measurement-source-v1",
                     "source_event_id":event.event_id,"local_event_id":event.event_id,
                     "projection_fingerprint":model_data_fingerprint(raw)}}
-        from .temporal_measurement import observations,measure
+        from .temporal_measurement import observations,measurement_steps
         if observations(event):
-            return measure(app,self.gateway,event,codec_contract=codec.request_version,
+            if retry_failed:
+                from petlab_app.provider_reparse import reparse_failed
+                from .temporal_measurement import KEY,load,publish
+                saved=app.runtime.session.profile.get(KEY,{}).get(event.event_id)
+                if saved is not None and saved['status']=='reserved':
+                    restored=reparse_failed(self.gateway,session_binding=app.runtime.session.session_binding,
+                        current_position=app.runtime.session.position,operation_kind='semantic_measurement',
+                        source_fact_ref=event.event_id,codec_contract=codec.request_version,
+                        messages=[{'role':'system','content':system},{'role':'user','content':user}],
+                        temperature=codec.temperature,require_json=codec.require_json,parse=parse,
+                        source_receipt_refs=(event.source_receipt_ref,),invocation_id=saved['invocation_id'])
+                    if restored is not None:
+                        if restored.status!='parsed':raise RuntimeError('received semantic response still fails local parsing')
+                        import json,time
+                        trace=json.loads((self.gateway.trace_dir/(saved['invocation_id']+'.json')).read_text('utf8'))
+                        data={k:thaw_model_data(v) for k,v in saved.items() if k!='fingerprint'}
+                        data['local_parse']={'receipt':restored.parse_receipt.to_record(),
+                            'original_parse_fingerprint':trace['codec_parse']['fingerprint'],
+                            'completed_at_ms':time.time_ns()//1_000_000}
+                        publish(app,event.event_id,data)
+                        completed,payload=load(app,self.gateway,event,app.runtime.session.profile[KEY][event.event_id])
+                        publish(app,event.event_id,completed)
+                        return payload
+            return (yield from measurement_steps(app,self.gateway,event,codec_contract=codec.request_version,
                 messages=[{"role":"system","content":system},{"role":"user","content":user}],
-                temperature=codec.temperature,require_json=codec.require_json,parse=parse,retry_failed=retry_failed)
-        run=self.gateway.run
+                temperature=codec.temperature,require_json=codec.require_json,parse=parse,retry_failed=retry_failed))
+        run=self.gateway.prepare
         if retry_failed:
             from petlab_app.provider_reparse import reparse_failed
             def run(**kwargs):
                 restored=reparse_failed(self.gateway,**kwargs)
-                return restored if restored is not None else self.gateway.run(**kwargs)
+                return restored if restored is not None else self.gateway.prepare(**kwargs)
         result=run(session_binding=app.runtime.session.session_binding,
             current_position=app.runtime.session.position,operation_kind="semantic_measurement",
             source_fact_ref=event.event_id,codec_contract=codec.request_version,
             messages=[{"role":"system","content":system},{"role":"user","content":user}],
             temperature=codec.temperature,require_json=codec.require_json,parse=parse,
             source_receipt_refs=(event.source_receipt_ref,*context_refs))
+        if hasattr(result,"transport"):
+            result=yield result
         if result.status!="parsed":
             error=(result.execution.failure.failure_kind if result.execution.failure is not None
                 else result.parse_receipt.failure_kind)

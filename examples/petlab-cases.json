@@ -1,0 +1,214 @@
+{
+  "kind": "synthetic-offline-fixtures",
+  "cases": [
+    {
+      "id": "keys",
+      "description": "旧话进入正式记忆，退出恢复后追问。",
+      "persona": "你叫小书，是认真温和的图书管理员，偶尔讲冷笑话。完整人设用于表达与背景量测。",
+      "messages": [
+        {
+          "id": "keys:0",
+          "role": "user",
+          "content": "备用钥匙放在蓝盒子里了。"
+        },
+        {
+          "id": "keys:1",
+          "role": "assistant",
+          "content": "好，我知道你放在蓝盒子里了。"
+        }
+      ],
+      "fixture_facts": [
+        {
+          "message": 0,
+          "owner": "user",
+          "path": [
+            "物品",
+            "备用钥匙",
+            "位置"
+          ],
+          "value": "蓝盒子",
+          "quote": "备用钥匙放在蓝盒子里了。"
+        }
+      ],
+      "questions": [
+        {
+          "text": "备用钥匙放在哪儿？",
+          "properties": [
+            {
+              "owner": "user",
+              "path": [
+                "物品",
+                "备用钥匙",
+                "位置"
+              ],
+              "expected": "蓝盒子"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "names",
+      "description": "同一句中用户名字和角色小名分属两个对象。",
+      "persona": "你叫小书，是认真温和的图书管理员，偶尔讲冷笑话。完整人设用于表达与背景量测。",
+      "messages": [
+        {
+          "id": "names:0",
+          "role": "user",
+          "content": "我叫阿岚，给你取的小名叫海盐。"
+        },
+        {
+          "id": "names:1",
+          "role": "assistant",
+          "content": "那你叫阿岚，我的小名是海盐。"
+        }
+      ],
+      "fixture_facts": [
+        {
+          "message": 0,
+          "owner": "user",
+          "path": [
+            "身份",
+            "名字"
+          ],
+          "value": "阿岚",
+          "quote": "我叫阿岚"
+        },
+        {
+          "message": 0,
+          "owner": "current_npc",
+          "path": [
+            "身份",
+            "小名"
+          ],
+          "value": "海盐",
+          "quote": "给你取的小名叫海盐"
+        }
+      ],
+      "questions": [
+        {
+          "text": "我的名字和你的小名分别是什么？",
+          "properties": [
+            {
+              "owner": "user",
+              "path": [
+                "身份",
+                "名字"
+              ],
+              "expected": "阿岚"
+            },
+            {
+              "owner": "current_npc",
+              "path": [
+                "身份",
+                "小名"
+              ],
+              "expected": "海盐"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "updated_location",
+      "description": "同一物品位置有新旧事实，夹杂无关话题，再问当前位置。",
+      "persona": "你叫小书，是认真温和的图书管理员，偶尔讲冷笑话。完整人设用于表达与背景量测。",
+      "messages": [
+        {
+          "id": "updated_location:0",
+          "role": "user",
+          "content": "备用钥匙放在蓝盒子里了。"
+        },
+        {
+          "id": "updated_location:1",
+          "role": "assistant",
+          "content": "好，我知道了。"
+        },
+        {
+          "id": "updated_location:2",
+          "role": "user",
+          "content": "备用钥匙现在改放在玄关的红抽屉里了。"
+        },
+        {
+          "id": "updated_location:3",
+          "role": "assistant",
+          "content": "明白，你刚刚换了存放位置。"
+        },
+        {
+          "id": "updated_location:4",
+          "role": "user",
+          "content": "今天想喝乌龙茶。"
+        }
+      ],
+      "fixture_facts": [
+        {
+          "message": 0,
+          "owner": "user",
+          "path": [
+            "物品",
+            "备用钥匙",
+            "位置"
+          ],
+          "value": "蓝盒子",
+          "quote": "备用钥匙放在蓝盒子里了。"
+        },
+        {
+          "message": 2,
+          "owner": "user",
+          "path": [
+            "物品",
+            "备用钥匙",
+            "位置"
+          ],
+          "value": "玄关的红抽屉",
+          "quote": "备用钥匙现在改放在玄关的红抽屉里了。"
+        },
+        {
+          "message": 4,
+          "owner": "user",
+          "path": [
+            "偏好",
+            "饮品"
+          ],
+          "value": "乌龙茶",
+          "quote": "今天想喝乌龙茶。"
+        }
+      ],
+      "questions": [
+        {
+          "text": "备用钥匙现在放在哪儿？",
+          "properties": [
+            {
+              "owner": "user",
+              "path": [
+                "物品",
+                "备用钥匙",
+                "位置"
+              ],
+              "expected": "玄关的红抽屉"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "speech_is_not_execution",
+      "description": "旧话包含将来动作意向，导入不执行、不伪造动画回执。",
+      "persona": "你叫小书，是认真温和的图书管理员，偶尔讲冷笑话。完整人设用于表达与背景量测。",
+      "messages": [
+        {
+          "id": "speech_is_not_execution:0",
+          "role": "user",
+          "content": "你能把饭分给小肥鱼吗？"
+        },
+        {
+          "id": "speech_is_not_execution:1",
+          "role": "assistant",
+          "content": "我等会儿走过去给她递碗。"
+        }
+      ],
+      "fixture_facts": [],
+      "questions": []
+    }
+  ]
+}

@@ -209,6 +209,7 @@ class InteractionObserver:
         with app._lock:
             result=app.receive(event_id=event_id,scope_ref=app.definition.scope_ref,actor_ref=app.user_ref,
                 contents=(snapshot.content,),coordinate=snapshot.end_point[2],
+                admission_coordinate=max(snapshot.end_point[2],app.runtime.session.position.position.coordinate),
                 measure=self.product.semantic.retry_measure if retry_failed else self.product.semantic.measure,response_policy='eligible')
             if not pending["accepted"]:self.mouse.accept(snapshot);pending["accepted"]=True
             if snapshot.content.parameters['phase']=='started':
@@ -219,25 +220,56 @@ class InteractionObserver:
                     self._arm(snapshot.gesture_id,app.runtime.session.position.position.coordinate)
                 self.pending=None
                 return {'observed':True,'phase':'started','replied':False,'event_id':event_id}
-            lifecycle,execution,assessment=_assess(app,event_id,self.bounds)
-            proof=None
-            if assessment.eligible:
-                proof=RuntimeActionAuthorizationAuthority(session_binding=app.runtime.session.session_binding).authorize_autonomous_opening(
-                    current_position=app.runtime.session.position,due_proof=pending["due"],assessment=assessment)
-            record=_signed({"version":"desktop-pet-interaction-tick-v1","session_binding_fingerprint":app.runtime.session.session_binding.fingerprint,
-                "event_id":event_id,"gesture_id":snapshot.gesture_id,"sequence":snapshot.sequence,"response_policy":'eligible',"plan":pending["plan"]["record"],
-                "due_proof":pending["due"].to_record(),"assessment_stage":execution.receipt.to_record(),
-                "assessment_output_fingerprint":model_data_fingerprint(execution.payload),"eligible":assessment.eligible,
-                "opening_proof_fingerprint":None if proof is None else proof.fingerprint})
-            journal=_journal(app);journal["active_plan"]=None;journal["ticks"][event_id]=record;_save(app,journal)
+            from .intention_source import enabled,ingest
+            from .intent_history import FACTS_KEY
+            preserved=enabled(app) and event_id in app.runtime.session.profile.get(FACTS_KEY,{})
+            if preserved:
+                # Resume the same accepted grant, not a second assessment of the
+                # newly committed private intention or the original stimulus.
+                record=thaw_model_data(app.runtime.session.profile[KEY]['ticks'][event_id])
+                _verify(record)
+                from types import SimpleNamespace
+                assessment=SimpleNamespace(eligible=record['eligible'])
+                proof=record['opening_proof_fingerprint']
+            else:
+                lifecycle,execution,assessment=_assess(app,event_id,self.bounds)
+                proof=None
+                if assessment.eligible:
+                    proof=RuntimeActionAuthorizationAuthority(session_binding=app.runtime.session.session_binding).authorize_autonomous_opening(
+                        current_position=app.runtime.session.position,due_proof=pending["due"],assessment=assessment)
+                record=_signed({"version":"desktop-pet-interaction-tick-v1","session_binding_fingerprint":app.runtime.session.session_binding.fingerprint,
+                    "event_id":event_id,"gesture_id":snapshot.gesture_id,"sequence":snapshot.sequence,"response_policy":'eligible',"plan":pending["plan"]["record"],
+                    "due_proof":pending["due"].to_record(),"assessment_stage":execution.receipt.to_record(),
+                    "assessment_output_fingerprint":model_data_fingerprint(execution.payload),"eligible":assessment.eligible,
+                    "opening_proof_fingerprint":None if proof is None else proof.fingerprint})
+                if enabled(app):
+                    record=_signed({**{k:v for k,v in record.items() if k!='fingerprint'},
+                                    'intention_parent_fact':result.memory.fact.fingerprint})
+                journal=_journal(app);journal["active_plan"]=None;journal["ticks"][event_id]=record;_save(app,journal)
+            if proof is not None and enabled(app):
+                from .intent_history import capture_interaction
+                capture_interaction(app,event_id)
+                ingest(app,source_ref=event_id,coordinate=app.runtime.session.position.position.coordinate,
+                       measure=self.product.semantic.measure)
             replied=False
             from product_adapters.desktop_pet_v1.continuation import ContinuationGuard
             guard=ContinuationGuard(product=self.product,mouse=self.mouse,event_id=event_id,
                 clock=wall_clock_ms,is_cancelled=is_cancelled)
             if proof is not None and executor is not None:
-                outcome=self.product._reply(event_id,executor=executor,completion_coordinate=completion_coordinate,
-                    is_cancelled=lambda:not guard.check(),continuation=guard,on_reply_ready=on_reply_ready,
-                    on_prepared=lambda prepared:pending.__setitem__("prepared",prepared))
+                from .intention_progress import planned,actual,stopped
+                def on_prepared(prepared):
+                    pending['prepared']=prepared;planned(app,event_id,prepared,writer=self.product.writer)
+                try:
+                    outcome=self.product._reply(event_id,executor=executor,completion_coordinate=completion_coordinate,
+                        is_cancelled=lambda:not guard.check(),continuation=guard,on_reply_ready=on_reply_ready,
+                        on_prepared=on_prepared)
+                except Exception as error:
+                    from .live_execution import PlaybackSettlementPending
+                    if isinstance(error,PlaybackSettlementPending):raise
+                    stopped(app,event_id,'technical_failure');raise
+                if outcome is not None:actual(app,event_id,app._product()['sources'][outcome.memory.event.event_id])
+                stopped(app,event_id,'executed' if outcome is not None else
+                        'quiet' if self.product.last_quiet_realization is not None else 'cancelled')
                 replied=outcome is not None
             else:
                 guard.check('before_writer')
@@ -259,6 +291,7 @@ class InteractionObserver:
             self.finishing=gesture_id;self.finishing_policy=response_policy
             result=self.product.interact(event_id=f"input:{gesture_id}:interval:{observation.sequence}",contents=(observation.content,),
                 coordinate=observation.end_point[2],response_policy=self.response_policy if response_policy is None else response_policy,executor=executor,
+                admission_coordinate=max(observation.end_point[2],app.runtime.session.position.position.coordinate),
                 completion_coordinate=completion_coordinate,is_cancelled=is_cancelled,retry_failed=retry_failed)
             self.mouse.accept(observation);self.finishing=None;return result
 
@@ -274,6 +307,10 @@ class InteractionObserver:
                 # The common execute entry settles its existing executed source;
                 # uncertain effects still raise and must be reconciled.
                 result=app.execute(prepared,executor=executor,coordinate=completion_coordinate,measure=self.product.semantic.measure)
+                from .intention_progress import actual,stopped
+                event_id=self.pending['event_id']
+                actual(app,event_id,app._product()['sources'][result.memory.event.event_id])
+                stopped(app,event_id,'executed')
                 gesture_id=self.pending["snapshot"].gesture_id
                 self.pending=None
                 if self.mouse.is_active(gesture_id) and not is_cancelled():

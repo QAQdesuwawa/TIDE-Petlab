@@ -31,12 +31,12 @@ def snapshot(application,*,allow_pending=False,upgrade_legacy=True):
             reaction=(validate(row['reaction']) if 'reaction' in row else build(
                 previous=None,before=before,after=after,
                 source=acceptance.fingerprint,ordinal=session.position.runtime_ordinal))
-            if upgrade_legacy and reaction['expression_plan']['version']!='pet-existing-token-expression-v2':
+            if upgrade_legacy and reaction['expression_plan']['version'] not in {'pet-existing-token-expression-v2','pet-presented-expression-v3'}:
                 reaction=build(previous=reaction,before=before,after=after,
                     source=acceptance.fingerprint,ordinal=session.position.runtime_ordinal,
                     results=thaw_model_data(reaction['channels']),
                     constant_binding=session.parameters.parameters['constant_binding'])
-            if reaction['expression_plan']['version'] in {'pet-existing-token-expression-v1','pet-existing-token-expression-v2'}:
+            if reaction['expression_plan']['version'] in {'pet-existing-token-expression-v1','pet-existing-token-expression-v2','pet-presented-expression-v3'} and reaction['expression_plan'].get('constant_binding') is not None:
                 if reaction['expression_plan']['constant_binding']!=thaw_model_data(session.parameters.parameters['constant_binding']):
                     raise ValueError('expression constants differ from formal binding')
             for item in reaction['numeric_tokens']:

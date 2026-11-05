@@ -70,6 +70,7 @@ def _apply(material,patch):
         target.extend(value)
     else:raise ValueError('invalid checkpoint delta operation')
 
+
 def _atomic(path,data):
     fd,tmp=tempfile.mkstemp(prefix=path.name+'.',suffix='.tmp',dir=path.parent)
     try:

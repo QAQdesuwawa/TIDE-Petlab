@@ -45,6 +45,11 @@ def project(*,before,after,source):
 
 
 def verify(plan,*,before,after,source):
+    if plan.get('version')=='pet-presented-expression-v3':
+        expected=project_presented(before=before,after=after,source=source,constant_binding=plan.get('constant_binding'),selected=plan['selected'])
+        from framework.model_api import thaw_model_data
+        if thaw_model_data(plan)!=expected:raise ValueError('presented expression source differs')
+        return
     expected=(project_existing(before=before,after=after,source=source,constant_binding=plan['constant_binding'],version=plan['version'])
         if plan.get('version') in {'pet-existing-token-expression-v1','pet-existing-token-expression-v2'} else project(before=before,after=after,source=source))
     from framework.model_api import thaw_model_data
@@ -107,7 +112,7 @@ def project_existing(*,before,after,source,constant_binding,version="pet-existin
     variables=compute_variable_tokens(after,before)['npc']
     for token in variables:
         if 'cell' in token:token['cell']=list(token['cell'])
-    selection=assemble_existing(self_tokens,change['tokens'],variables,version=version)
+    selection=({'selected':None,'rule':'context_only'} if version=='pet-state-material-v3' else assemble_existing(self_tokens,change['tokens'],variables,version=version))
     value={'version':version,'source':source,
            'constant_binding':binding,'coordinate_version':'core-drives-v4-self-comparison',
            'self_tokens':self_tokens,'change_tokens':change['tokens'],
@@ -116,3 +121,15 @@ def project_existing(*,before,after,source,constant_binding,version="pet-existin
     value=thaw_model_data(value)
     value['fingerprint']=model_data_fingerprint(value)
     return value
+
+
+def project_presented(*,before,after,source,constant_binding,selected):
+    from .face_expression import CODES
+    from framework.model_api import thaw_model_data
+    if selected not in CODES:raise ValueError('unknown presentation')
+    if constant_binding is not None:
+        old=project_existing(before=before,after=after,source=source,constant_binding=constant_binding,version='pet-state-material-v3')
+        evidence={k:old[k] for k in ('constant_binding','self_tokens','change_tokens','variable_tokens','source_generators')}
+    else:evidence={'constant_binding':None,'self_tokens':[],'change_tokens':[],'variable_tokens':[]}
+    value=thaw_model_data({'version':'pet-presented-expression-v3','source':source,'selected':selected,**evidence})
+    return {**value,'fingerprint':model_data_fingerprint(value)}

@@ -16,7 +16,7 @@ class ParticipantSemanticCodec:
    facts,end=json.JSONDecoder().raw_decode(raw);suffix=raw[end:]
    facts['实际说话或行动者']=event.actor_ref
    facts['参与者身份']=bindings
-   for row,c in zip(facts.get('内容',()),event.contents):row['对象']=list(c.recipient_refs)
+   for row,c in zip(facts.get('内容',()),event.contents):row['对象']=list(getattr(self.base,'speech_address_refs',c.recipient_refs))
    user=prefix+heading+json.dumps(facts,ensure_ascii=False)+suffix
   return system,user
 
@@ -50,6 +50,28 @@ class BoundParticipantSemanticCodec(ParticipantSemanticCodec):
   if heading in user:
    prefix,raw=user.rsplit(heading,1);facts,end=json.JSONDecoder().raw_decode(raw);suffix=raw[end:]
    facts['实际说话或行动者']=event.actor_ref;facts['参与者身份']=bindings
-   for row,c in zip(facts.get('内容',()),event.contents):row['对象']=list(c.recipient_refs)
+   for row,c in zip(facts.get('内容',()),event.contents):row['对象']=list(getattr(self.base,'speech_address_refs',c.recipient_refs))
    user=prefix+heading+json.dumps(facts,ensure_ascii=False)+suffix
+  return system,user
+
+
+class StructuredParticipantSemanticCodec(BoundParticipantSemanticCodec):
+ """Retain literal participant IDs after the hierarchical source wrapper."""
+ def __init__(self,*args,**kwargs):
+  super().__init__(*args,**kwargs)
+  self.request_version+=':structured-participants-v1'
+ def build_request(self,*,event,recall_hint):
+  system,user=super().build_request(event=event,recall_hint=recall_hint)
+  heading='【本次量测对象】\n'
+  if heading not in user:return system,user
+  prefix,raw=user.rsplit(heading,1)
+  facts,end=json.JSONDecoder().raw_decode(raw)
+  # Dedicated visible-output contracts already use actual IDs and their own
+  # target/audience shape. Repair the common event shape only.
+  if '实际说话或行动者' in facts:
+   facts['实际说话或行动者']=event.actor_ref
+   for row,content in zip(facts.get('内容',()),event.contents):
+    if '对象' in row:
+     row['对象']=list(getattr(self.base,'speech_address_refs',content.recipient_refs))
+   user=prefix+heading+json.dumps(facts,ensure_ascii=False)+raw[end:]
   return system,user

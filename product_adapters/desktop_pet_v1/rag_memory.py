@@ -38,6 +38,15 @@ def _snapshot(documents):
 ASSEMBLY_VERSION='desktop-pet-authorized-memory-order-v3'
 from .rag_passages import VERSION as DOCUMENT_VERSION,project as passage_documents
 
+@lru_cache(maxsize=4096)
+def _address_projection(properties):
+    """Memoize pure address arithmetic, never a source/permission decision."""
+    from model_packages.semantic_addresses import address_indexes
+    from model_packages.desktop_pet_v1.address_recall import addresses
+    rows=addresses([{'owner':owner,'path':path} for owner,path in properties])
+    indexes=tuple(address_indexes(rows))
+    return indexes,not indexes or any(row['entity_id'] is None for row in rows)
+
 class RagMemoryService:
     def __init__(self,*,application,provider,trace_dir,reply_source_key=None):
         self.application=application;self.provider=provider;self.trace_dir=Path(trace_dir)
@@ -58,9 +67,15 @@ class RagMemoryService:
                 visible=event.visible_contents(app.owner_ref)
                 from model_packages.desktop_pet_v1.web_observation import is_content
                 speech=[c.description for c in visible if c.kind=='speech' or is_content(c)]
+                from petlab_app.intention_source import ORIGIN,enabled
+                own_intention=(enabled(app) and event.owner_ref==app.owner_ref and event.actor_ref==app.owner_ref
+                    and app._product(source_id=event.event_id)['sources'][event.event_id]['origin']==ORIGIN)
+                if own_intention:
+                    app._verify_source(event)
+                    speech=[c.description for c in visible if c.kind=='thought' and c.private]
                 if (event.owner_ref!=app.owner_ref or not speech):self._sources[key]=None
                 else:
-                    text=('外部网页观察：' if any(is_content(c) for c in visible) else '用户说：' if event.actor_ref==app.user_ref else '角色说：')+'\n'.join(speech)
+                    text=('本人私有意图：' if own_intention else '外部网页观察：' if any(is_content(c) for c in visible) else '用户说：' if event.actor_ref==app.user_ref else '角色说：')+'\n'.join(speech)
                     fingerprint=model_data_fingerprint({'event':event.fingerprint,'fact':fact.fingerprint,'text':text})
                     self._sources[key]=({'event_id':event.event_id,'content_fingerprint':fingerprint,'text':text},memory)
             row=self._sources[key]
@@ -105,8 +120,19 @@ class RagMemoryService:
         app=self.application;history=app.runtime._history();facts=history.facts()
         if not facts:return
         source=self._source(facts[-1].fact_id)
-        self._documents_for(event=source.event,
+        _documents,memories=self._documents_for(event=source.event,
             before_ordinal=source.fact.accepted_runtime_ordinal+1,history=history)
+        for memory in memories.values():self._address_properties(memory)
+
+    def _address_properties(self,memory):
+        key=memory.fact.fingerprint
+        if key not in self._address_cache:
+            from .relation_annotations import _measurement
+            from model_packages.desktop_pet_v1.hierarchy_semantics import validate
+            parsed=_measurement(self.application.runtime.session.profile,memory).get('pet_memory_recall',{})
+            self._address_cache[key]=(validate(memory.event,parsed) if parsed.get('version') in
+                ('desktop-pet-hierarchical-property-recall-v7','desktop-pet-property-address-recall-v8') else [])
+        return self._address_cache[key]
 
     def _address_documents(self,documents,memories,basis):
         """Apply the shared source address projection before vector inference.
@@ -117,20 +143,13 @@ class RagMemoryService:
         if 'addresses' not in basis:return documents,None
         from model_packages.semantic_addresses import levels,address_indexes,match_addresses
         from model_packages.desktop_pet_v1.address_recall import addresses
-        from model_packages.desktop_pet_v1.hierarchy_semantics import validate
-        from .relation_annotations import _measurement
         candidates=[];unlocated=[]
         for doc in documents:
             props=[]
             for identity in doc['member_event_ids']:
-                memory=memories[identity];key=memory.fact.fingerprint
-                if key not in self._address_cache:
-                    parsed=_measurement(self.application.runtime.session.profile,memory).get('pet_memory_recall',{})
-                    self._address_cache[key]=(validate(memory.event,parsed) if parsed.get('version') in
-                        ('desktop-pet-hierarchical-property-recall-v7','desktop-pet-property-address-recall-v8') else [])
-                props.extend(p for p in self._address_cache[key] if p['kind']=='assertion')
-            indexes=address_indexes(addresses(props))
-            if not indexes or any(a['entity_id'] is None for a in addresses(props)):unlocated.append(doc['event_id'])
+                props.extend(p for p in self._address_properties(memories[identity]) if p['kind']=='assertion')
+            indexes,unresolved=_address_projection(tuple((p['owner'],tuple(p['path'])) for p in props))
+            if unresolved:unlocated.append(doc['event_id'])
             candidates.append({'event_id':doc['event_id'],'indexes':indexes})
         selected,decisions=match_addresses(basis['addresses'],candidates)
         resolved=any(levels(a) for a in basis['addresses'])
@@ -177,13 +196,13 @@ class RagMemoryService:
         basis=self._basis(source);text=_literal_query(source.event)
         if not text.strip():return None
         history=app.runtime._history();recall=self._recall(event_id,history)
-        docs,memories=self._documents(source,history)
-        docs,address_selection=self._address_documents(docs,memories,basis)
-        snapshot=_snapshot(docs)
         key=model_data_fingerprint({'binding':source.fact.session_binding_fingerprint,'source':source.fact.fingerprint,'policy':VERSION,'documents':DOCUMENT_VERSION})
         path=self.trace_dir/(key+'.json')
         if path.exists():
             record=json.loads(path.read_text(encoding='utf8'));self.validate(record,event_id,history=history);return record
+        docs,memories=self._documents(source,history)
+        docs,address_selection=self._address_documents(docs,memories,basis)
+        snapshot=_snapshot(docs)
         namespace=model_data_fingerprint({'binding':source.fact.session_binding_fingerprint,'owner':app.owner_ref,'scope':source.event.scope_ref})
         start=time.perf_counter()
         pending=self._prefetch;self._prefetch=None
@@ -206,18 +225,25 @@ class RagMemoryService:
         with path.open('x',encoding='utf8') as f:json.dump(record,f,ensure_ascii=False,separators=(',',':'),allow_nan=False)
         return record
     def validate(self,context,event_id,*,history=None):
-        app=self.application;source=self._source(event_id)
+        from petlab_app.destinations import _INPUT_SNAPSHOT
+        app=self.application
+        c=thaw_model_data(context)
+        if c.get('version')!=CONTEXT_VERSION or c.get('fingerprint')!=model_data_fingerprint({k:v for k,v in c.items() if k!='fingerprint'}):raise ValueError('local RAG context fingerprint differs')
+        cache=_INPUT_SNAPSHOT.get()
+        cache_key=('validated-rag-context',id(self),event_id,c['fingerprint'],self.provider.model)
+        cached=cache.get(cache_key) if cache is not None else None
+        if cached is not None and cached[0] is self and cached[1] is app.runtime.session:
+            return cached[2]
+        source=self._source(event_id)
         history=history or app.runtime._history();recall=self._recall(event_id,history)
         docs,memories=self._documents(source,history,document_version=context.get('document_version'))
         if 'address_selection' in context:
             basis=self._basis(source);docs,selection=self._address_documents(docs,memories,basis)
             if thaw_model_data(context['address_selection'])!=selection:raise ValueError('RAG address selection differs from committed sources')
         by_id={r['event_id']:r for r in docs}
-        c=thaw_model_data(context)
         from .relation_annotations import _measurement
         if _measurement(app.runtime.session.profile,source).get('pet_memory_recall',{}).get('version')=='desktop-pet-property-address-recall-v8':
             if 'query_basis' not in c or 'address_selection' not in c:raise ValueError('RAG property source contract missing')
-        if c.get('version')!=CONTEXT_VERSION or c.get('fingerprint')!=model_data_fingerprint({k:v for k,v in c.items() if k!='fingerprint'}):raise ValueError('local RAG context fingerprint differs')
         text='\n'.join(x.description for x in source.event.visible_contents(app.owner_ref) if x.kind=='speech')
         if 'query_basis' in c:
             basis=self._basis(source)
@@ -259,9 +285,14 @@ class RagMemoryService:
                     or memory.fact.accepted_runtime_ordinal>=source.fact.accepted_runtime_ordinal):
                     raise ValueError('numeric memory union source differs')
                 memories[identity]=memory
-        return source,recall,memories
-    def cards(self,context,event_id,*,content_view_version=None):
-        source,recall,memories=self.validate(context,event_id)
+        validated=(source,recall,memories)
+        if cache is not None:cache[cache_key]=(self,app.runtime.session,validated)
+        return validated
+    def cards(self,context,event_id,*,content_view_version=None,intention_snapshot=None):
+        validated=self.validate(context,event_id)
+        return self._cards(context,event_id,validated,content_view_version=content_view_version,intention_snapshot=intention_snapshot)
+    def _cards(self,context,event_id,validated,*,content_view_version=None,intention_snapshot=None):
+        source,recall,memories=validated
         c=thaw_model_data(context);app=self.application;selected=c['result']['selected']
         addresses={}
         for document in c['selected_sources']:
@@ -289,6 +320,9 @@ class RagMemoryService:
                     '位置':{'domain':event.position.binding.domain_id,'coordinate':event.position.coordinate},'正文':text,'内容属性':attrs}
             from petlab_app.visible_delivery import presentation_fields
             fields=presentation_fields(app,event,fields)
+            from .intention_delivery import annotation as intention_annotation,FIELD as INTENTION_FIELD
+            intention,intention_refs=intention_annotation(app,memory,reader_ref=app.owner_ref,snapshot=intention_snapshot)
+            if intention is not None:fields[INTENTION_FIELD]=intention
             annotation=for_memory(app.runtime.session.profile,memory,app.owner_ref)
             if annotation is not None:fields[FIELD]=annotation
             if 'address_selection' in c:
@@ -298,13 +332,14 @@ class RagMemoryService:
                     from model_packages.desktop_pet_v1.hierarchy_semantics import validate
                     fields['语义属性']=[{k:thaw_model_data(v) for k,v in p.items() if k!='span'} for p in validate(event,parsed)]
             rows.append(WriterCard(card_id='memory:local-rag:'+i,lane='memory',kind='addressed_pet_event',source_id=i,fields=fields,
-                source_receipt_refs=(memory.fact.fingerprint,c['fingerprint'],read.fingerprint),
+                source_receipt_refs=(memory.fact.fingerprint,c['fingerprint'],read.fingerprint,*intention_refs),
                 provenance={'selected_memory_ids':[i],'rag_context_fingerprint':c['fingerprint'],'state_eligible':False,
                             'address_receipt':addresses[i].to_record()},budget_policy='preserve_selection'))
         return tuple(rows)
-    def compose_cards(self,context,event_id,numeric_cards,*,content_view_version=None,links=False,visibility=None):
+    def compose_cards(self,context,event_id,numeric_cards,*,content_view_version=None,links=False,visibility=None,intention_snapshot=None):
         c=thaw_model_data(context)
-        rag_cards=self.cards(context,event_id,content_view_version=content_view_version)
+        validated=self.validate(context,event_id)
+        rag_cards=self._cards(context,event_id,validated,content_view_version=content_view_version,intention_snapshot=intention_snapshot)
         if visibility is not None:
             from petlab_app.writer_visibility import filter_memories
             ids=tuple(i for c in rag_cards for i in c.provenance['selected_memory_ids'])
@@ -313,7 +348,7 @@ class RagMemoryService:
         cards=(*numeric_cards,*rag_cards)
         # Old sealed Writer requests must retain their original two-block view.
         if c.get('assembly_version') is None:return cards
-        source,recall,memories=self.validate(context,event_id)
+        source,recall,memories=validated
         ids=tuple(sorted((i for card in cards for i in card.provenance['selected_memory_ids']),
                          key=lambda i:memories[i].fact.accepted_runtime_ordinal))
         if len(ids)!=len(set(ids)):raise ValueError('memory union repeats a selected source')

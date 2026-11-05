@@ -14,7 +14,7 @@ def split_output(text,*,site):
   resources([{'query':query,'site':site}])
  return json.dumps(value,ensure_ascii=False),query
 
-def context_for(app,event_id,*,selected_ids=(),readers=()):
+def context_for(app,event_id,*,selected_ids=(),readers=(),action_sequence_context=None):
  result=None;supplier=getattr(app,'reading_context_supplier',None)
  if callable(supplier):result=supplier()
  site=None
@@ -25,12 +25,20 @@ def context_for(app,event_id,*,selected_ids=(),readers=()):
    from petlab_app.web_search import decode
    topic=decode(selected['definition']['tool']['url'])
    if topic is not None and 'query' not in topic:site=topic['site']
+ optional_action=False
+ if action_sequence_context is not None:
+  from petlab_app.web_search import decode
+  for candidate in action_sequence_context['catalog']['candidates']:
+   if candidate['key']=='read_web':
+    topic=decode(candidate['tool']['url'])
+    if topic is not None and 'query' not in topic:site=topic['site'];optional_action=True
  linked=None
  if selected_ids and not is_idle_tick(app,event_id):
   from .activity_result_context import build
   linked=build(app,event_id,selected_ids,readers)
  if site is None and result is None and linked is None:return None
  value={'version':RESULTS_VERSION if linked else VERSION,'site':site,'result':result}
+ if optional_action:value['optional_action']=True
  if linked:value['activity_results']=linked
  return {**value,'fingerprint':fp(value)}
 
@@ -39,6 +47,8 @@ def supplement(context):
  system=''
  if context['site'] is not None:
   system='\n已选动作是阅读网页。另输出search_query：结合本轮人设、已交付上下文与自己的兴趣，给出这次想了解的简短搜索词（最多96字），没有具体想查的内容时填null。搜索词作为已选动作的参数，由工具限定在'+context['site']+'执行；speech仍可为null。'
+  if context.get('optional_action'):
+   system='\n阅读网页是本轮可选动作之一。另输出search_query：当actions包含read_web时，结合人设、记忆和兴趣填写想了解的简短搜索词（最多96字）；未选阅读或没有具体搜索意图时填null。工具在'+context['site']+'执行。'
  user=''
  if context['result'] is not None:
   result=context['result'];user='\n\n[本次阅读活动已交付的公开网页片段]\n'+json.dumps({k:result[k] for k in ['title','url','excerpt','coverage']},ensure_ascii=False,separators=(',',':'))

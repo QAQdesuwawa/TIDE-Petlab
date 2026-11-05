@@ -20,6 +20,16 @@ def outward(event,audience):
 PRESENTATION_PROJECTION='petlab-visible-attached-expression-v1'
 
 
+def action_description(content, description=None):
+ """Keep the physical addressee when stripping private execution bindings."""
+ text=content.description if description is None else description
+ if content.kind=='action' and 'meal' in content.parameters:
+  from model_packages.desktop_pet_v1.shared_meal import verify_binding
+  binding=verify_binding(content.parameters['meal'])
+  text='行动者：'+binding['actor_ref']+'；动作对象：'+binding['target_ref']+'。'+text
+ return text
+
+
 def expand_presentations(contents):
  """Expose a played speech face as a sibling; keep the original source event."""
  from model_packages.desktop_pet_v1.events import Expression
@@ -41,13 +51,15 @@ def expand_presentations(contents):
  return tuple(result)
 
 
-def create(event,audience):
+def create(event,audience,*,public_physical=False):
  rows=[];bodies={}
  for c in expand_presentations(outward(event,audience)):
+  if public_physical and c.kind in {'action','expression'}:
+   c=replace(c,recipient_refs=tuple(sorted(audience)))
   # Executed descriptions carry actual completion/interruption facts. Numeric
   # state, internal selection and renderer frames stay with the source owner.
   params=dict(c.parameters) if c.kind in {'speech','expression'} else {}
-  item=replace(c,recipient_refs=tuple(x for x in c.recipient_refs if x in audience),parameters=params).to_record()
+  item=replace(c,description=action_description(c),recipient_refs=tuple(x for x in c.recipient_refs if x in audience),parameters=params).to_record()
   digest=fp(item);bodies[digest]=item
   rows.append({'content_id':c.content_id,'kind':c.kind,'recipient_refs':item['recipient_refs'],'body_fingerprint':digest})
  if not rows:raise ValueError('execution has no outward visible contents')
@@ -79,7 +91,7 @@ def validate_manifest(source):
    or not isinstance(item['body_fingerprint'],str) or len(item['body_fingerprint'])!=64
    or any(c not in '0123456789abcdef' for c in item['body_fingerprint'])):
    raise ValueError('visible source item invalid')
-  if fragment and (item['phase'] not in ({'started','completed','interrupted'} if item['kind']=='action' else {'completed'})
+  if fragment and (item['phase'] not in ({'started','completed','interrupted'} if item['kind'] in {'action','expression'} else {'completed'})
       or type(item['at_ms']) is not int or type(item['started_at_ms']) is not int
       or not item['started_at_ms']<=item['at_ms']<=e['committed_at_ms']):raise ValueError('visible fragment time/phase differs')
  return m
@@ -123,23 +135,46 @@ def project(root,source,reader):
 def source_context(app,event):
  """Read only this retained input's recipient artifact, never the full history."""
  import json
- from .participant_input import VISIBLE_VERSION,validate
- source=app._product(source_id=event.event_id)['sources'].get(event.event_id,{})
+ from .participant_input import VISIBLE_VERSION,SPEECH_VERSIONS,validate
+ source=app._product()['sources'].get(event.event_id,{})
  receipt=source.get('evidence',{}).get('input_source',{})
- if receipt.get('version')!=VISIBLE_VERSION:return None
+ if receipt.get('version') not in {VISIBLE_VERSION,*SPEECH_VERSIONS}:return None
  validate(app,receipt,event.contents,event_id=event.event_id)
  artifact=json.loads((app.store.path.with_suffix('.resources')/receipt['artifact']).read_text(encoding='utf8'))
- return artifact['visible']
+ if receipt['version']==VISIBLE_VERSION:return artifact['visible']
+ original=artifact['source']['event']
+ return {'target_refs':original['addressed_participant_ids'],
+         'speech_audience':original['visible_recipient_ids'],
+         'delivery_scope':artifact['delivery']['delivery_scope']}
 
 
 def presentation_fields(app,event,fields):
  context=source_context(app,event)
  if context is None:return fields
  attrs=[{('可见受众' if k=='对象' else k):v for k,v in row.items()} for row in fields.get('内容属性',())]
- return {**fields,'对象':context['target_refs'],'接收者':app.owner_ref,'内容属性':attrs}
+ if 'speech_audience' in context:
+  attrs=[{**row,'可见受众':context['speech_audience']} for row in attrs]
+ # The parent reaction may answer a human while a child hands a bowl to an NPC.
+ # Neither that parent relation nor this reader is the child's physical target.
+ result={k:v for k,v in fields.items() if k not in {'对象','接收者'}}
+ return {**result,'父级回应对象':context['target_refs'],'本次观察者':app.owner_ref,'内容属性':attrs}
 
 
 def delivery_order(row):
     """Actual timestamps first; same-millisecond fragments keep their lineage."""
     p=row['projection'];v=row.get('visible',{})
     return (p['committed_at_ms'],v.get('parent_event_id',p['source_event_id']),v.get('sequence',0),row['delivery']['delivery_id'])
+
+
+def supersedes_running_action(previous,current,reader):
+    """Only an actual terminal of the same action invalidates its running phase.
+
+    Another utterance, face, or independent movement is additional input.
+    """
+    a=previous['visible_manifest'];b=current['visible_manifest']
+    if a['parent_event_id']!=b['parent_event_id']:return False
+    before=[i for i in a['items'] if reader in i['recipient_refs']]
+    if not before or any(i['kind']!='action' or i.get('phase')!='started' for i in before):return False
+    terminals={(i['content_id'],i.get('started_at_ms')) for i in b['items']
+        if reader in i['recipient_refs'] and i['kind']=='action' and i.get('phase') in {'completed','interrupted'}}
+    return all((i['content_id'],i.get('started_at_ms')) in terminals for i in before)

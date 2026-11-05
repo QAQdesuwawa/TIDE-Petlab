@@ -1,7 +1,7 @@
 """Frozen body-action entities; legacy fixed modes remain replay-compatible.
 
-New symbolic selections come from action_candidates after original eligibility.
-Neither the renderer nor Writer chooses an action or authorizes an opportunity.
+New candidates reach the existing model sequence selector after original eligibility.
+The model chooses intent; only formal authorization and actual execution create effects.
 """
 from dataclasses import replace
 from .events import Action
@@ -51,7 +51,7 @@ def content(user_ref, *, selection=None):
     if key in MEAL_KEYS:
         from .shared_meal import content as meal_content
         return meal_content(user_ref,selection['definition'])
-    if key=='move_near':
+    if key in ('move_near','stroll','move_away','relocate'):
         from .movement import content as moving_content
         return moving_content(user_ref,selection['definition'])
     if key=='read_web':
@@ -94,10 +94,10 @@ def realized_contents(contents, outcome):
                     extra.update(interruption_reason=reason or 'unknown',cause_ref=row.get('cause_ref'))
             item = replace(item, description=text, parameters={**dict(item.parameters),
                            'execution_status': status,**extra})
-        if item.kind=='action' and item.semantic_key=='move_near':
+        if item.kind=='action' and item.semantic_key in ('move_near','stroll','move_away','relocate'):
             from .movement import realized
             row=results.get(item.content_id,{})
-            item=realized(item,row.get('movement_result'),status=row.get('status'),reason=row.get('reason'))
+            item=realized(item,row.get('movement_result'),status=row.get('status'),reason=row.get('reason'),cause_ref=row.get('cause_ref'))
         if item.kind=='action' and 'meal' in item.parameters:
             from .shared_meal import result_content
             row=results.get(item.content_id,{})

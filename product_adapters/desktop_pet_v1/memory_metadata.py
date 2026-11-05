@@ -38,3 +38,54 @@ def expand_fields(fields):
         raise ValueError('ambiguous shared memory metadata')
     return {k:([{**common,**row} for row in rows] if k==ROWS else v)
             for k,v in fields.items() if k!=SHARED}
+
+
+GROUPS='记忆字段组'
+GROUP_REF='字段组参照'
+
+
+def compact_grouped_fields(fields):
+    """Share repeated metadata within this card, preserving every event row."""
+    fields=expand_fields(fields)
+    rows=fields.get(ROWS)
+    if not isinstance(rows,list) or len(rows)<2:return fields
+    if GROUPS in fields or any(GROUP_REF in row for row in rows):
+        expand_grouped_fields(fields)
+        return fields
+    by_signature={}
+    for index,row in enumerate(rows):
+        common={k:row[k] for k in SHAREABLE if k in row}
+        if common:
+            key=json.dumps(common,ensure_ascii=False,sort_keys=True,separators=(',',':'))
+            by_signature.setdefault(key,[]).append(index)
+    groups={};replacements={}
+    for key,indices in by_signature.items():
+        if len(indices)<2:continue
+        value=json.loads(key);label='组'+str(len(groups)+1)
+        proposed=[{GROUP_REF:label,**{k:v for k,v in rows[i].items() if k not in value}} for i in indices]
+        if _size({label:value})+_size(proposed)>=_size([rows[i] for i in indices]):continue
+        groups[label]=value
+        replacements.update(zip(indices,proposed))
+    baseline=compact_fields(fields)
+    if not groups:return baseline
+    result={**fields,GROUPS:groups,ROWS:[replacements.get(i,row) for i,row in enumerate(rows)]}
+    return result if _size(result)<_size(baseline) else baseline
+
+
+def expand_grouped_fields(fields):
+    fields=thaw_model_data(fields)
+    if GROUPS not in fields:return expand_fields(fields)
+    groups=fields[GROUPS];rows=fields.get(ROWS)
+    if SHARED in fields or not isinstance(groups,dict) or not groups or not isinstance(rows,list):
+        raise ValueError('ambiguous grouped memory metadata')
+    if any(not isinstance(g,dict) or not g or set(g)-set(SHAREABLE) for g in groups.values()):
+        raise ValueError('invalid grouped memory metadata')
+    expanded=[]
+    for row in rows:
+        if not isinstance(row,dict):raise ValueError('invalid grouped memory row')
+        label=row.get(GROUP_REF)
+        if label is None:expanded.append(row);continue
+        if label not in groups or (set(row)-{GROUP_REF})&set(groups[label]):
+            raise ValueError('ambiguous grouped memory reference')
+        expanded.append({**groups[label],**{k:v for k,v in row.items() if k!=GROUP_REF}})
+    return {k:(expanded if k==ROWS else v) for k,v in fields.items() if k!=GROUPS}

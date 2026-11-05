@@ -39,11 +39,23 @@ def _measurement(profile,memory):
     if source is None or entry is None:raise ValueError('relation annotation requires a committed source')
     MemoryInstance(event,memory.fact)
     measurement=source.get('measurement')
+    # Reuse only within the existing synchronous Writer assembly. Mutable
+    # caller dictionaries and replaced journal rows always take the full path.
+    from framework.model_api.immutable_record import ImmutableModelRecord
+    from petlab_app.destinations import _INPUT_SNAPSHOT
+    cache=_INPUT_SNAPSHOT.get()
+    owned=type(source) is ImmutableModelRecord and type(entry) is ImmutableModelRecord
+    key=('relation-measurement',event.event_id)
+    previous=cache.get(key) if owned and cache is not None else None
+    if (previous is not None and previous[0] is source and previous[1] is entry
+            and previous[2]==event and entry.get('fact_fingerprint')==memory.fact.fingerprint):
+        return measurement
     if (entry.get('fact_fingerprint')!=memory.fact.fingerprint
         or PetEvent.from_record(entry['event'])!=event or PetEvent.from_record(source['event'])!=event
         or not isinstance(measurement,Mapping)
         or model_data_fingerprint(measurement)!=entry.get('measurement_fingerprint')):
         raise ValueError('relation annotation differs from committed measurement')
+    if owned and cache is not None:cache[key]=(source,entry,event)
     return measurement
 
 

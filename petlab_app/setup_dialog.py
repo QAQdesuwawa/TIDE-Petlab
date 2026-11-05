@@ -160,7 +160,7 @@ class PetSetupDialog:
         ttk.Label(provider,text="思考模式").grid(row=6,column=0,sticky="w",pady=6)
         ttk.Combobox(provider,textvariable=self.thinking,values=list(THINKING_OPTIONS),state="readonly",width=39).grid(row=6,column=1,sticky="ew",pady=6)
         ttk.Label(provider,text="DeepSeek日常交互建议关闭；其他接口需支持此参数。沿用默认可能开启思考。",wraplength=380).grid(row=7,column=0,columnspan=2,sticky="w",pady=6)
-        file_rows=[("config_path","配置文件",config_path),("session_path","记忆文件",session_path),("trace_dir","运行记录",trace_dir),("asset_dir","素材目录",asset_dir or BASE/"assets/pets/deepseek-maid-v1")]
+        file_rows=[("config_path","配置文件",config_path),("session_path","记忆文件",session_path),("trace_dir","运行记录",trace_dir),("asset_dir","素材目录",asset_dir or BASE/"assets/pets/deepseek-bound-original-face")]
         if self.multi_workspace is not None:
             for key,value in (('session_path',session_path),('trace_dir',trace_dir)):
                 self.fields[key]=tk.StringVar(master=self.window,value=str(Path(value).resolve()))

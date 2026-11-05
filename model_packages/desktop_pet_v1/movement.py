@@ -9,6 +9,9 @@ ARRIVAL_VERSION='desktop-pet-movement-arrival-v2'
 STEP_VERSION='desktop-pet-movement-steps-v3'
 RESULT='desktop-pet-movement-result-v1'
 KEY='move_near'
+KEYS=('move_near','stroll','move_away','relocate')
+FREE_VERSION='desktop-pet-movement-basic-v4'
+LABELS={'stroll':'散步一小段，在附近空处停下','move_away':'走开一些，与指定对象拉开距离','relocate':'换一个空位置待着'}
 
 
 def definition(*,duration_ms=800,gap_px=24,max_distance_px=480):
@@ -25,6 +28,9 @@ def arrival_definition():
 
 def validate_definition(spec):
  if not isinstance(spec,dict):raise ValueError('movement definition missing')
+ if spec.get('version')==FREE_VERSION:
+  if spec.get('mode') not in LABELS or spec!={**arrival_definition(),'version':FREE_VERSION,'mode':spec['mode']}:raise ValueError('invalid basic movement')
+  return spec
  expected=definition(**{k:spec[k] for k in ('duration_ms','gap_px','max_distance_px')})
  if spec.get('version') in (ARRIVAL_VERSION,STEP_VERSION):expected['version']=spec['version']
  if spec!=expected:raise ValueError('movement definition differs')
@@ -36,13 +42,15 @@ def content(target_ref,selected):
  from .behavior import VERSION as BEHAVIOR
  spec=thaw_model_data(selected.get('motion'))
  validate_definition(spec)
- if selected['key']!=KEY:raise ValueError('movement entity key differs')
+ if selected['key'] not in KEYS:raise ValueError('movement entity key differs')
+ if selected['key']!=(spec['mode'] if spec['version']==FREE_VERSION else KEY):raise ValueError('movement mode differs from selected entity')
  spatial._ref(target_ref)
- return Action(content_id='activity',description=selected['description'],semantic_key=KEY,recipient_refs=(target_ref,),
+ return Action(content_id='activity',description=selected['description'],semantic_key=selected['key'],recipient_refs=(target_ref,),
   parameters={'behavior_version':BEHAVIOR,'movement':{**spec,'target_ref':target_ref}})
 
 
 def plan(scene,parameters):
+ if parameters.get('version')==FREE_VERSION:return basic_plan(scene,parameters)
  s=spatial.validate(scene);p=thaw_model_data(parameters)
  if not isinstance(p,dict) or set(p)!=set(definition())|{'target_ref'}:raise ValueError('movement fields differ')
  validate_definition({k:v for k,v in p.items() if k!='target_ref'})
@@ -54,6 +62,22 @@ def plan(scene,parameters):
  inset=.22*(own[2]+peer[2]) if p['version']==STEP_VERSION else 0
  left=peer[0]-own[2]-p['gap_px']+inset;right=peer[0]+peer[2]+p['gap_px']-inset
  x=min((left,right),key=lambda x:abs(x-own[0]));y=peer[1]+peer[3]-own[3]
+ if p['version']==STEP_VERSION:
+  from .physical_space import overlaps
+  vx,vy,vw,vh=s['viewport']
+  candidates=[max(vx,min(vx+max(0,vw-own[2]),v)) for v in (left,right)]
+  free=[v for v in candidates if not any(overlaps([v,y,*own[2:]],r['bounds']) for r in s['participants'] if r['ref']!=s['owner_ref'])]
+  if free:x=min(free,key=lambda v:abs(v-own[0]))
+  else:
+   # Keep the selected recipient. A crowded row can still have free space
+   # above/below that person; the host route planner checks the full path.
+   center=peer[0]+(peer[2]-own[2])/2
+   vertical=[(center,peer[1]-own[3]-p['gap_px']),
+             (center,peer[1]+peer[3]+p['gap_px'])]
+   available=[(a,b) for a,b in vertical
+    if vx<=a<=vx+vw-own[2] and vy<=b<=vy+vh-own[3]
+    and not any(overlaps([a,b,*own[2:]],r['bounds']) for r in s['participants'] if r['ref']!=s['owner_ref'])]
+   if available:x,y=min(available,key=lambda point:math.dist(own[:2],point))
  vx,vy,vw,vh=s['viewport'];x=max(vx,min(vx+max(0,vw-own[2]),x));y=max(vy,min(vy+max(0,vh-own[3]),y))
  dx,dy=x-own[0],y-own[1];distance=math.hypot(dx,dy)
  arrival=p['version'] in (ARRIVAL_VERSION,STEP_VERSION)
@@ -81,7 +105,7 @@ def result(planned,end):
   'start':list(planned['start']),'end':list(end),'distance_px':round(math.dist(planned['start'],end),3)}
 
 
-def realized(content,actual,*,status,reason=None):
+def realized(content,actual,*,status,reason=None,cause_ref=None):
  if (not isinstance(actual,Mapping) or set(actual)!={'version','target_ref','scene_fingerprint','start','end','distance_px'}
      or actual['version']!=RESULT or actual['target_ref']!=content.parameters['movement']['target_ref']):raise ValueError('movement result differs from selected action')
  spatial._ref(actual['scene_fingerprint'])
@@ -89,18 +113,20 @@ def realized(content,actual,*,status,reason=None):
   if len(actual[point])!=2 or any(type(v)is not int for v in actual[point]):raise ValueError('invalid actual movement point')
  if abs(actual['distance_px']-math.dist(actual['start'],actual['end']))>.001:raise ValueError('movement displacement differs')
  text='从桌面坐标'+str(list(actual['start']))+'移动到'+str(list(actual['end']))+'，朝向'+actual['target_ref']+'当时所在的位置。'
- if status=='started':text='开始靠近'+actual['target_ref']+'，从桌面坐标'+str(list(actual['start']))+'出发。'
+ if content.semantic_key in LABELS:
+  text=LABELS[content.semantic_key]+'：从桌面坐标'+str(list(actual['start']))+'移动到'+str(list(actual['end']))+'。'
+ if status=='started':text=('开始'+LABELS[content.semantic_key]+'，从桌面坐标'+str(list(actual['start']))+'出发。') if content.semantic_key in LABELS else '开始靠近'+actual['target_ref']+'，从桌面坐标'+str(list(actual['start']))+'出发。'
  elif status=='interrupted':text+='中途停止。'+{'user_contact':'用户接触中止了移动。','source_expired':'现场条件已变化。','technical_failure':'执行发生故障。','window_closed':'窗口已关闭。'}.get(reason,'')
  elif status!='completed':raise ValueError('invalid actual movement status')
+ if reason=='physical_contact':text+='移动路径被其他角色占据，停止靠近。阻挡对象：'+str(cause_ref)+'。'
  return replace(content,description=text,parameters={**dict(content.parameters),'movement_result':thaw_model_data(actual)})
 
 
 def catalog(base=None, *, scene=None, target_ref=None):
  """Bind a physical approach entity to the original selected relationship.
 
- Only availability is geometric. Published tokens and original eligibility
- still decide whether this entity is chosen; no Writer or new score is used.
- Existing explicit catalogs and frozen selections retain their definitions.
+ Availability is geometric. New v2 offers let the model choose intent; token
+ conditions below are retained only for old v1 sealed selection replay.
  """
  from copy import deepcopy
  from .action_candidates import CATALOG
@@ -120,4 +146,44 @@ def catalog(base=None, *, scene=None, target_ref=None):
   'any':[{'kind':'self','text':'[行为高度同向]'},
          {'kind':'self','text':'[行为中等同向]'}],
   'none':[{'kind':'pain'}]})
+ return value
+
+
+def basic_plan(scene,parameters):
+ s=spatial.validate(scene);p=thaw_model_data(parameters)
+ validate_definition({k:v for k,v in p.items() if k!='target_ref'})
+ from .physical_space import overlaps
+ own=next(r['bounds'] for r in s['participants'] if r['ref']==s['owner_ref'])
+ others=[r for r in s['participants'] if r['ref']!=s['owner_ref']]
+ target=next((r['bounds'] for r in others if r['ref']==p['target_ref']),None)
+ if p['mode']=='move_away' and target is None:raise ValueError('departure target not visible')
+ vx,vy,vw,vh=s['viewport'];points=[]
+ if vw<own[2] or vh<own[3]:raise ValueError('viewport too small for movement')
+ radius=140 if p['mode']=='stroll' else 260
+ for dx,dy in ((1,0),(-1,0),(0,1),(0,-1),(1,1),(-1,1),(1,-1),(-1,-1)):
+  x=round(max(vx,min(vx+vw-own[2],own[0]+dx*radius)))
+  y=round(max(vy,min(vy+vh-own[3],own[1]+dy*radius)))
+  if math.dist(own[:2],[x,y])<40:continue
+  if any(overlaps([x,y,*own[2:]],q['bounds']) for q in others):continue
+  if p['mode']=='move_away' and math.dist([x,y],target[:2])<=math.dist(own[:2],target[:2])+30:continue
+  points.append([x,y])
+ if not points:raise ValueError('no free movement destination')
+ if p['mode']=='move_away':end=max(points,key=lambda q:math.dist(q,target[:2]))
+ elif p['mode']=='relocate':end=max(points,key=lambda q:min([math.dist(q,o['bounds'][:2]) for o in others] or [math.dist(q,own[:2])]))
+ else:end=min(points,key=lambda q:abs(math.dist(q,own[:2])-radius))
+ distance=math.dist(own[:2],end)
+ return {'version':STEP_VERSION,'target_ref':p['target_ref'],'scene_fingerprint':s['fingerprint'],
+  'start':own[:2],'end':end,'duration_ms':max(800,math.ceil(distance/180*1000)),'distance_px':round(distance,3)}
+
+
+def basic_catalog(base,*,scene,target_ref):
+ from copy import deepcopy
+ value=deepcopy(thaw_model_data(base))
+ if scene is None:return value
+ for key,label in LABELS.items():
+  if any(c['key']==key for c in value['candidates']):continue
+  motion={**arrival_definition(),'version':FREE_VERSION,'mode':key}
+  try:basic_plan(scene,{**motion,'target_ref':target_ref})
+  except ValueError:continue
+  value['candidates'].append({'key':key,'description':label+('（对象：'+target_ref+'）' if key=='move_away' else ''),'motion':motion})
  return value

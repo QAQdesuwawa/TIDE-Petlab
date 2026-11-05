@@ -1,4 +1,4 @@
-"""Whole-character asset selection only; never crop or composite face/body parts."""
+"""Display asset selection, including optional shared local character bindings."""
 from pathlib import Path
 import hashlib
 from .windows_alpha import load_alpha_frames
@@ -73,6 +73,15 @@ def _build_limb_contacts(frames,declaration):
             pose=row['pose_codes'][code]
             if pose not in (*CODES,'blink'):raise ValueError('unknown whole contact pose')
             original=frames['normal'][2] if pose=='blink' else frames[pose][0]
+            from .rig_activity import RigFrame
+            if isinstance(original,RigFrame) and 'input_feedback' in original.rig:
+                from .rig_feedback import samples as bound_samples
+                # Bound feedback moves limbs; legacy baked-pose substitutions
+                # must not turn a sad/aggrieved face into an angry one.
+                original=frames['normal'][2] if pose=='blink' and code=='normal' else frames[code][0]
+                samples=bound_samples(original,'contact',count)[:-1]+(frames[code][0],)
+                result[code]=old+(original,)*(start-len(old))+samples
+                continue
             key=(pose,json.dumps(motion,sort_keys=True))
             if key not in cache:
                 cycle=animate_drag(original,motion)
@@ -113,6 +122,7 @@ def build_activity_frames(frames,manifest,asset_dir,declaration,tail_clip):
         raise ValueError('invalid local activity declaration')
     import math
     result=dict(frames);clips={};mapping={}
+    if not declaration['clips']:return result,clips,mapping
     first=next(iter(frames.values()))[0]
     source=manifest['idle'];idle=_load(source,asset_dir,(first.width,first.height))
     for key,row in declaration['clips'].items():
@@ -142,19 +152,49 @@ def build_activity_frames(frames,manifest,asset_dir,declaration,tail_clip):
 
 def _atlas_activity_frames(frames,manifest,asset_dir,declaration,tail_clip):
     """Complete authored poses; a sprite sequence remains one actual action."""
-    old={k:v for k,v in declaration['clips'].items() if v.get('source')!='whole_atlas'}
+    old={k:v for k,v in declaration['clips'].items() if v.get('source') not in ('whole_atlas','expression_motion','facing_turn','bound_rig')}
     result,clips,mapping=build_activity_frames(frames,manifest,asset_dir,{'version':'petlab-local-activities-v3','clips':old},tail_clip)
+    from .expression_motion import append as append_expression_motion
+    binding=None
+    if declaration.get('head_binding') is not None:
+        import json
+        from pathlib import Path
+        binding=json.loads((Path(asset_dir)/declaration['head_binding']).read_text(encoding='utf8'))
+    result,motion_clips,motion_mapping=append_expression_motion(result,{k:v for k,v in declaration['clips'].items() if v.get('source')=='expression_motion'},binding=binding)
+    clips.update(motion_clips);mapping.update(motion_mapping)
+    from .rig_activity import append as append_rig
+    result,rig_clips,rig_mapping=append_rig(result,asset_dir,declaration.get('rig_binding'),
+        {k:v for k,v in declaration['clips'].items() if v.get('source')=='bound_rig'})
+    clips.update(rig_clips);mapping.update(rig_mapping)
+    import math
+    for key,row in declaration['clips'].items():
+        if row.get('source')!='facing_turn':continue
+        if set(row)!={'source','duration_ms','direction'} or row['direction'] not in (-1,1) or type(row['duration_ms']) is not int or not 300<=row['duration_ms']<=2000:raise ValueError('invalid facing turn')
+        count=math.ceil(row['duration_ms']/33)
+        start=max(len(v) for v in result.values())
+        for code,old_frames in result.items():result[code]=old_frames+(old_frames[0],)*(start-len(old_frames)+count)
+        clips[key]={'frames':list(range(start,start+count)),'durations_ms':[row['duration_ms']//count+(i<row['duration_ms']%count) for i in range(count)],'facing_turn':row['direction'],'continuous_expression_motion':True}
+        mapping.update({i:0 for i in range(start,start+count)})
     first=next(iter(result.values()))[0];sources={}
     for key,row in declaration['clips'].items():
         if row.get('source')!='whole_atlas':continue
-        if set(row)!={'source','asset','poses','durations_ms'}:raise ValueError('invalid atlas activity')
-        spec=row['asset'];cache_key=spec['image_sha256']
-        if cache_key not in sources:sources[cache_key]=_load(spec,asset_dir,(first.width,first.height))
+        if set(row)-{'standing_endpoint','authored_transition'} not in ({'source','asset','poses','durations_ms'},{'source','asset','poses','durations_ms','registration'}):raise ValueError('invalid atlas activity')
+        if 'authored_transition' in row and type(row['authored_transition']) is not bool:raise ValueError('invalid authored transition')
+        if row.get('standing_endpoint') not in (None,'start','end'):raise ValueError('invalid standing endpoint')
+        if row.get('registration') not in (None,'standing-scale-floor-v1'):raise ValueError('unknown pose registration')
+        spec=row['asset'];cache_key=(spec['image_sha256'],row.get('registration'))
+        if cache_key not in sources:
+            sources[cache_key]=_load(spec,asset_dir,(first.width,first.height))
+            if row.get('registration'):sources[cache_key]=register_whole_poses(sources[cache_key],first)
         poses=sources[cache_key];indices=row['poses'];timing=row['durations_ms']
         if not 2<=len(indices)<=240 or len(indices)!=len(timing) or sum(timing)>30000 or any(type(t)is not int or not 0<t<=1000 for t in timing) or any(type(i)is not int or not 0<=i<len(poses) for i in indices):raise ValueError('invalid atlas activity sequence')
         start=max(len(v) for v in result.values());samples=tuple(poses[i] for i in indices)
-        for code,old_frames in result.items():result[code]=old_frames+(poses[0],)*(start-len(old_frames))+samples
+        for code,old_frames in result.items():
+            selected=list(samples)
+            if row.get('standing_endpoint'):selected[0 if row['standing_endpoint']=='start' else -1]=old_frames[0]
+            result[code]=old_frames+(poses[0],)*(start-len(old_frames))+tuple(selected)
         clips[key]={'frames':list(range(start,start+len(samples))),'durations_ms':list(timing)}
+        if row.get('authored_transition'):clips[key]['authored_transition']=True
         mapping.update({i:0 for i in range(start,start+len(samples))})
     return result,clips,mapping
 
@@ -199,7 +239,14 @@ def _emotion_playback(source,*,base_frame_count):
     return indices,durations,body
 
 
-def build_whole_frames(base_frames,manifest,asset_dir,base_frame_count):
+def build_whole_frames(base_frames,manifest,asset_dir,base_frame_count,*,defer_motion=False):
+    def motion(frame,config,kind):
+        produce=animate_tail if kind=='tail' else animate_drag
+        if not defer_motion:return produce(frame,config)
+        if kind=='tail':_tail_region(frame,config)
+        else:_drag_regions(frame,config)
+        from .deferred_frames import defer
+        return defer(frame,config['frame_count'],lambda:produce(frame,config))
     if manifest.get('version')!='petlab-whole-expression-assets-v1' or set(manifest['idle']['codes'])!=set(CODES) or set(manifest['drag'])!=set(CODES):
         raise ValueError('whole-character expression registry differs')
     if len(base_frames)-base_frame_count!=6:raise ValueError('whole drag atlas requires six physical frame slots')
@@ -222,7 +269,7 @@ def build_whole_frames(base_frames,manifest,asset_dir,base_frame_count):
         # Every output entry is an entire decoded frame, including its own alpha.
         standing=tuple(idle[blink if code=='normal' and i==2 else index] for i in range(base_frame_count))
         if "tail_motion" in manifest:
-            standing=animate_tail(idle[index],manifest["tail_motion"])
+            standing=motion(idle[index],manifest["tail_motion"],'tail')
             if len(standing)!=base_frame_count:raise ValueError("tail motion must fit existing frame slots")
             # Slot 2 is the existing contact-blink frame. Dense tail playback
             # below has its own slots and must not consume this authored pose.
@@ -243,9 +290,9 @@ def build_whole_frames(base_frames,manifest,asset_dir,base_frame_count):
             result[code]+=tuple(frames[i] for i in motion_dense[0])
         elif dense is not None and code not in motions:
             config,_clip=dense
-            result[code]+=animate_tail(idle[index],config)
+            result[code]+=motion(idle[index],config,'tail')
         if drag_motion is not None:
-            result[code]+=animate_drag(drag[0],drag_motion)
+            result[code]+=motion(drag[0],drag_motion,'drag')
     return result
 
 
@@ -324,10 +371,8 @@ def animate_tail(frame,config):
     return cached_frames('tail',frame,config,lambda:_animate_tail_uncached(frame,config))
 
 
-def _animate_tail_uncached(frame,config):
-    """Display deformation of one immutable frame; all pixels outside ROI stay exact."""
+def _tail_region(frame,config):
     import math
-    from .windows_alpha import AlphaFrame
     region=config['region'];count=config['frame_count'];amplitude=config['amplitude_px']
     if (not isinstance(region,list) or len(region)!=4
             or any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or not 0<=v<=1 for v in region)
@@ -338,11 +383,20 @@ def _animate_tail_uncached(frame,config):
     x0=math.ceil(region[0]*frame.width);x1=min(frame.width,math.floor(region[2]*frame.width))
     y0=math.ceil(region[1]*frame.height);y1=min(frame.height,math.floor(region[3]*frame.height))
     if x1-x0<2 or y1-y0<2:raise ValueError('tail display region too small')
+    return x0,y0,x1,y1
+
+
+def _animate_tail_uncached(frame,config):
+    """Display deformation of one immutable frame; all pixels outside ROI stay exact."""
+    import math
+    from .windows_alpha import AlphaFrame
+    x0,y0,x1,y1=_tail_region(frame,config)
+    count=config['frame_count'];amplitude=config['amplitude_px']
     frames=[]
     for phase in range(count):
         data=bytearray(frame.bgra);wave=math.sin(phase*2*math.pi/count+.13)
         for x in range(x0,x1):
-            weight=((x-x0)/(x1-x0-1))**2
+            weight=((1-(x-x0)/(x1-x0-1)) if config.get('tail_origin')=='right' else (x-x0)/(x1-x0-1))**2
             for y in range(y0,y1):
                 dy=amplitude*wave*weight*math.sin(math.pi*(y-y0)/(y1-y0-1))
                 sample=max(y0,min(y1-1,y-dy));lo=math.floor(sample);hi=min(y1-1,lo+1);mix=sample-lo
@@ -401,6 +455,18 @@ def animate_drag(frame,config):
     return cached_frames('drag',frame,config,lambda:_animate_drag_uncached(frame,config))
 
 
+def _drag_regions(frame,config):
+    import math
+    _drag_motion({'drag_motion':config})
+    result=[]
+    for item in config['regions']:
+        a,b,c,d=item['region']
+        bounds=(math.ceil(a*frame.width),math.ceil(b*frame.height),math.floor(c*frame.width),math.floor(d*frame.height))
+        if bounds[2]-bounds[0]<3 or bounds[3]-bounds[1]<3:raise ValueError('drag motion region too small')
+        result.append(bounds)
+    return result
+
+
 def _animate_drag_uncached(frame,config):
     """Warp one immutable whole pose; face/body are never separate layers.
 
@@ -409,11 +475,9 @@ def _animate_drag_uncached(frame,config):
     """
     import math
     from .windows_alpha import AlphaFrame
-    _drag_motion({'drag_motion':config})
+    bounds=_drag_regions(frame,config)
     regions=[];w,h=frame.width,frame.height
-    for item in config['regions']:
-        a,b,c,d=item['region'];x0,y0,x1,y1=math.ceil(a*w),math.ceil(b*h),math.floor(c*w),math.floor(d*h)
-        if x1-x0<3 or y1-y0<3:raise ValueError('drag motion region too small')
+    for item,(x0,y0,x1,y1) in zip(config['regions'],bounds):
         points=[]
         for y in range(y0,y1):
             for x in range(x0,x1):
@@ -459,8 +523,13 @@ def build_rest_frames(frames,manifest):
     config={**manifest['tail_motion'],'frame_count':count,'amplitude_px':row['amplitude_px']}
     for code,old in frames.items():
         original=old[0]
-        samples=animate_tail(original,config)
-        if code=='normal':samples=samples[:2]+(old[2],)+samples[3:]
+        from .rig_activity import RigFrame,rest_samples
+        if isinstance(original,RigFrame) and original.rig.get('idle') is not None:
+            # Blink is applied to the current bound pose by the UI clock.
+            samples=rest_samples(original,count)
+        else:
+            samples=animate_tail(original,config)
+            if code=='normal':samples=samples[:2]+(old[2],)+samples[3:]
         result[code]=old+(original,)*(start-len(old))+samples
         clips[code]={'frames':list(range(start,start+count)),'durations_ms':list(durations)}
     mapping.update({start+i:2 if i==2 else 0 for i in range(count)})
@@ -502,3 +571,25 @@ def _whole_activity_frames(frames,manifest,asset_dir,declaration,tail_clip):
         indexes=list(range(start,start+len(samples)));clips[key]={'frames':indexes,'durations_ms':list(durations)}
         mapping.update({i:0 for i in indexes})
     return result,clips,mapping
+
+
+def register_whole_poses(poses,reference):
+    """One uniform sprite scale and a shared floor, without splitting body parts."""
+    import cv2,numpy as np
+    from .windows_alpha import AlphaFrame
+    def pixels(frame):return np.frombuffer(frame.bgra,dtype=np.uint8).reshape(frame.height,frame.width,4)
+    def bounds(a):
+        y,x=np.where(a[:,:,3]>128)
+        if not len(x):raise ValueError('empty registered pose')
+        return (int(x.min()),int(y.min()),int(x.max())+1,int(y.max())+1)
+    arrays=[pixels(p) for p in poses];boxes=[bounds(a) for a in arrays];ref=bounds(pixels(reference))
+    scale=min((ref[3]-ref[1])/(boxes[0][3]-boxes[0][1]),
+              min((reference.width-4)/(b[2]-b[0]) for b in boxes),
+              min((reference.height-4)/(b[3]-b[1]) for b in boxes))
+    center=(ref[0]+ref[2])/2;floor=ref[3]
+    out=[]
+    for a,b in zip(arrays,boxes):
+        matrix=np.array([[scale,0,center-scale*(b[0]+b[2])/2],[0,scale,floor-scale*b[3]]],dtype=np.float32)
+        transformed=cv2.warpAffine(a,matrix,(reference.width,reference.height),flags=cv2.INTER_LINEAR,borderMode=cv2.BORDER_CONSTANT)
+        out.append(AlphaFrame(reference.width,reference.height,transformed.tobytes()))
+    return tuple(out)

@@ -145,6 +145,10 @@ def prepare_idle_delivery(application,event_id,packet,expression,prompt_delivery
         semantic_payload=thaw_model_data(expression.semantic_resource_execution.payload),
         writer_packet_fingerprint=packet.packet.packet_fingerprint,writer_delivery_fingerprint=packet.receipt['fingerprint'],
         delivered_token_keys=list(prompt_delivery['expression_ids']),prompt_delivery_fingerprint=prompt_delivery['fingerprint'])
+    from petlab_app.intention_continuation import current as current_intention
+    if current_intention(application,event_id) is not None:
+        from .settlement_view import KEY
+        delivery['intention_planning_view']=thaw_model_data(session.profile[KEY])
     delivery['plan']=_plan(delivery)
     if not set(delivery['delivered_token_keys']).issubset(delivery['plan']['selected_token_keys']):raise ValueError('idle Writer delivery differs from selected resources')
     return _signed(delivery)
@@ -165,6 +169,11 @@ def prepare_deferred_delivery(application,event_id,packet,prompt_delivery):
         semantic_payload=thaw_model_data(expression.semantic_resource_execution.payload),
         writer_packet_fingerprint=packet.packet.packet_fingerprint,writer_delivery_fingerprint=packet.receipt['fingerprint'],
         delivered_token_keys=list(prompt_delivery['expression_ids']),prompt_delivery_fingerprint=prompt_delivery['fingerprint'])
+    source=application._product()['sources'][event_id]
+    if source['origin']=='input' and source['evidence'].get('response_policy')=='eligible':
+        from petlab_app.intention_continuation import authorize
+        authorize(application,event_id)
+        delivery['intention_continuation_version']='cx67-intention-continuation-v1'
     if prompt_delivery['packet_fingerprint']!=packet.packet.packet_fingerprint:
         raise ValueError('deferred prompt differs from packet')
     delivery['plan']=_plan(delivery)
@@ -183,7 +192,7 @@ def _visual_only(evidence, contents):
         return False
     rows=[item.to_record() if hasattr(item,'to_record') else item for item in contents]
     from model_packages.desktop_pet_v1.action_sequence import VERSION as SEQUENCE_VERSION
-    if evidence.get('action_sequence_contract')==SEQUENCE_VERSION:
+    if evidence.get('action_sequence_contract')==SEQUENCE_VERSION or evidence.get('whisper_contract')=='desktop-pet-whisper-v1' or evidence.get('audience_motion_contract')=='desktop-pet-audience-motion-v1':
         return tuple(evidence.get('sequence_actual_channels',('missing',)))==() and bool(rows) and all(r.get('kind') in {'action','expression'} for r in rows)
     if evidence.get('speech_decision')!='silent' or evidence.get('reported_used_memory_ids'):return False
     return bool(rows) and all(item.get('kind')=='expression'
@@ -205,7 +214,7 @@ def commit_delivery(session, prepared, committed, completed_contents):
         from model_packages.desktop_pet_v1.composite import PRESENTATION_VERSION
         from model_packages.desktop_pet_v1.spatial import GAZE
         from model_packages.desktop_pet_v1.action_sequence import VERSION as SEQUENCE_VERSION
-        sequence=prepared.request.control.get('action_sequence_contract')==SEQUENCE_VERSION
+        sequence=prepared.request.control.get('action_sequence_contract')==SEQUENCE_VERSION or prepared.request.control.get('whisper_contract')=='desktop-pet-whisper-v1' or prepared.request.control.get('audience_motion_contract')=='desktop-pet-audience-motion-v1'
         actual_evidence=committed.committed_fact.model_payload['execution_receipt']['realization_evidence']
         if (sequence and _visual_only(actual_evidence,completed_contents) or prepared.request.control.get('composite',{}).get('version')==PRESENTATION_VERSION
                 and prepared.request.control.get('gaze_contract')==GAZE
@@ -263,6 +272,9 @@ def verify_commits(application, product):
             tick,_grant=idle_source(application,delivery['event_id'])
             expected_ref=tick.row['fingerprint'];acceptance=tick.row['source_acceptance_fingerprint']
             ordinal=tick.row['source_snapshot']['position']['runtime_ordinal'];position=tick.row['source_snapshot']['position']['position']['fingerprint']
+            if 'intention_planning_view' in delivery:
+                from petlab_app.intention_idle import verify_delivery
+                ordinal,position=verify_delivery(application,delivery)
         elif delivery.get('source_kind')=='deferred_reply':
             from .deferred_reply import verify_delivery
             ordinal,position=verify_delivery(application,delivery)

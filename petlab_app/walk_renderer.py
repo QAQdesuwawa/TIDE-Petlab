@@ -80,6 +80,12 @@ def build_walk_frames(frames,whole,asset_dir):
  root=Path(asset_dir);path=root/'walk.json'
  if not path.exists():return frames,{},{},None
  config=validate(json.loads(path.read_text(encoding='utf8')),(root/'whole-expressions.json').read_bytes())
+ from .rig_activity import RigFrame
+ first=next(iter(frames.values()))[0]
+ if isinstance(first,RigFrame) and first.rig.get('gait'):
+  from .rig_walk import build
+  result,clips,mapping=build(frames,config)
+  return result,clips,mapping,config
  from .whole_frame_renderer import _load,_place_whole_frame
  from .frame_cache import cached_frames
  size=(next(iter(frames.values()))[0].width,next(iter(frames.values()))[0].height)
@@ -101,6 +107,11 @@ def build_carry_frames(frames,activities,config):
  if config is None or 'eat_rice' not in activities:return frames,{},{}
  from .frame_cache import cached_frames
  source=frames['normal'][activities['eat_rice']['frames'][0]]
+ from .rig_activity import RigFrame
+ if isinstance(source,RigFrame) and source.rig.get('gait'):
+  from .rig_walk import build
+  result,clips,mapping=build(frames,config,activities['eat_rice']['frames'])
+  return result,clips['normal'],mapping
  carry={**config,'feet':[[.43,.805,.54,.995],[.54,.805,.65,.995]],
         'tail':[.025,.64,.30,.93],'tail_origin':'right'}
  cached={**carry,'frame_count':config['frame_count']*2,'implementation':hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
@@ -108,3 +119,4 @@ def build_carry_frames(frames,activities,config):
  start=max(len(v) for v in frames.values());count=config['frame_count']
  result={code:old+(old[0],)*(start-len(old))+poses for code,old in frames.items()}
  return result,{'left':list(range(start,start+count)),'right':list(range(start+count,start+2*count))},{i:0 for i in range(start,start+2*count)}
+

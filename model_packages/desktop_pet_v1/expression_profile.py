@@ -22,10 +22,10 @@ def natural_expression_policy(*,selected_memory_count):
         raise ValueError("selected memory count must be a nonnegative integer")
     return {
         "version":NATURAL_EXPRESSION_VERSION,
-        "voice":"直接回应唯一reply_target，语气沿人物、当前互动与已选方向自然形成；不套用预设口头禅、例句或固定收尾，不主动变成客服式功能介绍。",
+        "voice":"结合人物、当前互动、状态与记忆，自主形成措辞、语气和表达方式。",
         "memory_body_count":selected_memory_count,
         "memory_scope":("往事只依本轮实际交付的记忆正文表达具体内容；未交付正文不能据此声称已回忆到。"
             if selected_memory_count else "本轮没有正式选择的记忆正文，不声称已唤起旧事；可以回应对方在本轮输入明确提供的事情。"),
-        "memory_expression":"不以笼统的回忆声明起手，不宣告未来会记住某事，不宣传记忆功能。若有具体往事，直接谈事情本身。",
+        "memory_expression":"具体往事以交付材料支持的内容为据；如何提起、怎样表达感受，由角色结合本轮语境决定。",
         "measurement_reference":"本轮量测是reply_target原事件的已接受结果；conversation是当前累计状态，二者不可互相替代或读作两次输入。数值和来源仅用于理解，不对用户播报。",
     }

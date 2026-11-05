@@ -25,3 +25,8 @@ jobs:
         run: |
           & ./.venv/Scripts/python.exe -B -c "import tkinter as tk; root=tk.Tk(); root.withdraw(); root.update(); root.destroy()"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run offline developer and PetLab journeys
+        shell: powershell
+        run: |
+          & ./.venv/Scripts/python.exe -B -X utf8 -m unittest examples.test_examples examples.test_petlab_scenarios
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

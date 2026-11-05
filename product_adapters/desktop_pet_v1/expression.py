@@ -59,7 +59,8 @@ class PetExpressionService:
     def project(self,event_id,*,historical=False):
         app=self.application
         with app._lock:
-            app._require_ready()
+            from petlab_app.live_execution import recovery_projection
+            if not recovery_projection(app,event_id):app._require_ready(during_live_execution=True)
             memory=app.runtime.memory_instance(event_id)
             app._verify_source(memory.event)
             if memory.event.event_kind!="peer_input":
@@ -161,18 +162,27 @@ class PetExpressionService:
     def _authorize_projected_reply(self,event_id,lifecycle):
         app=self.application
         with app._lock:
+            target=reply_destination(app,event_id)
+            key=(event_id,target,lifecycle,app.runtime.session.session_binding,
+                 app.runtime.session.position,authorize_required_product_reply)
+            saved=getattr(app,'_last_required_reply_authorization',None)
+            if (saved is not None and saved[0][:2]==key[:2]
+                    and all(a is b for a,b in zip(saved[0][2:],key[2:]))):
+                return saved[1]
             proof=authorize_required_product_reply(lifecycle)
             proof.verify_integrity(session_binding=app.runtime.session.session_binding,
                 current_position=app.runtime.session.position)
             # Map the existing required lifecycle proof into the neutral action
             # protocol. No conversation router, Writer, tick, or executor runs.
-            return ActionAuthorization.create(session_binding=app.runtime.session.session_binding,
+            authorization=ActionAuthorization.create(session_binding=app.runtime.session.session_binding,
                 current_position=app.runtime.session.position,action_kind="direct_reply",
                 subject_ref=app.owner_ref,source_fact_ref=event_id,
                 source_settlement_fingerprint=lifecycle.transaction.event_transaction.acceptance.fingerprint,
-                target_ref=reply_destination(app,event_id),
+                target_ref=target,
                 package_eligibility_evidence={"version":"desktop-pet-required-source-v1",
                     "response_policy":lifecycle.evidence.response_policy,
                     "source_binding_ref":lifecycle.evidence.receipt["source_binding_ref"]},
                 host_authorization_evidence={"origin":"direct_reply","required_proof_fingerprint":proof.fingerprint,
                     "lifecycle_receipt_fingerprint":lifecycle.receipt["fingerprint"]})
+            app._last_required_reply_authorization=(key,authorization)
+            return authorization

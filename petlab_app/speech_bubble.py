@@ -5,6 +5,7 @@ import time
 from collections import deque
 import sys
 import tkinter as tk
+import weakref
 
 def reading_duration_ms(text,*,minimum_ms=8000,maximum_ms=30000,per_char_ms=180):
     """Presentation time only: retain short speech and allow longer text to be read."""
@@ -12,7 +13,19 @@ def reading_duration_ms(text,*,minimum_ms=8000,maximum_ms=30000,per_char_ms=180)
     return min(maximum_ms,minimum_ms+max(0,count-20)*per_char_ms)
 
 
+def speech_progress_ms(text):
+    """Readable occupancy of a segment, not its idle bubble retention.
+
+    Only spaces in an already authorized sequence advance on this duration.
+    The final bubble retains the normal longer dismissal/hover behavior.
+    This display pacing never grants an Actor a turn or advances dynamic Tick.
+    """
+    count=sum(not ch.isspace() for ch in text)
+    return min(30000,max(1600,700+count*180))
+
+
 class PetSpeechBubble:
+    _instances=weakref.WeakSet()
     KEY="#ff00fe"
     FILL="#f1f8ff"
     OUTLINE="#8eafd7"
@@ -29,18 +42,47 @@ class PetSpeechBubble:
         self.canvas.pack()
         self.label=tk.Label(self.canvas,text="",bg=self.FILL,fg="#365578",wraplength=240,
             borderwidth=0,font=("Microsoft YaHei UI",10),justify="left")
-        self.previous_label=tk.Label(self.canvas,text="",bg=self.FILL,fg="#6b7e96",wraplength=240,
-            borderwidth=0,font=("Microsoft YaHei UI",9),justify="left")
-        self.history_button=tk.Button(self.canvas,text="前文",command=self.show_history,bg=self.FILL,
-            fg="#365578",borderwidth=0,font=("Microsoft YaHei UI",9),cursor="hand2")
         # This bounded UI readback is not a memory source or another event log.
         self.history=deque(maxlen=128);self._speech_sequence=0
         self.history_window=None;self.history_text=None;self._reviewing=False;self._hovered=False
         self._remaining_ms=0;self._deadline=0
-        for widget in (self.window,self.canvas,self.label,self.previous_label,self.history_button):
+        for widget in (self.window,self.canvas,self.label):
             widget.bind("<Enter>",lambda event:self._pause_dismiss(),add="+")
             widget.bind("<Leave>",self._leave,add="+")
         self._width=88;self._body_height=44
+        self._placement=None;self._tail_x=None
+        self._instances.add(self)
+
+    def place(self,x,y,*,anchor_x):
+        self._placement=(int(x),int(y),int(anchor_x))
+        self._reflow()
+
+    @classmethod
+    def _reflow(cls):
+        from .bubble_layout import arrange
+        bubbles=[b for b in cls._instances if not b._closed and b.mode!='hidden' and b._placement is not None]
+        if not bubbles:return
+        rows=[(id(b),*b._placement[:2],b._width,b._body_height+10) for b in bubbles]
+        screen=(bubbles[0].root.winfo_screenwidth(),bubbles[0].root.winfo_screenheight())
+        layout=arrange(rows,screen)
+        for b in bubbles:
+            x,y,_,_=layout[id(b)]
+            tip=max(18,min(b._width-18,b._placement[2]-x))
+            if tip!=b._tail_x:
+                b._tail_x=tip
+                b._move_tail()
+            b.window.geometry(f'+{x}+{y}')
+
+    def _move_tail(self):
+        # Relayout must not destroy/recreate embedded text windows mid-paint.
+        center=self._tail_x if self._tail_x is not None else self._width//2
+        top=12 if self._tail_on_top else 2
+        bottom=(10 if self._tail_on_top else 0)+self._body_height-2
+        tail=([center-7,top+1,center,1,center+7,top+1] if self._tail_on_top
+              else [center-7,bottom-1,center,self._body_height+8,center+7,bottom-1])
+        self.canvas.coords('bubble-tail',*tail)
+        edge=top+1 if self._tail_on_top else bottom-1
+        self.canvas.coords('bubble-tail-edge',center-6,edge,center+6,edge)
 
     def _cancel_jobs(self):
         self._generation+=1
@@ -56,7 +98,7 @@ class PetSpeechBubble:
             self._tail_on_top=on_top;self._draw()
 
     def _draw(self):
-        self.canvas.delete("all")
+        self.canvas.delete('bubble-shell','bubble-tail','bubble-tail-edge','typing-dot')
         width,height=self._width,self._body_height
         offset=10 if self._tail_on_top else 0
         self.canvas.configure(width=width,height=height+10)
@@ -67,25 +109,24 @@ class PetSpeechBubble:
             left,bottom,left,bottom-radius,left,top+radius,left,top]
         self.canvas.create_polygon(points,smooth=True,splinesteps=24,fill=self.FILL,
             outline=self.OUTLINE,width=2,tags="bubble-shell")
-        center=width//2
+        center=self._tail_x if self._tail_x is not None else width//2
         if self._tail_on_top:tail=[center-7,top+1,center,1,center+7,top+1]
         else:tail=[center-7,bottom-1,center,height+8,center+7,bottom-1]
         self.canvas.create_polygon(tail,fill=self.FILL,outline=self.OUTLINE,width=2,tags="bubble-tail")
         edge=top+1 if self._tail_on_top else bottom-1
-        self.canvas.create_line(center-6,edge,center+6,edge,fill=self.FILL,width=3)
+        self.canvas.create_line(center-6,edge,center+6,edge,fill=self.FILL,width=3,tags='bubble-tail-edge')
         if self.mode=="speech":
-            self.canvas.create_window(18,offset+13,window=self.label,anchor="nw",tags="speech-text")
-            y=offset+13+self.label.winfo_reqheight()
-            if self.previous_label.cget('text'):
-                y+=8
-                self.canvas.create_line(18,y-4,width-18,y-4,fill="#cbd8e7")
-                self.canvas.create_window(18,y,window=self.previous_label,anchor="nw",tags="previous-speech")
-                y+=self.previous_label.winfo_reqheight()
-            self.canvas.create_window(18,y+4,window=self.history_button,anchor="nw",tags="speech-history")
+            self._place_text_window('speech-text',self.label,18,offset+13)
         elif self.mode in {"typing","contact"}:
+            self.canvas.itemconfigure('speech-text',state='hidden')
             color="#6f9dd0" if self.mode=="typing" else "#a0bfd9"
             for index in range(3):self.canvas.create_oval(0,0,1,1,fill=color,outline="",tags=("typing-dot",f"dot-{index}"))
             self._draw_dots()
+
+    def _place_text_window(self,tag,widget,x,y):
+        if self.canvas.find_withtag(tag):
+            self.canvas.coords(tag,x,y);self.canvas.itemconfigure(tag,state='normal')
+        else:self.canvas.create_window(x,y,window=widget,anchor='nw',tags=tag)
 
     def _draw_dots(self):
         offset=10 if self._tail_on_top else 0
@@ -124,17 +165,11 @@ class PetSpeechBubble:
 
     def show_speech(self,text):
         if self._closed:return
-        previous=self.label.cget('text') if self.mode=="speech" else ""
         self._cancel_jobs();self.mode="speech"
         self.history.append(text);self._speech_sequence+=1
-        self.previous_label.configure(text=("上一句 · "+previous) if previous else "")
-        self.label.configure(text=text);self.label.update_idletasks();self.previous_label.update_idletasks()
-        self.history_button.configure(text=f"查看前文（{len(self.history)}）")
-        self.history_button.update_idletasks()
-        self._width=max(88,self.label.winfo_reqwidth()+36,
-            self.previous_label.winfo_reqwidth()+36 if previous else 0,self.history_button.winfo_reqwidth()+36)
-        self._body_height=self.label.winfo_reqheight()+30+self.history_button.winfo_reqheight()
-        if previous:self._body_height+=8+self.previous_label.winfo_reqheight()
+        self.label.configure(text=text);self.label.update_idletasks()
+        self._width=max(88,self.label.winfo_reqwidth()+36)
+        self._body_height=self.label.winfo_reqheight()+30
         self._draw();self._present()
         if self.history_text is not None:self._append_history(text)
         self.last_display_duration_ms=reading_duration_ms(text,minimum_ms=self.dismiss_after_ms,
@@ -207,6 +242,7 @@ class PetSpeechBubble:
     def hide(self):
         self._cancel_jobs();self.mode="hidden"
         if not self._closed:self.window.withdraw()
+        self._reflow()
         callback=getattr(self,'on_hide',None)
         if callback is not None:callback()
 

@@ -9,6 +9,7 @@ import ctypes as c
 from ctypes import wintypes as w
 from dataclasses import dataclass
 import sys
+from collections import OrderedDict
 
 
 class _Startup(c.Structure):
@@ -134,7 +135,9 @@ class WindowsAlphaSurface:
     def __init__(self,root,frames):
         self.root=root;self.frames=tuple(frames);self.closed=False
         self.hwnd=None;self.dc=None;self.bitmap=None;self.previous=None;self.bits=c.c_void_p();self.size=None
-        self._pixel_cache={}
+        self._pixel_cache=OrderedDict()
+        self._pixel_cache_bytes=0
+        self._pixel_cache_limit=16*1024*1024
         user=c.WinDLL("user32",use_last_error=True);gdi=c.WinDLL("gdi32",use_last_error=True)
         self.ancestor=_function(user,"GetAncestor",[w.HWND,w.UINT],w.HWND)
         self.get_style=_function(user,"GetWindowLongPtrW",[w.HWND,c.c_int],c.c_ssize_t)
@@ -154,6 +157,7 @@ class WindowsAlphaSurface:
         if self.dc:self.delete_dc(self.dc)
         self.bitmap=None;self.dc=None;self.previous=None;self.size=None
         self._pixel_cache.clear()
+        self._pixel_cache_bytes=0
 
     def present(self,index,*,x=0,y=0,cache=True):
         if self.closed or not self.root.winfo_ismapped():return
@@ -187,7 +191,10 @@ class WindowsAlphaSurface:
                     start=((y+row)*width+x)*4
                     buffer[start:start+frame.width*4]=frame.bgra[row*frame.width*4:(row+1)*frame.width*4]
                 pixels=bytes(buffer)
-            if cache:self._pixel_cache[key]=pixels
+            if cache and len(pixels)<=self._pixel_cache_limit:
+                while self._pixel_cache and self._pixel_cache_bytes+len(pixels)>self._pixel_cache_limit:
+                    _,old=self._pixel_cache.popitem(last=False);self._pixel_cache_bytes-=len(old)
+                self._pixel_cache[key]=pixels;self._pixel_cache_bytes+=len(pixels)
         c.memmove(self.bits,pixels,width*height*4)
         size=w.SIZE(width,height);origin=w.POINT(0,0);blend=_Blend(0,0,255,1)
         if not self.update(hwnd,None,None,c.byref(size),self.dc,c.byref(origin),0,c.byref(blend),2):

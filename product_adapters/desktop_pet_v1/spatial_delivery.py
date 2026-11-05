@@ -2,20 +2,20 @@
 import json,hashlib
 from framework.model_api import model_data_fingerprint as fp,thaw_model_data
 from model_packages.desktop_pet_v1 import spatial
-VERSION='desktop-pet-scene-delivery-v2-optional-gaze'
+VERSION='desktop-pet-scene-delivery-v3-distances'
 INSTRUCTION='\n另含gaze_target字段：从现场卡列出的视线目标中选择看谁；front表示朝向屏幕前方。视线属于表情，由本地显示器落实。现场坐标是采样时的客观背景，移动行动仍沿本轮已选计划。'
 
 
 def guidance(independent=True):
  return INSTRUCTION+('\ngaze_target也可为null，表示沿用视线；speech为空而选了视线时，单独显示表情。' if independent else '\n本轮身体行动与表情已在执行，新增视线随speech展示；安静时gaze_target填null。')
 
-def reserve(scene,*,independent=True):return len(guidance(independent))+len('\n\n[当前桌面场景]\n')+len(spatial.card(scene))
+def reserve(scene,*,independent=True):return len(guidance(independent))+len('\n\n[当前桌面场景]\n')+len(spatial.card(scene,include_distances=True))
 
 
 def augment(delivery,scene,*,budget_chars=None,independent=True):
  scene=spatial.validate(scene);result=thaw_model_data(delivery)
  system=delivery['system']+guidance(independent)
- user=delivery['user']+'\n\n[当前桌面场景]\n'+spatial.card(scene)
+ user=delivery['user']+'\n\n[当前桌面场景]\n'+spatial.card(scene,include_distances=True)
  budget=delivery['budget_chars'] if budget_chars is None else budget_chars
  if len(system)+len(user)>budget:raise ValueError('scene and required Writer materials exceed prompt budget')
  result.update(system=system,user=user,budget_chars=budget,
@@ -25,10 +25,13 @@ def augment(delivery,scene,*,budget_chars=None,independent=True):
  return result
 
 
-def split_output(text,scene,*,independent=True):
+def split_output(text,scene,*,independent=True,human_ref=None):
  value=json.loads(text)
  if not isinstance(value,dict) or 'gaze_target' not in value:raise ValueError('scene expression requires gaze_target')
  target=value.pop('gaze_target')
+ # The registered human is outside the desktop sprite scene. Preserve the
+ # chosen person, resolving only its display direction to the front anchor.
+ if human_ref is not None and target==human_ref:target='front'
  if target is not None:
   spatial.intent(scene,target)
   if not independent and value.get('speech') is None:raise ValueError('late gaze needs its declared speech surface')

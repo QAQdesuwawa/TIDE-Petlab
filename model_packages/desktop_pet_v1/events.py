@@ -56,7 +56,8 @@ class Content:
             raise ValueError('expression requires presentation metadata only')
         if self.kind=='expression' or (self.kind=="speech" and self.parameters):
             from .face_expression import validate
-            if set(self.parameters)!={"presentation"}:raise ValueError("speech only accepts presentation metadata")
+            if set(self.parameters)!={"presentation"}:
+                if self.kind!='expression' or set(self.parameters)!={"presentation","hold_ms"} or type(self.parameters["hold_ms"]) is not int or not 100<=self.parameters["hold_ms"]<=10000:raise ValueError("invalid presentation timing")
             validate(self.parameters["presentation"])
         if self.kind in {"thought", "speech"} and (self.semantic_key is not None or (self.parameters and self.kind=="thought")):
             raise ValueError("verbal content cannot carry behavior parameters")
@@ -72,6 +73,7 @@ class Content:
         }
 
     def as_text(self) -> str:
+        if self.parameters.get('capture_version')=='pet-desktop-obstruction-input-v1':return '[现场观察] '+self.description
         if self.parameters.get('capture_version') in ('pet-external-observation-v1','pet-external-observation-v2'):return '[网页观察] '+self.description
         return self.prefix + self.description
 

@@ -57,9 +57,12 @@ class PetProduct:
             app.close()
             raise
 
+    from .measurement_pipeline import reply_scope
+    @reply_scope
     @product_scope
     def _reply(self,event_id,*,executor,completion_coordinate,is_cancelled,
             continuation=None,on_reply_ready=lambda:None,on_prepared=lambda prepared:None):
+        self.last_quiet_realization=None
         # All opening contexts consume the same expression/execution path.
         # Only sustained input supplies an additional live-source guard.
         publish=getattr(self,'on_settled_presentation',None)
@@ -67,8 +70,17 @@ class PetProduct:
         if continuation is not None:
             if not continuation.check('before_writer'):return None
         elif is_cancelled():return None
-        self.last_quiet_realization=None
-        prepared=self.realizers.prepare(event_id,on_language_ready=on_reply_ready)
+        from .intention_wait import ReplanIntention
+        from .retired_transport import WriterInterrupted,drain
+        drain(self)
+        while True:
+            try:
+                prepared=self.realizers.prepare(event_id,on_language_ready=on_reply_ready,is_cancelled=is_cancelled)
+                break
+            except ReplanIntention:
+                if is_cancelled():return None
+            except WriterInterrupted:
+                return None
         from product_adapters.desktop_pet_v1.quiet_realization import QuietRealization
         if isinstance(prepared,QuietRealization):
             self.last_quiet_realization=prepared
@@ -99,12 +111,15 @@ class PetProduct:
                             return execute_staged(self,event_id,prepared,action_id,contents,executor,is_cancelled)
                         composite_execute=getattr(executor,'execute_composite',None)
                         if composite_execute is None:raise ExecutionCancelled('executor lacks composite capability; no effects dispatched')
-                        from product_adapters.desktop_pet_v1.composite_execution import execute
-                        return execute(root=self.gateway.trace_dir/'parents',parent_id=action_id,contents=contents,
+                        from product_adapters.desktop_pet_v1.composite_execution import execute,source_for
+                        outcome=execute(root=self.gateway.trace_dir/'parents',parent_id=action_id,contents=contents,
                             plan=composite,
-                            source={'prepared_fingerprint':prepared.fingerprint,'request':prepared.request.to_record(),
-                                    'source_event_id':prepared.authorization.source_fact_ref},
+                            source=source_for(prepared),
                             executor=executor,is_cancelled=is_cancelled)
+                        if outcome.details.get('obstruction') is not None:
+                            from .obstruction_input import enqueue
+                            enqueue(self,outcome.details['obstruction'])
+                        return outcome
                     guarded=getattr(executor,'execute_guarded',None)
                     if guarded is not None:
                         return guarded(action_id,contents,is_cancelled=is_cancelled)
@@ -113,8 +128,17 @@ class PetProduct:
         try:
             return self.application.execute(prepared,executor=execute_guarded,coordinate=completion_coordinate,
                 measure=self.semantic.measure)
-        except ExecutionCancelled:
+        except ExecutionCancelled as error:
             executor_cancelled=True
+            from product_adapters.desktop_pet_v1.execution import ExecutionBlocked
+            if isinstance(error,ExecutionBlocked):
+                from .obstruction_input import enqueue
+                observation_ref=enqueue(self,error.observation)
+                from .intention_progress import record
+                record(self.application,event_id,phase='interrupted',evidence={
+                    'reason':'destination_occupied','observation_ref':observation_ref,
+                    'blocked_action_ref':error.observation['action_id'],
+                    'cause_ref':error.observation['blocker_ref']})
             # The application records confirmed zero effect. Keep the original
             # candidate/source for explicit recovery; uncertainty still raises.
             return None
@@ -189,6 +213,22 @@ class PetProduct:
             cancelled=set(self.reply_cancellations()) if self.reply_cancellations is not None else set()
             return tuple(event_id for _,event_id in sorted(required) if event_id not in cancelled)
 
+    def _recover_output(self,event):
+        """Shared output recovery, including live inputs and idle acknowledgment."""
+        app=self.application
+        app._verify_source(event)
+        from .live_execution import finish_recovered_inputs
+        source=app._product()['sources'][event.event_id]
+        receipt=source['evidence']['fact']['model_payload']['execution_receipt']
+        finish_recovered_inputs(self,event.event_id,receipt['realization_evidence'].get('live_input_sources',()))
+        result=app._settle(event,self.semantic.retry_measure)
+        if any(c.kind=='expression' or c.parameters.get('composite_version') for c in event.contents):
+            from product_adapters.desktop_pet_v1.composite_journal import ParentJournal
+            from product_adapters.desktop_pet_v1.composite_execution import acknowledge_idle
+            state=ParentJournal(self.gateway.trace_dir/'parents',event.event_id).state()
+            if 'source' in state:acknowledge_idle(app,state['source'].get('source_event_id'))
+        return result
+
     def resume(self,*,executor,completion_coordinate=wall_clock_ms,is_cancelled=lambda:False):
         """Explicit recovery, with no replay of an uncertain external effect."""
         app=self.application
@@ -201,18 +241,20 @@ class PetProduct:
                 return reconcile(self,unfinished[0])
             journal=app.runtime.session.profile.get(EVENT_JOURNAL_KEY,{})
             pending=[source for event_id,source in product["sources"].items() if event_id not in journal]
-            if len(pending)>1:raise ValueError("single pet has more than one pending source")
+            if len(pending)>1 or any('prefetch' in s for s in pending):
+                from .measurement_pipeline import recover as recover_prefetch
+                recovered=recover_prefetch(self,pending)
+                if recovered is not None:pending=recovered
+                else:
+                    from .live_execution import recover_inputs
+                    pending=recover_inputs(self,pending)
             if pending:
                 source=pending[0];event=PetEvent.from_record(source["event"])
-                if source["origin"]=="execution":
+                if source['origin']=='cx67_private_intention':
                     app._verify_source(event)
-                    result=app._settle(event,self.semantic.measure)
-                    if any(c.kind=='expression' or c.parameters.get('composite_version') for c in event.contents):
-                        from product_adapters.desktop_pet_v1.composite_journal import ParentJournal
-                        from product_adapters.desktop_pet_v1.composite_execution import acknowledge_idle
-                        state=ParentJournal(self.gateway.trace_dir/'parents',event.event_id).state()
-                        if 'source' in state:acknowledge_idle(app,state['source'].get('source_event_id'))
-                    return result
+                    return app._settle(event,self.semantic.retry_measure)
+                if source["origin"]=="execution":
+                    return self._recover_output(event)
                 app.receive(event_id=event.event_id,scope_ref=event.scope_ref,actor_ref=event.actor_ref,
                     contents=event.contents,coordinate=source['evidence'].get('capture_position',event.position.to_record())['coordinate'],measure=self.semantic.retry_measure,
                     response_policy=source["evidence"].get("response_policy"))
@@ -237,7 +279,14 @@ class PetProduct:
         return None
 
     def close(self):
-        try:self.rag_memory.close()
+        try:
+            from .playback_intake import archive_pending
+            archive_pending(self)
+            from .measurement_pipeline import finish_pending
+            finish_pending(self.semantic)
+            from .retired_transport import drain
+            drain(self,wait=True)
+            self.rag_memory.close()
         finally:
             try:
                 if self.writer is not None:self.writer.close()

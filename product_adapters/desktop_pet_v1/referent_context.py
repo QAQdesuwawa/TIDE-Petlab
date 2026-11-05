@@ -26,6 +26,10 @@ def build(application,event,*,limit_chars=2048):
   return row
  if event.event_kind!='npc_output':return None
  source=runtime.session.profile['desktop_pet_product_v1']['sources'][event.event_id]
+ if source['origin']=='cx67_private_intention':
+  # Its parent stimulus is already settled. Only the new private occurrence
+  # is measured; no fabricated execution/Writer receipt is required.
+  return None
  actual=source['evidence']['fact']['model_payload']['execution_receipt']
  delivery=thaw_model_data(actual['realization_evidence'].get('expression_delivery'))
  if delivery is None:return None

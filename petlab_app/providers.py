@@ -186,6 +186,7 @@ class ProviderGateway:
         self._native_trace=None
         self.last_failure=None  # Operational display only; never used for dispatch.
         self.diagnostic_job=None;self.diagnostic_invocations=[]
+        self._reserved_invocations=set()
 
     def readonly_views_scope(self):
         from .provider_views import scope
@@ -255,17 +256,18 @@ class ProviderGateway:
                 record["usage_delivery"]={"status":"delivered"}
             _save_trace(path,record)
 
-    def run(self,*,session_binding,current_position,operation_kind,source_fact_ref,codec_contract,
+    def prepare(self,*,session_binding,current_position,operation_kind,source_fact_ref,codec_contract,
             messages,temperature,require_json,parse,source_receipt_refs=(),invocation_id=None):
         self.last_failure=None
         self._native_trace=None
-        from .ordered_checkpoint import flush_active_checkpoint
-        flush_active_checkpoint()
+        from .ordered_checkpoint import _ACTIVE_CHECKPOINT
+        checkpoint_publisher=_ACTIVE_CHECKPOINT.get()
         nonce=uuid.uuid4().hex if invocation_id is None else invocation_id
         if not isinstance(nonce,str) or len(nonce)!=32 or any(c not in '0123456789abcdef' for c in nonce):
             raise ValueError('provider invocation id must be exact lowercase UUID hex')
         path=self.trace_dir/(nonce+".json")
-        if path.exists():raise ValueError('provider invocation already exists; restore its receipt')
+        if path.exists() or nonce in self._reserved_invocations:
+            raise ValueError('provider invocation already exists; restore its receipt')
         transport=self.transport_for(operation_kind)
         body=transport.payload(messages=messages,temperature=temperature,require_json=require_json)
         binding=dict(transport.binding)
@@ -283,6 +285,10 @@ class ProviderGateway:
         # No external effect exists yet: prepared material is included in the
         # first durable started record, before the transport is invoked.
         def invoke(request,payload):
+            # Capture the owner-side publisher before transport moves to its
+            # worker. Preparing immutable request data has no external effect;
+            # durability is required immediately before dispatch.
+            if checkpoint_publisher is not None:checkpoint_publisher.flush()
             record["status"]="started"
             record["provider_request"]=request.to_record()
             timing={"version":"petlab-provider-host-time-v1","clock":"unix-ms",
@@ -294,11 +300,6 @@ class ProviderGateway:
                 record["host_timing"]={**timing,"fingerprint":model_data_fingerprint(timing)}
             stamp_timing()
             _save_trace(path,record)
-            # The complete view sources are now durable in this trace. Derived
-            # independent files may fail without invalidating the native call.
-            try:publish(self,readonly_views)
-            except Exception as error:
-                logging.getLogger(__name__).error('readonly_view_queue_failed error_type=%s',type(error).__name__)
             started=time.perf_counter()
             from .transport_timing import capture
             phases=None
@@ -321,28 +322,66 @@ class ProviderGateway:
                 if phases is not None and phases.events:
                     record['diagnostics']['http_phases']=phases.record()
                 _save_trace(path,record)
-            self._deliver_usage(record=record,path=path)
             return wire
-        result=execute_provider_lifecycle(stage_prefix="desktop_pet_"+operation_kind,
+        from .provider_lifecycle import prepare_provider_call
+        call=prepare_provider_call(stage_prefix="desktop_pet_"+operation_kind,
             session_binding=session_binding,current_position=current_position,operation_kind=operation_kind,
             source_fact_ref=source_fact_ref,codec_contract=codec_contract,request_payload=body,
             transport_payload=body,implementation_ref=binding["version"],
             invocation_evidence={"invocation_id":nonce,"transport_binding_fingerprint":model_data_fingerprint(binding)},
             provider_invoke=invoke,parse=parse,parent_receipt_refs=source_receipt_refs)
-        execution=result.execution
-        record.update({"status":result.status,**_native_fields(result),
-            "evidence":{key:thaw_model_data({item.name:getattr(value,item.name) for item in fields(value)})
-                        for key,value in result.evidence.items()}})
-        processing={"version":"petlab-provider-processing-time-v1","clock":"unix-ms",
-            "invocation_id":nonce,"provider_request_fingerprint":result.request.fingerprint,
-            "status":result.status,"completed_at_unix_ms":time.time_ns()//1_000_000,
-            "execution_receipt_fingerprint":record['execution']['receipt']['fingerprint'],
-            "codec_parse_fingerprint":None if result.parse_receipt is None else result.parse_receipt.fingerprint}
-        record['host_processing']={**processing,'fingerprint':model_data_fingerprint(processing)}
-        encoded=_save_trace(path,record)
-        from framework.provider_host import ProviderExecutionResult
-        from framework.provider_codec import ProviderCodecParseReceipt
-        self._native_trace=(path,encoded,result,ProviderExecutionResult.verify_integrity,ProviderCodecParseReceipt.verify_integrity)
-        from .provider_diagnostics import failure_summary
-        self.last_failure=failure_summary(record)
-        return result
+        self._reserved_invocations.add(nonce)
+        def finish(result):
+            # Started trace already contains the durable views. Do not create
+            # derived work before dispatch, or touch shared queues in a worker.
+            try:publish(self,readonly_views)
+            except Exception as error:
+                logging.getLogger(__name__).error('readonly_view_queue_failed error_type=%s',type(error).__name__)
+            if 'usage_record' in record:self._deliver_usage(record=record,path=path)
+            record.update({"status":result.status,**_native_fields(result),
+                "evidence":{key:thaw_model_data({item.name:getattr(value,item.name) for item in fields(value)})
+                            for key,value in result.evidence.items()}})
+            processing={"version":"petlab-provider-processing-time-v1","clock":"unix-ms",
+                "invocation_id":nonce,"provider_request_fingerprint":result.request.fingerprint,
+                "status":result.status,"completed_at_unix_ms":time.time_ns()//1_000_000,
+                "execution_receipt_fingerprint":record['execution']['receipt']['fingerprint'],
+                "codec_parse_fingerprint":None if result.parse_receipt is None else result.parse_receipt.fingerprint}
+            record['host_processing']={**processing,'fingerprint':model_data_fingerprint(processing)}
+            encoded=_save_trace(path,record)
+            from framework.provider_host import ProviderExecutionResult
+            from framework.provider_codec import ProviderCodecParseReceipt
+            self._native_trace=(path,encoded,result,ProviderExecutionResult.verify_integrity,ProviderCodecParseReceipt.verify_integrity)
+            from .provider_diagnostics import failure_summary
+            self.last_failure=failure_summary(record)
+            self._reserved_invocations.discard(nonce)
+            return result
+        return PreparedGatewayCall(call,finish,path)
+
+    def run(self,**kwargs):
+        call=self.prepare(**kwargs)
+        call.transport()
+        return call.finish()
+
+
+class PreparedGatewayCall:
+    """A single receipted request; network work cannot publish shared diagnostics."""
+    def __init__(self,call,finish,path):
+        self._call=call;self._publish=finish;self.trace_path=path
+        self._finished=False;self._result=None;self._error=None
+
+    @property
+    def request(self):return self._call.request
+
+    def transport(self):return self._call.transport()
+
+    def finish(self):
+        # Native phase enforces owner-thread access, including cached results.
+        result=self._call.finish()
+        if self._error is not None:raise self._error
+        if not self._finished:
+            self._finished=True
+            try:self._result=self._publish(result)
+            except BaseException as error:
+                self._error=error
+                raise
+        return self._result

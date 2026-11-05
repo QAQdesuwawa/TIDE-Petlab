@@ -1,6 +1,6 @@
 {
   "version": "petlab-public-source-candidate-v1",
-  "product_version": "0.1.0-alpha.502",
+  "product_version": "0.1.0-alpha.524",
   "embedding_consumer_connected": true,
   "excluded": [
     "personal configurations",
@@ -19,23 +19,23 @@
     },
     {
       "path": ".github/workflows/windows-alpha.yml",
-      "bytes": 899,
-      "sha256": "3c8e40679ece03a929f4ca585f7450418760139d6a02b362173134a13b76f46e"
+      "bytes": 1175,
+      "sha256": "f937da90f6b56f3b7c7ec5ba8cc7505937e8344f6f647b28979a083c6169890d"
     },
     {
       "path": ".gitignore",
-      "bytes": 640,
-      "sha256": "866d06045893cb68c94e8c3cf96f0e7331b2fe09857cd68b6d616cf39bb8815d"
+      "bytes": 482,
+      "sha256": "7cf22a676e94129f625d08906d5ba6661efcf209b4ddcdcd8f00289763d2f342"
     },
     {
       "path": "AGENTS.md",
-      "bytes": 13868,
-      "sha256": "823f9a6ab49971fd275303e516befa49cf12460965ae6e90c3dd12d53dd42464"
+      "bytes": 14389,
+      "sha256": "c2e7d5fa1b8f5ecf43db6c2fa2ca9fa462a30b1b92a6d79a9a1cc2f35ed04d38"
     },
     {
       "path": "ALPHA_ACCEPTANCE.md",
-      "bytes": 3491,
-      "sha256": "0c9bcc655ac3f6d4c0b75ad88700af18645e6b7fb3c2d9950ea370657b636d97"
+      "bytes": 5027,
+      "sha256": "82d3b95d4f5eca639b6ba01a18695edb3598d99865b2cb09b0f8901d2a55fe0b"
     },
     {
       "path": "ASSET_SOURCES.md",
@@ -44,8 +44,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 3072,
-      "sha256": "0f1867f2746d65eff20bbe7a3dbb3d0d93dbcd378f3d854a7a9bb0fcc3f8d777"
+      "bytes": 5626,
+      "sha256": "272b396ffbab608182b4890129a20d1f4b2231bb632e057f8683898807ac8fd4"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -69,8 +69,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 18994,
-      "sha256": "50ca21d210792764701b082ded9b2e0eb8f0b476fc7ba801be575fcaf60dd9bc"
+      "bytes": 19859,
+      "sha256": "0ce55fb7a350666fb4b32f24b82a91baf06f0612f36a3fe4c3b1f303b4ad0635"
     },
     {
       "path": "SECURITY.md",
@@ -90,7 +90,7 @@
     {
       "path": "VERSION",
       "bytes": 17,
-      "sha256": "5f84421fb970afac30caedc123a317c6ffe3658a068688453dd925f1e87f99bd"
+      "sha256": "249f25eb02d07a236db3d694718da56200acc22740b8a8458a8d3c3db29ffadf"
     },
     {
       "path": "agents/__init__.py",
@@ -163,9 +163,174 @@
       "sha256": "9ec06f4d33b670a2aa09bced27a44deeb7f456f1e99a985435a8acd986479c75"
     },
     {
+      "path": "assets/pets/deepseek-bound-original-face/activities.json",
+      "bytes": 16565,
+      "sha256": "d4c714bca9718cf694bce57f9758e01e7beba65613c8580fc274b7f6e0ec28f0"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/body-regions.json",
+      "bytes": 57838,
+      "sha256": "cd9bdd7868f25829d8b8454a14d445a79a46a0a0262f3e2e5d23fdd4238a8f86"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/bound-body-right-v1.png",
+      "bytes": 800866,
+      "sha256": "5ceffaa022ba963e90a6ed51ba541bcdef5943b617a1331b46cfc1d19ab51701"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/bound-bowl-arms.png",
+      "bytes": 567400,
+      "sha256": "5bafec1d7e02dade7c62d0aad6c07026ed92af9446759876d46eb5e0543a31a6"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/bound-phone-arms.png",
+      "bytes": 464418,
+      "sha256": "449733cdb44f09063ad5629cd21dff9ceaebcc1e19016e36b784cda596d3acb1"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/bound-rig675-arms.png",
+      "bytes": 288903,
+      "sha256": "ff7fbf1b6c2599e7056c8099cc886576808d84595ba13db91d1a39303e4241de"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/bound-rig675-body.png",
+      "bytes": 993921,
+      "sha256": "c447573d0f1a1ad574c6156d7600516f27e688255bf97c8b51c2a660877f6e34"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/contact-motion.json",
+      "bytes": 16167,
+      "sha256": "3b5a6232a844debbb1c5bb4df001dfc308513b893aa85834d2f61752ee157250"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/drag-feedback-v5.png",
+      "bytes": 2242788,
+      "sha256": "51e72ccfef4a192ed4ae97a0f9c4b8369986e626c54b5ca44df8a342789c49df"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/expression-profile.json",
+      "bytes": 1683,
+      "sha256": "5903ad6f15697fba70ef01d9f9afff2f2f8451168fa57f079774c8df5d0369bf"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/expressions-original-v2-candidate.png",
+      "bytes": 2341902,
+      "sha256": "67c9a076ee15540361800916d92f8db6b73c24507cc56899bd61b542d5842042"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/face-expressions.json",
+      "bytes": 4724,
+      "sha256": "3333d6c032277d43a1bc3f7ab2989f3596cda5a465e37b263c8bb902f73afc8f"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/facing-left-body-v404.json",
+      "bytes": 22286,
+      "sha256": "ad3de138bd0ea112fd56603d83d18dca48192f0971eab0a8da4186a365c7ccc8"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/facing-left-original-v404.png",
+      "bytes": 2335191,
+      "sha256": "484c847a267f5d71d0a3ecc207d6587b34a9e7b4e6d6edc9875e578e8c6377fe"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/facing-right-body-v404.json",
+      "bytes": 22274,
+      "sha256": "ee136aad5ae52286b18bd5e45ff77eb8eb393cd6ef541e83ded4371b78c32c0e"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/facing-right-original-v404.png",
+      "bytes": 2294347,
+      "sha256": "150cdb7714b7bf1a387bc89c4662e34f96df887b0fd64a41ceb450c9f107c6e0"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/facing.json",
+      "bytes": 3309,
+      "sha256": "c57e31f6304c0c81b48c9aa7efa1155faff9e55829f75b208389cdcd06e47a61"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/gaze.json",
+      "bytes": 490,
+      "sha256": "43654e5a149546076f736590361a14aaaac4c93efa20287b52bb2d80163baa70"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/happy-wag-smooth-v188.png",
+      "bytes": 4161061,
+      "sha256": "fdc06c2e865575f70c8636783b8109d7b517650782225f77d3b057e7869681e5"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/head-binding.json",
+      "bytes": 133,
+      "sha256": "0b8c404b572ab4d1116a3ff17415058d6ba5cbe4e5edaaa314135541274eb3d8"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/manifest.json",
+      "bytes": 2826,
+      "sha256": "bb1ef79f3165c6f0f41cf14699651486e725efe159352badd7fd4526cf0080d2"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/rear-hair-original-reference-v729.png",
+      "bytes": 1365700,
+      "sha256": "f4d2f2fa8c08d78959e0982f82cb291b4cd2eebc1be8156ca8026253d055068e"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/rig-hair-front.json",
+      "bytes": 56440,
+      "sha256": "42fdc5f462b32a81c681fcfbc5eb28edff4c84d217967046e590022b2dc172a1"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/rig-hair-left.json",
+      "bytes": 60189,
+      "sha256": "a519ec23d1ec2600ed6de8e4125ecf017f2be8af527b3bebdd4b08e70435294a"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/rig-hair-right.json",
+      "bytes": 56091,
+      "sha256": "5b82d1c65735c81648f5be71e387271bab5fde63831ba083dff4669341dcbfa9"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/social-rest-original-v562.png",
+      "bytes": 1538046,
+      "sha256": "bdd6ed5da0e34c8417a85629cc6b3b1a77be7007b3e56366456aa7cdf23c31ea"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/sprites.png",
+      "bytes": 2235987,
+      "sha256": "7d7bdbdf87fb76496a790361c24e403d9320010e324bfb37b2c242498fc6af5d"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/view-registration766.json",
+      "bytes": 17882,
+      "sha256": "b1976b0d9c84ce83fa7be619f95a5287b05ff142ab535e1af3b13bacfc11bec6"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/walk.json",
+      "bytes": 557,
+      "sha256": "155d88fc746f0719cf1dc2d0063cb73d64581afe0dcc344db2dc1311caaa9c49"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/whole-body-regions-v1.json",
+      "bytes": 62546,
+      "sha256": "acc5681c0cda6e0590efe2e8b2ac52b80d8f91f76915a749738f3a16dadd6a29"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/whole-drag-attitudes-v2.png",
+      "bytes": 2278094,
+      "sha256": "486628fc7912bf4b86f89301aeb93fb82e2b4215fafa1ac4ca7157e4d6a32e63"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/whole-expressions.json",
+      "bytes": 10265,
+      "sha256": "5b8476614cfbe23e8c8549caaa8f6774dd2cfea86f67565d948dced74d08a073"
+    },
+    {
+      "path": "assets/pets/deepseek-bound-original-face/whole-motion-body-happy-v188.json",
+      "bytes": 61976,
+      "sha256": "04ac5226be49c9f71d25ff647ed4c683e8bdbf6dabf588e3f835b37cfea2fab8"
+    },
+    {
       "path": "assets/pets/deepseek-maid-v1/activities.json",
-      "bytes": 14321,
-      "sha256": "aeaeae4b2279f477a697f50391d904598ebc4b36006ce62efb78415ef7bd1ab3"
+      "bytes": 18432,
+      "sha256": "4eadfd73a65964661fb73c714b2bc3a38c3a08f9d961b881d9054d1ad2609304"
     },
     {
       "path": "assets/pets/deepseek-maid-v1/body-regions.json",
@@ -216,6 +381,11 @@
       "path": "assets/pets/deepseek-maid-v1/phone-reading-original-v374.png",
       "bytes": 1207450,
       "sha256": "895c7a564902456793a45f68df7e309b8d4dea67939911615b8e4f73e71db8d8"
+    },
+    {
+      "path": "assets/pets/deepseek-maid-v1/social-rest-original-v562.png",
+      "bytes": 1538046,
+      "sha256": "bdd6ed5da0e34c8417a85629cc6b3b1a77be7007b3e56366456aa7cdf23c31ea"
     },
     {
       "path": "assets/pets/deepseek-maid-v1/sprites.png",
@@ -404,8 +574,8 @@
     },
     {
       "path": "check_install.py",
-      "bytes": 1602,
-      "sha256": "bc589e4e92d7ea33357e4d995c7a1f9b7bb04d192f4fd03ff148d803278308ea"
+      "bytes": 1713,
+      "sha256": "8eb6e3a8ff3c576b759e82137dd65d9b20a70a9b4c4b26a48b356a6b638623d0"
     },
     {
       "path": "compatibility/__init__.py",
@@ -629,13 +799,13 @@
     },
     {
       "path": "docs/developer/README.md",
-      "bytes": 4446,
-      "sha256": "0a8d1891774cbd4b89d424c3abbc5d3ff13377af83fd6fc0f32fb3b03d72ec6f"
+      "bytes": 4601,
+      "sha256": "3cca8febf06c0b95582937b5065ba30be65e7b75dbfaec7d1350bbd1fa3d5236"
     },
     {
       "path": "docs/developer/desktop.md",
-      "bytes": 5476,
-      "sha256": "e61bff365e752ca84e2cc90f81d9338320f23d5716992bcef69bfdfa19b22d3a"
+      "bytes": 23874,
+      "sha256": "f78b9392bd74334d1da89c50fccd70009aa56a24d0590fb341788386e8071c74"
     },
     {
       "path": "docs/developer/devkit.md",
@@ -663,9 +833,19 @@
       "sha256": "3f12e490845d28076122e9b2975ec5e0c2127578a06d96d4000590831d2738c9"
     },
     {
+      "path": "docs/user/four-pets.md",
+      "bytes": 3860,
+      "sha256": "781e376c9bb2e354b9edc7dd0e4360b6b362fe906d9808267bdcea0d91fc888f"
+    },
+    {
       "path": "docs/user/import-chat.md",
-      "bytes": 7137,
-      "sha256": "742c2a7c46cdc45c56dec353ece5427ebdb7d78ccd1161b0530a38d5241eb59e"
+      "bytes": 7341,
+      "sha256": "eec9587e4ced4defa82b8b6ed6bd61f5ba29fa2784f091a6e5a45d334d5372ae"
+    },
+    {
+      "path": "docs/user/test-scenarios.md",
+      "bytes": 3507,
+      "sha256": "ce20148eade2473179533136d7725901f6ee9da37ec4f2fb6cdf3a23ab8aae9f"
     },
     {
       "path": "examples/__init__.py",
@@ -688,6 +868,16 @@
       "sha256": "670875a0e728fe43c5a3f5fbd6d6583f774552d1329e27b29ca34b3f17366418"
     },
     {
+      "path": "examples/petlab-cases.json",
+      "bytes": 5960,
+      "sha256": "2093aa92ff3988454b86cef55a901aef9b401be38c4026c87ce38ebbc8111ea7"
+    },
+    {
+      "path": "examples/petlab_scenarios.py",
+      "bytes": 18782,
+      "sha256": "ac9645996042ded9f54f453919fbc1386d82f0f5e65b1eaca7e748563bab44b0"
+    },
+    {
       "path": "examples/runtime_minimal.py",
       "bytes": 4637,
       "sha256": "95929798e023698f17bb8fa786805c2bae733175a6bb988981b972bea5615002"
@@ -696,6 +886,11 @@
       "path": "examples/test_examples.py",
       "bytes": 4249,
       "sha256": "bfe100455958c920abeb00ca017d141d7f48597adc6b61a49f22af545fc138d1"
+    },
+    {
+      "path": "examples/test_petlab_scenarios.py",
+      "bytes": 2070,
+      "sha256": "3e1192ed8243b3245e0e9e9a92f6d7c9cee178ae5661d388a32b5be50e585acf"
     },
     {
       "path": "framework/__init__.py",
@@ -1119,8 +1314,8 @@
     },
     {
       "path": "launch_multi_pet.ps1",
-      "bytes": 786,
-      "sha256": "5524030a380f6fa8c09135a676b7463a07fc1ae8bf7c03377832e024648091eb"
+      "bytes": 915,
+      "sha256": "5dcf72b8cf6bee8fbb29b6795e2e85eaf973d4c53bf3b9889bce68b8eb8e43dd"
     },
     {
       "path": "launch_pet.ps1",
@@ -1216,6 +1411,26 @@
       "path": "model_packages/cx_six_seven_v1/initialization_schema.py",
       "bytes": 2498,
       "sha256": "c69b6d0944abcbc6433b98deb0d6f2ce59fe910afd1ae0b848666454617d0272"
+    },
+    {
+      "path": "model_packages/cx_six_seven_v1/intention_facts.py",
+      "bytes": 4508,
+      "sha256": "eabb818ff936ee2cfca58e6841960de3e9047fd453839f0496e1c394632f231a"
+    },
+    {
+      "path": "model_packages/cx_six_seven_v1/intention_history.py",
+      "bytes": 1622,
+      "sha256": "42e184807b1af7d4c31f647df493ff34d4cad2414b601bd66d8f436dd37cc5e1"
+    },
+    {
+      "path": "model_packages/cx_six_seven_v1/intention_presentation.py",
+      "bytes": 884,
+      "sha256": "c93ed331474e8c7028fdc05569c6151499dc70d8156484b8d1ca60c5075857c1"
+    },
+    {
+      "path": "model_packages/cx_six_seven_v1/intention_semantics.py",
+      "bytes": 1293,
+      "sha256": "bf52881fbf8c09c0939ebdb9e6e96bb3402726122a4b9537cf7f0806c4b1f933"
     },
     {
       "path": "model_packages/cx_six_seven_v1/interaction_geometry.py",
@@ -1444,13 +1659,18 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/action_candidates.py",
-      "bytes": 3528,
-      "sha256": "fb0d8e5e94d83670b6a80925125817b4edc59e8da462611fa93a27ce14dfdcf1"
+      "bytes": 5976,
+      "sha256": "163e2d2587d1c01eb142540c95ab027e24c90328f550c368c03c12f585e7c160"
     },
     {
       "path": "model_packages/desktop_pet_v1/action_sequence.py",
-      "bytes": 5814,
-      "sha256": "8beea10ac4c01e21d63ea464f6f71b819e3a05acec66f668de69e7259da13639"
+      "bytes": 10150,
+      "sha256": "abb13ec3b005eb1227c3eb2cc7ff44f7d4b66f94a4de3b4ce00c247dcd5aaab7"
+    },
+    {
+      "path": "model_packages/desktop_pet_v1/action_targets.py",
+      "bytes": 1222,
+      "sha256": "d46104d9ffa41e8759bd5a478ea298e0b3fd478f4fe9e11949e2994310782900"
     },
     {
       "path": "model_packages/desktop_pet_v1/address_recall.py",
@@ -1459,23 +1679,43 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/address_semantics.py",
-      "bytes": 1450,
-      "sha256": "ce006890e27fa253c41f6bbb2ddc79ab1e26032389ebdfd51c8395fe896f17b5"
+      "bytes": 5608,
+      "sha256": "52d5fcc927604c7eb9e79ba84b35ada1774af3c547f155bf785c93296fe89ff5"
+    },
+    {
+      "path": "model_packages/desktop_pet_v1/audience.py",
+      "bytes": 2237,
+      "sha256": "3aeac00bd94d722539f7cba24f4ddbe80b82b1a5715c33a22b67a28195df1bfe"
+    },
+    {
+      "path": "model_packages/desktop_pet_v1/audience_motion.py",
+      "bytes": 5203,
+      "sha256": "1c828d24597be018fff38fb5a393af6bc0d51ee1175d14c78efa1bc6bd7a1566"
+    },
+    {
+      "path": "model_packages/desktop_pet_v1/basic_actions.py",
+      "bytes": 1318,
+      "sha256": "bc6edb41d0ee86560c8c2c35300235054088c9e94810c693964d4c77226929a2"
     },
     {
       "path": "model_packages/desktop_pet_v1/behavior.py",
-      "bytes": 6044,
-      "sha256": "1c4ee75882158eb2c03c7e09c4957501ef8e64a1eb8296df1293690090bdb82f"
+      "bytes": 6162,
+      "sha256": "e5bcf1d44cd2d3ea3a8800eee2da1b2bd66098d379509845eea7898758db345a"
     },
     {
       "path": "model_packages/desktop_pet_v1/composite.py",
-      "bytes": 10162,
-      "sha256": "80370a27194395c1af7ac8f8de82795a03dc2f4e2f2e3535e346c86d13c6b3e4"
+      "bytes": 10963,
+      "sha256": "6d91ecfedcba05c4e9ef69b7348832b63819624ff5e2069243a3585a08e91b4e"
     },
     {
       "path": "model_packages/desktop_pet_v1/composite_semantic.py",
       "bytes": 2578,
       "sha256": "4c40ec4d4f0a5da982a19400437d63f309691255fc37c920f4c40d3d043fe80f"
+    },
+    {
+      "path": "model_packages/desktop_pet_v1/contact.py",
+      "bytes": 1908,
+      "sha256": "4d744ab56f1a9361f91f22229337baef2950d040b160492b1401d2c53c1ac929"
     },
     {
       "path": "model_packages/desktop_pet_v1/content_view.py",
@@ -1509,8 +1749,8 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/events.py",
-      "bytes": 12744,
-      "sha256": "79ac6e7de7efea94cffe27068b8f69eb633e962d750336a47970623757869027"
+      "bytes": 13049,
+      "sha256": "c4dcf1c4100a57af1543e64036d58ae6284ad2e43b6b2695e701b6d369649af0"
     },
     {
       "path": "model_packages/desktop_pet_v1/evidence_location.py",
@@ -1519,13 +1759,13 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/expression_profile.py",
-      "bytes": 2112,
-      "sha256": "7e3dc760e5d16e31d2fb2cdf959de5fdd381fe2f111d3529abd093d83d0072dd"
+      "bytes": 2007,
+      "sha256": "7767dbf3956069d22c5086725d95c756eae5f59410494a50c294c92fe44b995f"
     },
     {
       "path": "model_packages/desktop_pet_v1/expression_tokens.py",
-      "bytes": 6694,
-      "sha256": "934f3a7cb11bfbe4dde77cda185665f5c550ef20cc00dadbfb9aed73940f97fb"
+      "bytes": 7987,
+      "sha256": "a97b8c58f2e91837e3810b97ad58dd30157579b50e4b3216ab4abb840c021f00"
     },
     {
       "path": "model_packages/desktop_pet_v1/face_expression.py",
@@ -1599,8 +1839,8 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/memory_direct_readout.py",
-      "bytes": 12398,
-      "sha256": "c8c9b7472afeaa3c10eb6cca2e95d7cee22f8daddbe81ca4cc027bd3cf826f6e"
+      "bytes": 16155,
+      "sha256": "ffde6923069e55a8150ac6c3f0bd621ac3f5eee13dc25ee09da04a6ea7e3a0e1"
     },
     {
       "path": "model_packages/desktop_pet_v1/memory_index_query.py",
@@ -1619,8 +1859,8 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/memory_time_window.py",
-      "bytes": 13181,
-      "sha256": "d9cf8e1f4f163adad26bc9cc584df296c062ba292b161c8e7523e5e9a327cd94"
+      "bytes": 13617,
+      "sha256": "e34bd59e959b3697e8b0f9d5fe3f99ee2c77061225685c3e5dcdde543820d645"
     },
     {
       "path": "model_packages/desktop_pet_v1/memory_topology.py",
@@ -1634,13 +1874,18 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/movement.py",
-      "bytes": 7447,
-      "sha256": "2fe45f6994dc079d3c6c4e7ffd1404558098e8f5f1343f3217146a4596a9770b"
+      "bytes": 11743,
+      "sha256": "e130bb47a135f192030fac2fb332bdf62fc186269fb0d9a6f3432c866027d373"
     },
     {
       "path": "model_packages/desktop_pet_v1/observation_policy.py",
       "bytes": 2359,
       "sha256": "57e952b4642b959a5a95a0dd27da926343c9666f6e8b9641d83c2739344cea28"
+    },
+    {
+      "path": "model_packages/desktop_pet_v1/obstruction.py",
+      "bytes": 755,
+      "sha256": "483951d9b3d2d582c0b24c1ca61e58970d653a3b400c8b78468a9e82e8e8b3bf"
     },
     {
       "path": "model_packages/desktop_pet_v1/owner_bound_recall.py",
@@ -1649,13 +1894,23 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/participant_semantic.py",
-      "bytes": 4636,
-      "sha256": "4e90948af8093d9feee7c271e5b0f9a7d0b39dd65efd614db7ac4e6618ce2995"
+      "bytes": 5806,
+      "sha256": "85415260c5b7c0ba318c2b6b1ef020b1abb2a15ed145fd1805df60a459006695"
     },
     {
       "path": "model_packages/desktop_pet_v1/phone_catalog.py",
       "bytes": 784,
-      "sha256": "10b1dfa3056668d8e3864aa7430c9d009717c3e7739fede7582942fb4bb7c49b"
+      "sha256": "60f6199f85649604c46dbbd109fb350f7bd46b8a3bd03ca832341509ae95a555"
+    },
+    {
+      "path": "model_packages/desktop_pet_v1/physical_space.py",
+      "bytes": 350,
+      "sha256": "ff161f66ad24a583541083e2c80fac9769116bd9739d8299d5095eb29f355d13"
+    },
+    {
+      "path": "model_packages/desktop_pet_v1/presence.py",
+      "bytes": 919,
+      "sha256": "30593199876e8b71c80439a1d961a52bba1c9d326f600aebe24f851eb1a01ed4"
     },
     {
       "path": "model_packages/desktop_pet_v1/presentation.py",
@@ -1674,8 +1929,8 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/reaction.py",
-      "bytes": 6761,
-      "sha256": "0041cc3d51c60c21aa8441b122201e0318254aa416d3dc3397fcbf9bd628ddd6"
+      "bytes": 7122,
+      "sha256": "2344bf376b1ba89d13e87334f0bf6d2e4781450eda329ee23719f64a532079dd"
     },
     {
       "path": "model_packages/desktop_pet_v1/realizer_route.py",
@@ -1709,8 +1964,8 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/relation_disclosure.py",
-      "bytes": 5314,
-      "sha256": "93428a15abe4add34182bbe43391cc01591079425cf6eb058cbf1a15858964c2"
+      "bytes": 5431,
+      "sha256": "e0e82be24f26d8b345447b5fc1d10afc6e41da116641f354735a0d4eb8f2e57b"
     },
     {
       "path": "model_packages/desktop_pet_v1/relation_package.py",
@@ -1869,8 +2124,8 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/semantic.py",
-      "bytes": 20676,
-      "sha256": "2142a43340757d4179d8cdcb6ce06110f02f87b11cfa403cdaf3bbddd426eeb1"
+      "bytes": 21238,
+      "sha256": "b5cf5aca9b26766f0a837a8397c86760e4448646243864843d93af2ddace2336"
     },
     {
       "path": "model_packages/desktop_pet_v1/settled_presentation.py",
@@ -1879,8 +2134,8 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/shared_meal.py",
-      "bytes": 10032,
-      "sha256": "fbdba29fb462e5dbb1b7487b6a1396c488bf08870f503c2efa2d8c0cf55390a6"
+      "bytes": 11317,
+      "sha256": "88bd1ed141ef4d5a7cea619d67b31c2ed59c36d67eccd1bf00f745b72b49cd5a"
     },
     {
       "path": "model_packages/desktop_pet_v1/source_bound_recall.py",
@@ -1889,8 +2144,13 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/spatial.py",
-      "bytes": 6654,
-      "sha256": "7d7d363365f1b954861a7fdd4a78775336ef3a6cd0963e528ad84d363f5b59d3"
+      "bytes": 7777,
+      "sha256": "995ec74f60be3bdb0af4c6a0694ab07b14866667be788dcee7480ed3a54e9482"
+    },
+    {
+      "path": "model_packages/desktop_pet_v1/speech_address.py",
+      "bytes": 1532,
+      "sha256": "16b671965ab2a4211308775d3725c5975061760ab4c8cf0d0221ae4a94a6b75e"
     },
     {
       "path": "model_packages/desktop_pet_v1/three_time.py",
@@ -1919,8 +2179,8 @@
     },
     {
       "path": "model_packages/desktop_pet_v1/visible_semantic.py",
-      "bytes": 4101,
-      "sha256": "079d318df91006b177fb120e8edd62cb9f59b6d855f2d74de570d8719bcf06f6"
+      "bytes": 4730,
+      "sha256": "3adefbd92bdc47a0b83e5bc9e65635091e1855b6f642f6741131e903f72a7e9d"
     },
     {
       "path": "model_packages/desktop_pet_v1/visual_capabilities.py",
@@ -1936,6 +2196,11 @@
       "path": "model_packages/desktop_pet_v1/web_observation.py",
       "bytes": 3153,
       "sha256": "345389637accc1c0f8196d302b400a9d37fdcd2b6ad09240fa553b2068cffc74"
+    },
+    {
+      "path": "model_packages/desktop_pet_v1/whisper.py",
+      "bytes": 4849,
+      "sha256": "f1c582c774a760be1c75169d56d69a1686dad5359484c4d1c72ade12d2d8c650"
     },
     {
       "path": "model_packages/desktop_pet_v1/writer.py",
@@ -2499,8 +2764,8 @@
     },
     {
       "path": "ops/memory_link_history_source.py",
-      "bytes": 5617,
-      "sha256": "d951201b9af75e83eba5bd56ad2e2d4af2aaf30b6a30a05498adcdd043e22d66"
+      "bytes": 7185,
+      "sha256": "7a6fa3765288fe4ac57dedc214eb9b540d44456fc3245d1be75b34d2e642c186"
     },
     {
       "path": "ops/memory_probability_probe.py",
@@ -3303,14 +3568,54 @@
       "sha256": "1aa376f8aedaeaaee8f2915974a986f18e45a3d010d42cf80d3aaf8139e1970f"
     },
     {
+      "path": "petlab_app/bubble_layout.py",
+      "bytes": 854,
+      "sha256": "9f4013189ff5756d32c48f02a78bf46730134bab2b039046087063654dd0931b"
+    },
+    {
+      "path": "petlab_app/carry_activity.py",
+      "bytes": 2900,
+      "sha256": "a9deb56fcbe8465c7f8d083e1658cdbef31df5d9554c5e46f972bab573b4cf63"
+    },
+    {
       "path": "petlab_app/checkpoint_journal.py",
-      "bytes": 9805,
-      "sha256": "0cf663631c1487dca8e82c4df8c39c850d956cd415efee4613f3cb320a29ee34"
+      "bytes": 9807,
+      "sha256": "39f6d8a391605b9148c2ecfd1b12af545bab33bdaf4dba714b2f1535f03d6eb6"
     },
     {
       "path": "petlab_app/composition.py",
       "bytes": 8726,
       "sha256": "2e6bae06cf75760f361c9797d14edb4c99b2d59a3a3528392cb63ad7b80e7749"
+    },
+    {
+      "path": "petlab_app/contact_capture.py",
+      "bytes": 2353,
+      "sha256": "332e282629493b8e331f18ef3f913b2d44ad15a325771f1ba04ee4ea2b0e7090"
+    },
+    {
+      "path": "petlab_app/contact_worker.py",
+      "bytes": 1745,
+      "sha256": "ef2d3af68fd31375cb5bf4667b94278c0c4367d1e32aa4b65f774f62ae06ecb1"
+    },
+    {
+      "path": "petlab_app/cutout_binding.py",
+      "bytes": 10344,
+      "sha256": "efb24fc9800c985f319a61919d64511c0d6a160d604662776a87e43d697d0fe0"
+    },
+    {
+      "path": "petlab_app/deferred_frames.py",
+      "bytes": 645,
+      "sha256": "f14fbd328ca1367bb169e26b96de9f43be74e4f86656863d0dc5a6161312a467"
+    },
+    {
+      "path": "petlab_app/deferred_intention.py",
+      "bytes": 3211,
+      "sha256": "299df0f59878791dd1f3c135b44c05f3b4decdac31be30bc3cf3b9bed916a80a"
+    },
+    {
+      "path": "petlab_app/delivery_admission.py",
+      "bytes": 1602,
+      "sha256": "010e426e88c9f659ba4c35b23c25d6b9026ee45c05e9e8edb1bfd8c57dc42ec7"
     },
     {
       "path": "petlab_app/delivery_guard.py",
@@ -3319,18 +3624,18 @@
     },
     {
       "path": "petlab_app/desktop_app.py",
-      "bytes": 60148,
-      "sha256": "2cde98c626cf81d0b35296070a2efea4f3ebaced0bbee92643f514053b7b0b80"
+      "bytes": 62770,
+      "sha256": "dc221a62eaae083d9207e475f18d137f7e16a80484a29f34adf3fabaaef43f2e"
     },
     {
       "path": "petlab_app/desktop_view.py",
-      "bytes": 81208,
-      "sha256": "4d9ced5c1f89168b2dc13b3053b16b34e619bf7c783128163ffc1f8b7c54d028"
+      "bytes": 103770,
+      "sha256": "7dcb16ce4a3be8cfc6fd45fe37b4e649b9909de80ddb6eb5b02d9a213fb2afcb"
     },
     {
       "path": "petlab_app/destinations.py",
-      "bytes": 4783,
-      "sha256": "61e7edab02fbc6f67d5a1ab9cf4944a7d23df2e7be0ade50fe10219a0864be85"
+      "bytes": 9457,
+      "sha256": "9a15a80090202f3f34bcb5137c3bbb9712a791be5383ab08193394d14594600a"
     },
     {
       "path": "petlab_app/diagnostics_view.py",
@@ -3343,9 +3648,24 @@
       "sha256": "1fc4a029d7cfa4ac81298d4b65ca937d8fab80cad66a314b9e7e29fcfd0b85aa"
     },
     {
+      "path": "petlab_app/execution_inputs.py",
+      "bytes": 4297,
+      "sha256": "46c59035513bd20b578ed7dcfc0280986dc820ec1978991dcc3a1b24e72c4cc1"
+    },
+    {
+      "path": "petlab_app/expression_motion.py",
+      "bytes": 6727,
+      "sha256": "00d9e08f9361902290543188c9e6ac631407f930d3f5f06c9e74e622eb8801ae"
+    },
+    {
+      "path": "petlab_app/expression_region.py",
+      "bytes": 3909,
+      "sha256": "980baf558204dd5560281d25a094151f56863943dc89019893051937e0e19c65"
+    },
+    {
       "path": "petlab_app/external_input.py",
-      "bytes": 4639,
-      "sha256": "62582f4b47bc16c120d652d0a80a843ff63036fa835826e2dafcff361c192143"
+      "bytes": 5123,
+      "sha256": "a2ff74f8162de2998451237c244ae69953d161c87e09356e74a42a2bf01112b5"
     },
     {
       "path": "petlab_app/face_renderer.py",
@@ -3354,18 +3674,28 @@
     },
     {
       "path": "petlab_app/facing_renderer.py",
-      "bytes": 6519,
-      "sha256": "e7c35feb9c6d3ec9a2d4022b382bec0931f8b252c6c445e12db203fedabcb320"
+      "bytes": 7201,
+      "sha256": "8ae9973da1c2edc0e22481274ed256523c3f8e1fef3c506a459b9e99362d9f3f"
+    },
+    {
+      "path": "petlab_app/feature_shape_transition.py",
+      "bytes": 1964,
+      "sha256": "e0ee939c970bd3f236ce5378409fcee8192d454be7f9e8168022599284b3422f"
     },
     {
       "path": "petlab_app/frame_cache.py",
-      "bytes": 7333,
-      "sha256": "ba2752163a5c89ac9063c4d156e679f1fc66a55993001aa15e38c0e578de04c2"
+      "bytes": 7812,
+      "sha256": "48b077e0a9c76333790162711ddd023b4777b471abeeb48f19871a05b81a4e5f"
+    },
+    {
+      "path": "petlab_app/frame_mirror.py",
+      "bytes": 953,
+      "sha256": "2468a8d01aa9b389768eed2f12adcee8472627c97643adbedace52715f3493ed"
     },
     {
       "path": "petlab_app/gaze_renderer.py",
-      "bytes": 3081,
-      "sha256": "049ca61b4dd96541594623a8db7ad2b2b25daba81e20e351ae88e53928308560"
+      "bytes": 3335,
+      "sha256": "761d72200cd9e91cce16a253492a7b9f4a5561387ec8c60695a192b2ab340ff3"
     },
     {
       "path": "petlab_app/history_import.py",
@@ -3384,13 +3714,18 @@
     },
     {
       "path": "petlab_app/idle_opening.py",
-      "bytes": 22234,
-      "sha256": "e6d998d8b7086e45fb404a281a36bb5b568a72494ba12a3681d9261bfc6c669b"
+      "bytes": 27454,
+      "sha256": "613323238dea15464b8fd336061bac23eb69f595139db2bc8c1caa73885a529b"
     },
     {
       "path": "petlab_app/idle_targets.py",
-      "bytes": 3922,
-      "sha256": "6895a7238b6bae2be98f9c4d959c51b16b51be5af54d4644a91fb0a14602f2de"
+      "bytes": 5495,
+      "sha256": "a1e650e13e210d381adb5180e6a7dfbcaaafe250906f2f50b3bac870ecb95ee9"
+    },
+    {
+      "path": "petlab_app/idle_timing.py",
+      "bytes": 2468,
+      "sha256": "2842ef0b5cc1e4045676f17a3d8a259e2dad3ecd2803a7718aa5d042eb1ea74c"
     },
     {
       "path": "petlab_app/imported_source.py",
@@ -3408,9 +3743,39 @@
       "sha256": "e05c5ca1628f1c827665c6bde509c280346730f32fc3d5bb5db5f7880a5a6fe8"
     },
     {
+      "path": "petlab_app/intent_history.py",
+      "bytes": 2984,
+      "sha256": "2268b391a0fbe2e7033b0cf1836f622880c434b3b8efa3bc4a02a003db103d33"
+    },
+    {
+      "path": "petlab_app/intention_continuation.py",
+      "bytes": 6265,
+      "sha256": "536a2176e991823843e87ad1c0da777f95e315c0f232aef9112fae7def28bfe4"
+    },
+    {
+      "path": "petlab_app/intention_idle.py",
+      "bytes": 5107,
+      "sha256": "7de2c0f58d3776d1944a41148ea60cfaccd3a7e56a275734add90333d6e92907"
+    },
+    {
+      "path": "petlab_app/intention_progress.py",
+      "bytes": 7281,
+      "sha256": "0ac14b5a5272bc6f3fbd9696a4fe7bf46a1eb0de20f45b5b439861320f289a32"
+    },
+    {
+      "path": "petlab_app/intention_source.py",
+      "bytes": 6104,
+      "sha256": "1e36ad75a4d23ff35e0e2f8e2e142a9de4c660b8170fec0692fc1ff05bbacc8c"
+    },
+    {
+      "path": "petlab_app/intention_wait.py",
+      "bytes": 8136,
+      "sha256": "2b3d38f38e04b0515e2fd1ffa7b00d4e2c4102af54e100fa16ed9141cc2e37a0"
+    },
+    {
       "path": "petlab_app/interaction_observer.py",
-      "bytes": 23297,
-      "sha256": "fd8cdc093114cff8a0f014d77f747f035b55cc3e37b42768ff37072acd9bae31"
+      "bytes": 25888,
+      "sha256": "ae80f6144072c547d0224b773307b2d875f47ac89df736dbefe343152e051ef9"
     },
     {
       "path": "petlab_app/journal_reads.py",
@@ -3418,14 +3783,29 @@
       "sha256": "b1055e3d597a2d35aaf273a2cfb2fb5161c7d9fac5de71776fa0cf7955c5a505"
     },
     {
+      "path": "petlab_app/landmark_turn.py",
+      "bytes": 2531,
+      "sha256": "bb38d91f9eb94fb5836546bcb0fe60ebe334a97109657291ca0641a8a06d4cdd"
+    },
+    {
       "path": "petlab_app/launch_lease.py",
       "bytes": 597,
       "sha256": "90f4a38c9187c37b69cc0589d2770cec1c4e935093c1e83be83fe2ab30df1ffa"
     },
     {
+      "path": "petlab_app/live_execution.py",
+      "bytes": 8256,
+      "sha256": "e8b1598530c11924fe4674e5c66f587ae6ed6efc126b07cb128eba1866b714ad"
+    },
+    {
       "path": "petlab_app/local_credentials.py",
       "bytes": 2047,
       "sha256": "b42ec709ef07f445de7bcfb2f63b33c33c0f7c1ef46980fe17647b8c57911219"
+    },
+    {
+      "path": "petlab_app/local_expression_transition.py",
+      "bytes": 1195,
+      "sha256": "d61ffdd8ce5e3d2f6e6272407e3af1c81a3d17fafc244ff89541225ea50327b2"
     },
     {
       "path": "petlab_app/local_retrieval.py",
@@ -3434,8 +3814,13 @@
     },
     {
       "path": "petlab_app/meal_host.py",
-      "bytes": 5266,
-      "sha256": "f65afb91f9d0e9f20599606105f7520301b083f7c3254ff9bcf0b21b408de5da"
+      "bytes": 5446,
+      "sha256": "6cb85e169fec8cf6119bf947513e6953ed8bd136ac8c0f5b1aa0d6194ce26eca"
+    },
+    {
+      "path": "petlab_app/measurement_pipeline.py",
+      "bytes": 15673,
+      "sha256": "92a487de0b55761058d88a896214c655d921d5234bf76f46549faaeff49c62f5"
     },
     {
       "path": "petlab_app/memory_diagnostics.py",
@@ -3454,18 +3839,23 @@
     },
     {
       "path": "petlab_app/movement_playback.py",
-      "bytes": 3370,
-      "sha256": "03bf570780de70b01f6b3988452ce1fe2fb5576bcf5db3a1c408c98216806c76"
+      "bytes": 4827,
+      "sha256": "368f73df267fd81a499d1b606df3fdd009dd5765dfa83034eb2e7e439524cb72"
+    },
+    {
+      "path": "petlab_app/movement_route.py",
+      "bytes": 2413,
+      "sha256": "7f80aa1cd51328b21817559ef29fd2c1ace290cfe19fe1274661a31e00a5cc97"
     },
     {
       "path": "petlab_app/multi_actor.py",
-      "bytes": 8600,
-      "sha256": "6b435fd6c357b0234075850ae5e514936b27735bb83cb60c090813448a5ffd47"
+      "bytes": 20118,
+      "sha256": "69a752aec0d302534868b608f25bc8e27ba48bf610204ad8a8e45ea29e715985"
     },
     {
       "path": "petlab_app/multi_desktop.py",
-      "bytes": 9877,
-      "sha256": "076d7e6eac28e7ea5a31840b2f8949c04689b400ef57bfe3c5b76644caef03df"
+      "bytes": 14109,
+      "sha256": "c93f606797dd6f2be6688e2e4eece65c75eefbf651e0be8629e2fc526418d6d4"
     },
     {
       "path": "petlab_app/multi_package.py",
@@ -3474,8 +3864,13 @@
     },
     {
       "path": "petlab_app/multi_pet.py",
-      "bytes": 14472,
-      "sha256": "d3098c173058e15f9ba9b6b69eb146afa86e44e3aaf1cefdef2a2fe07ce6c939"
+      "bytes": 18892,
+      "sha256": "2b59819e8c90734307be7a68672a0b5b4d1bedf387cef313e65eb31fd92fcd34"
+    },
+    {
+      "path": "petlab_app/obstruction_input.py",
+      "bytes": 5427,
+      "sha256": "af1f84cbc7b10741a8538af12f96d92e12baac079bae6af62804e8bef9b4f241"
     },
     {
       "path": "petlab_app/ordered_checkpoint.py",
@@ -3484,18 +3879,18 @@
     },
     {
       "path": "petlab_app/owned_journals.py",
-      "bytes": 4403,
-      "sha256": "4a26a6ed29e84b26deb5b04cb19b084da5a93bfbcf4e657a9fe1b46ea88b3c7f"
+      "bytes": 5008,
+      "sha256": "e23ccdb941cb5ad2b6907b8671e64ea086befc540333e66af7358faf784f7302"
     },
     {
       "path": "petlab_app/participant_input.py",
-      "bytes": 8927,
-      "sha256": "d6cd2ca1122c3da0dae2ca8dce893f00bbe2223f78840c7fc43a5db557fe13a1"
+      "bytes": 10912,
+      "sha256": "39e9ac72b4cf6f8a75bd27a45db01ce83780902284d5822eadb15d465c92aca9"
     },
     {
       "path": "petlab_app/peer_reaction.py",
-      "bytes": 6227,
-      "sha256": "782bdacdf17104e3cefd02e9a3d3b68e7c2b3f4db1eb3d4d52da49aa90221411"
+      "bytes": 15763,
+      "sha256": "b4ebecb6910714eb15003e218740cbf47d2a0f027d4910977d373bff456b2aa0"
     },
     {
       "path": "petlab_app/phone_activity.py",
@@ -3503,19 +3898,34 @@
       "sha256": "b9a091c36c908aaa7fd10cd1de90d2e673f573a1cb2908ae61569383445aa4be"
     },
     {
+      "path": "petlab_app/playback_intake.py",
+      "bytes": 7694,
+      "sha256": "58a32bd9524c8a4f7c09f1f365ed0a747b6c382a07732c72edd73f11a60e74d4"
+    },
+    {
+      "path": "petlab_app/pointer_witness.py",
+      "bytes": 2498,
+      "sha256": "9218990b66dc8f2422f964339bc451a26eb799d667b197d3058edb7be0273dff"
+    },
+    {
       "path": "petlab_app/pooled_transport.py",
       "bytes": 3699,
       "sha256": "938fbc76fbf6c7b111f4f9310ab99405cb37ef56e23d6842c94d8c318ea52ec2"
     },
     {
+      "path": "petlab_app/pose_transition.py",
+      "bytes": 4155,
+      "sha256": "d9158963715c03388f7965d31b76e1aea3914be3ff2566255765deccae90c113"
+    },
+    {
       "path": "petlab_app/process_actor.py",
-      "bytes": 55733,
-      "sha256": "bde383ed8604683e8b3d62e2135951edcfaa2c5aa6fa4829f59d5c6d4d9e0dae"
+      "bytes": 65731,
+      "sha256": "f5dd68fbc64389e238c00ded39fcc4668b36f8c1cce89a105ecae72babcb4bd5"
     },
     {
       "path": "petlab_app/product.py",
-      "bytes": 16370,
-      "sha256": "fa51fa964df9abc564d8e14a5f7ab5f625d4321e3e5222d69935c70cff394e24"
+      "bytes": 18810,
+      "sha256": "b3e8d54cd4973e87db627424a9f71db0211cac7e73f327918a4070630cb8bbbf"
     },
     {
       "path": "petlab_app/provider_diagnostics.py",
@@ -3524,13 +3934,13 @@
     },
     {
       "path": "petlab_app/provider_lifecycle.py",
-      "bytes": 6359,
-      "sha256": "977d121fa80c22a6797b12f9886eb908ccf7139d77a5bed9abb050f36ace5c6e"
+      "bytes": 8727,
+      "sha256": "8d930b9b52c8c8f1f2eedba2359e55cf809001fad7a61dc337dbe5187883fd48"
     },
     {
       "path": "petlab_app/provider_reparse.py",
-      "bytes": 3882,
-      "sha256": "280c7a8c617326ccab6b0646d77e45bc324fcfa92638f29f36101ed68620ebe5"
+      "bytes": 4206,
+      "sha256": "ab996f6f67a6f025d4980cec0755adf3baeb027de241743e351e43a7afd9171e"
     },
     {
       "path": "petlab_app/provider_views.py",
@@ -3539,13 +3949,13 @@
     },
     {
       "path": "petlab_app/providers.py",
-      "bytes": 20262,
-      "sha256": "1b31fa0019cb70119df8c20112fe7c52b64f6ec319f1aab9ef128931b82fafb5"
+      "bytes": 21959,
+      "sha256": "7651d2beed9a598d7dc2a6209a6b0185a3c398d2f4698a6916e3b9159b89523c"
     },
     {
       "path": "petlab_app/reaction_action.py",
-      "bytes": 4328,
-      "sha256": "322d428a0f22f9468a54cef190b1bca840d6a317b871859f91222edcc703af8f"
+      "bytes": 4763,
+      "sha256": "462d87e009f7112cc96938499c0f52ebde8c4b94cf52467735f564c26720847b"
     },
     {
       "path": "petlab_app/reading_intent.py",
@@ -3568,29 +3978,124 @@
       "sha256": "149f4232f1d1fe69c69cc6ef439085047304066b55e067e6e938379f9f977f28"
     },
     {
+      "path": "petlab_app/retained_intention.py",
+      "bytes": 5827,
+      "sha256": "c2fb6b97ba7521f45027b2ba2eaec0e8eb0ded7fdc8cc95c883cf0dbd4221e7e"
+    },
+    {
+      "path": "petlab_app/retired_transport.py",
+      "bytes": 1379,
+      "sha256": "1d2cba64b2f6e6113ba3e79b5b980accbd9591b58fc5175dfc0c8bea2f34326d"
+    },
+    {
+      "path": "petlab_app/rig_activity.py",
+      "bytes": 14946,
+      "sha256": "a54c9012397cd7754e0dddcca04d32de1f652ffc8615ea00385d27899e7a6597"
+    },
+    {
+      "path": "petlab_app/rig_expression.py",
+      "bytes": 11254,
+      "sha256": "3e3b6a2590855abc0b6b0530b475f138fe3cdccd1ea813a709517f25c3ebffc4"
+    },
+    {
+      "path": "petlab_app/rig_expression_pose.py",
+      "bytes": 2609,
+      "sha256": "f9b724bf07112d25f22a5e795c3a9f56077b26fd25c263db181e5987c6b4c2ce"
+    },
+    {
+      "path": "petlab_app/rig_facing.py",
+      "bytes": 1341,
+      "sha256": "e65b03221681deb7b7528066b47b742b14f77cb3203744375edcfc682bb1e6b6"
+    },
+    {
+      "path": "petlab_app/rig_feedback.py",
+      "bytes": 1094,
+      "sha256": "d9362b5ffc3ea9af244873a904af6e13b5401026f9e6013115d8a6bb156413e6"
+    },
+    {
+      "path": "petlab_app/rig_gaze.py",
+      "bytes": 896,
+      "sha256": "aee0444a420f1039d81d072e4b1e9873c46793f4054ac11fb75d566b858a2218"
+    },
+    {
+      "path": "petlab_app/rig_hit.py",
+      "bytes": 3735,
+      "sha256": "a96bffa56aacbd130af36a61f1e52c13a1f9ba27a1515cf1c2767e984a36ca69"
+    },
+    {
+      "path": "petlab_app/rig_motion_marks.py",
+      "bytes": 1290,
+      "sha256": "73275de8ef93b4130ef6c6688fb875c89819aeff896edb557777d3c52ff611a3"
+    },
+    {
+      "path": "petlab_app/rig_orientation.py",
+      "bytes": 1239,
+      "sha256": "7d93341ddb25863250df0374e09adc65cc30ba1a7f57f8996c34b5c34f47cf7e"
+    },
+    {
+      "path": "petlab_app/rig_overlap.py",
+      "bytes": 3821,
+      "sha256": "7dd7b6a7cfcefe6052a1a484f908c61ef5ae2a7945e34c796df9b3a87ce6648f"
+    },
+    {
+      "path": "petlab_app/rig_pose_transition.py",
+      "bytes": 3347,
+      "sha256": "8bd7a9f04164b71db74dc0ed86a245bc58568e0d771287c2d76da7a6850852f2"
+    },
+    {
+      "path": "petlab_app/rig_texture.py",
+      "bytes": 1422,
+      "sha256": "fbaa36929f74b682f0d2bb641ee658b7ac43eaf90ed3c94123daf55475e87daf"
+    },
+    {
+      "path": "petlab_app/rig_view_blend.py",
+      "bytes": 6190,
+      "sha256": "a3099ee7a60a26f103aede4515d8ef54983c01fd9bc0062db0bdfefdcc43871c"
+    },
+    {
+      "path": "petlab_app/rig_view_transition.py",
+      "bytes": 3287,
+      "sha256": "3ff224ec1e6e8611cc9b1ea2c13dfcde9d921770c778dd58d9f1130990cb83c4"
+    },
+    {
+      "path": "petlab_app/rig_walk.py",
+      "bytes": 945,
+      "sha256": "e23b28a328e48dd873117da85a733c3a975096b992b6ccadbe7bb26a9105d691"
+    },
+    {
       "path": "petlab_app/scene_host.py",
-      "bytes": 1008,
-      "sha256": "15f0bb121ab34cfb37eb377f3bd5a543f25a5657ec79c9085997dacfebaa6f95"
+      "bytes": 2841,
+      "sha256": "7577284d0a469b252383733102fb6b4efe2669257f9716882619ef8b4cad847a"
     },
     {
       "path": "petlab_app/session.py",
-      "bytes": 45495,
-      "sha256": "8be711be727154f905c0bad58f82e2e96c16e0f939ef6e9d7c271f2145997416"
+      "bytes": 51288,
+      "sha256": "372de495de04bcfaac15fd9ea536e4eb9c92504f3156b2818b65f1b509c01011"
     },
     {
       "path": "petlab_app/setup_dialog.py",
-      "bytes": 29532,
-      "sha256": "bbbc99bb676bd65c7bfd25e77c189c428b4923d68f648af1957335db9817a792"
+      "bytes": 29544,
+      "sha256": "f36189651ced3f9d7363cdb4979453fed8d020bc99c1738bc3394b9106370521"
+    },
+    {
+      "path": "petlab_app/spatial_contact.py",
+      "bytes": 700,
+      "sha256": "a44b51560d0c8de17061fc3b00641200b971412df8391e42a0d0b93b80faffe7"
     },
     {
       "path": "petlab_app/speech_bubble.py",
-      "bytes": 11071,
-      "sha256": "7bbbaecb48e0860f49cdecefa6450ce0099cf2beac93600648411c7644d6ef2f"
+      "bytes": 12113,
+      "sha256": "81ea17e00cbf3d783b19afdd2429dc6a55c982164d69b0378b07b4079ac74eb4"
     },
     {
       "path": "petlab_app/startup_feedback.py",
       "bytes": 4281,
       "sha256": "51c742edd336ac263366d81989c0424c5bf569892090eda4976d239d3992bac2"
+    },
+    {
+      "path": "petlab_app/startup_recovery.py",
+      "bytes": 415,
+      "sha256": "8189b453fdc5a8006820232ad1f44ace31731dcde86f099e08c75ddd34375d4e"
     },
     {
       "path": "petlab_app/storage.py",
@@ -3604,18 +4109,18 @@
     },
     {
       "path": "petlab_app/visible_delivery.py",
-      "bytes": 8278,
-      "sha256": "85f12ae6223f4b69d626a045930452a82cd8773e95a487614589611ad1f13d03"
+      "bytes": 10443,
+      "sha256": "6f95b7827ca7aa227bd9b4eb3cf501e9ddcf5ac89461a1b58fadba9c9da0d17b"
     },
     {
       "path": "petlab_app/visible_execution.py",
-      "bytes": 15184,
-      "sha256": "0d894c9e1e28cf6f2f9bcf5066774d3f378c011eb9be7358ddcdfeeaadb79b18"
+      "bytes": 17008,
+      "sha256": "02d9d23929fb8a0b4d77d7f2803b1d830e612bf36ad99c979359a64bb6ac3b0a"
     },
     {
       "path": "petlab_app/walk_renderer.py",
-      "bytes": 6686,
-      "sha256": "0bfdf20d486343ccd86bddddc755dd824ef1d9e4fbad42709cc99edeed3becb2"
+      "bytes": 7185,
+      "sha256": "102fffaba5e30617247af75ae62df03e66b41346ba1af1a3e07657e6770c70cc"
     },
     {
       "path": "petlab_app/web_reading.py",
@@ -3634,18 +4139,18 @@
     },
     {
       "path": "petlab_app/whole_frame_renderer.py",
-      "bytes": 32638,
-      "sha256": "10207f77e55b6ae013910933003a2cdfe958026fb8bbdffabaca6cf2c8e19cec"
+      "bytes": 38431,
+      "sha256": "02a9df620e7f82f284627b49e7d6093c1adfd625fd65488a6c7c91de3c5df3f8"
     },
     {
       "path": "petlab_app/windows_alpha.py",
-      "bytes": 10857,
-      "sha256": "7afa6ed702737aea75b36828b7ac156bb35ac6ed514c9ee1b59543967c263bf4"
+      "bytes": 11322,
+      "sha256": "7a308f5b56bdf890103a5ea77886cd869d1a3c83bc748166f3c78e0eba295d0e"
     },
     {
       "path": "petlab_app/writer_visibility.py",
-      "bytes": 3215,
-      "sha256": "7d3867a89618544a68c651809d953c787ca8061ae2ac7f814090d4c3640a1dc7"
+      "bytes": 5546,
+      "sha256": "027ade79855404763f0f8f1ad9e3d9b002e87bebb95c50a677ffc6efab917a17"
     },
     {
       "path": "product_adapters/__init__.py",
@@ -3723,9 +4228,14 @@
       "sha256": "148d3c0b433362c18818929a2e06c51b5590e547d4f08535b528b7126791cfe1"
     },
     {
+      "path": "product_adapters/desktop_pet_v1/audience_delivery.py",
+      "bytes": 4380,
+      "sha256": "98073fffd2b0ea2fe3809d129150ae8f6d629e7144add6c9f79eb0ece54bba00"
+    },
+    {
       "path": "product_adapters/desktop_pet_v1/behavior.py",
-      "bytes": 8626,
-      "sha256": "4009eed394eac06aa8c676f07ca5d2ef9d1436409cb8fb0efc76c5bc0837453c"
+      "bytes": 10238,
+      "sha256": "9669de9cae8d87c223d331ea5c801102a1b59822cb7b9baf177521d214a58200"
     },
     {
       "path": "product_adapters/desktop_pet_v1/body_delivery.py",
@@ -3739,8 +4249,8 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/composite_execution.py",
-      "bytes": 5622,
-      "sha256": "250cc5bb79489f7fd110cdd6c42f10d417c249e247ac28e43e188224e215220c"
+      "bytes": 8952,
+      "sha256": "86cd5e6a7165ea92daaf2238d4d1fee28de86fabcf0b91d9f4576264b05098fa"
     },
     {
       "path": "product_adapters/desktop_pet_v1/composite_journal.py",
@@ -3759,8 +4269,8 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/conversation_delivery.py",
-      "bytes": 3398,
-      "sha256": "0d40069966d3ed807ddbfe141306a509c0de7fdc7273086bfb0037a18c134904"
+      "bytes": 7546,
+      "sha256": "75c0e2bb11513bc7ac03e226ea5a6a6e2c29ba413f3f9b46b3208f54bdfba6f3"
     },
     {
       "path": "product_adapters/desktop_pet_v1/creation.py",
@@ -3768,24 +4278,34 @@
       "sha256": "a2558ba901dd9a5206b5f26e540bd6b95f65a05507597f7fa35f100d836cd11b"
     },
     {
+      "path": "product_adapters/desktop_pet_v1/current_turn_delivery.py",
+      "bytes": 1497,
+      "sha256": "21f81a926cff1dea74ae3050ce7a62244ec05713027aba5a44a88e1358b3d500"
+    },
+    {
       "path": "product_adapters/desktop_pet_v1/deferred_reply.py",
-      "bytes": 4873,
-      "sha256": "ee1b400912e602cb53a9395a838103871fec81518b2b6f1277801fe4a995640d"
+      "bytes": 5754,
+      "sha256": "81d274bdd7290cdc8e5ac41a59ccb5b4e69664487e9472acaa75db4f37bab59e"
     },
     {
       "path": "product_adapters/desktop_pet_v1/emission.py",
-      "bytes": 21214,
-      "sha256": "b4a09640411a8e11000cf9091b44666e3c31eb4355d93719a0b497f5b9d16b78"
+      "bytes": 22330,
+      "sha256": "d52091ffcd500bee0816e188b30721356e1ed2edbc11e21748f207a541ee407c"
+    },
+    {
+      "path": "product_adapters/desktop_pet_v1/event_timeline.py",
+      "bytes": 1712,
+      "sha256": "5ae2056594fa5acd66e5d11593212526b54a8651e224b085615d8f9e41a79a88"
     },
     {
       "path": "product_adapters/desktop_pet_v1/execution.py",
-      "bytes": 10326,
-      "sha256": "979c8ff4be6a55e76da4de1a7eb4a39b77d9b6d7b57b048214fc841090debe07"
+      "bytes": 12135,
+      "sha256": "477e4f47534a54615087f308d5954ddaf6a0d6027b1c0d55502cbb915e7991ed"
     },
     {
       "path": "product_adapters/desktop_pet_v1/expression.py",
-      "bytes": 13045,
-      "sha256": "b6d4e2d4b881d3577888fb7e37d5d8ca3e41d86d763a446449855ec04d9e6dd0"
+      "bytes": 13729,
+      "sha256": "7baaf69618f79c27ffcc4c6c0f1c934730607b01bc8d0770d3df2aa338daf3b6"
     },
     {
       "path": "product_adapters/desktop_pet_v1/import_provider.py",
@@ -3799,8 +4319,8 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/import_reconstruction.py",
-      "bytes": 6232,
-      "sha256": "dcd415d046f0d176c3e5af99c93515bf86c8119dbf6d9e633a1c253d3948ba66"
+      "bytes": 6608,
+      "sha256": "bf60f98e38636d1d4f6b14abc964f3e43d06ed43bce56a85c05aae9e9246337f"
     },
     {
       "path": "product_adapters/desktop_pet_v1/input_reference.py",
@@ -3811,6 +4331,11 @@
       "path": "product_adapters/desktop_pet_v1/input_reference_window.py",
       "bytes": 3497,
       "sha256": "d393cc107829417f0c092cbefb2d15e9c10e94593e8c80d691cca74aa68c42ee"
+    },
+    {
+      "path": "product_adapters/desktop_pet_v1/intention_delivery.py",
+      "bytes": 6364,
+      "sha256": "f8cee706a0ce05c2a9a42b297966da2a675fb363f7ce10de20c6766382605c7d"
     },
     {
       "path": "product_adapters/desktop_pet_v1/meal_delivery.py",
@@ -3829,13 +4354,13 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/memory_delivery.py",
-      "bytes": 8778,
-      "sha256": "e88294eccdeb57f11788f36e3f12d8629def870175b91e7bb479e0ed9d741cad"
+      "bytes": 9416,
+      "sha256": "351286715252760ad79cb813b0aa800604e0944e11b3d84fa435622702e43ce7"
     },
     {
       "path": "product_adapters/desktop_pet_v1/memory_metadata.py",
-      "bytes": 1811,
-      "sha256": "56c4796a9dd9c884eb9f58d939dedc489b3265f7f9a4d0bbc33b0dfb94abdcd3"
+      "bytes": 4262,
+      "sha256": "e0a5ccad4989bd2e42673de0d77a4192da57a3dd7b74316c1711587e37040995"
     },
     {
       "path": "product_adapters/desktop_pet_v1/memory_relations.py",
@@ -3848,14 +4373,39 @@
       "sha256": "f2e13837438044c63149883db6f55cdd162d77abc067a47ebc361d12cb821437"
     },
     {
+      "path": "product_adapters/desktop_pet_v1/pending_conversation.py",
+      "bytes": 6330,
+      "sha256": "1184efa45ce587a3f444f3c1ded8ff408c9691245743448dd83d9b516dda06f2"
+    },
+    {
+      "path": "product_adapters/desktop_pet_v1/persona_layout.py",
+      "bytes": 4917,
+      "sha256": "2fef89fcc35611c479ce72e69401c6c6c526f71e56911d76546e10dcafda4798"
+    },
+    {
+      "path": "product_adapters/desktop_pet_v1/prepared_measurement.py",
+      "bytes": 1688,
+      "sha256": "ebc60bab7415b11c8521aba147d008e4c4cd3b1b9785b3b4d9b2a128659a33a5"
+    },
+    {
+      "path": "product_adapters/desktop_pet_v1/prepared_writer.py",
+      "bytes": 2240,
+      "sha256": "f7421abca099c7b8a625e94d4af9b61c7280170860dba8a98569bad18fe78844"
+    },
+    {
       "path": "product_adapters/desktop_pet_v1/projection_cache.py",
       "bytes": 1410,
       "sha256": "9c1bbd50cfaa1274cc739a42b4b411c57c636cdda8a7a02ef5b1b4fbd53e0450"
     },
     {
       "path": "product_adapters/desktop_pet_v1/prompt_delivery.py",
-      "bytes": 19790,
-      "sha256": "6c1bb259463e49ff3b0c5e1c7a5312be38ccc1d091ce543dd0f84d41bc3d3ba9"
+      "bytes": 29021,
+      "sha256": "c74e250bff5b81eda581c9121ee3f340b07c9ea97bc9f19f7665e8fae7ca37fd"
+    },
+    {
+      "path": "product_adapters/desktop_pet_v1/property_owner_delivery.py",
+      "bytes": 1768,
+      "sha256": "2f952011edcda6583613547c0071ae400919439b0db1225d08eaa06a61131097"
     },
     {
       "path": "product_adapters/desktop_pet_v1/public_disclosure.py",
@@ -3864,13 +4414,13 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/quiet_realization.py",
-      "bytes": 1369,
-      "sha256": "4c7d21871d3cfe471c1b72daa51e645b039ef47ddb33af3a4eb8c8e05b53f021"
+      "bytes": 1700,
+      "sha256": "ab18423cc0844b5344f7cf3bf5b0fafcd1689b5eb10b664a80926ddcfa94f2cc"
     },
     {
       "path": "product_adapters/desktop_pet_v1/rag_memory.py",
-      "bytes": 25893,
-      "sha256": "2de8e48b1a8e0d0423a180fbdf814fd25129adb4d0f8a40c5330f33405b00ffb"
+      "bytes": 28257,
+      "sha256": "edc5520a364efa6f736b90ffd77713518879dd0d257aaf4f37209767b4f4041a"
     },
     {
       "path": "product_adapters/desktop_pet_v1/rag_passages.py",
@@ -3879,33 +4429,43 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/readable_prompt.py",
-      "bytes": 9320,
-      "sha256": "251828df7f4628a87e741da8aa8ac085745c26f518fe4f340d4de9349b5b181c"
+      "bytes": 10542,
+      "sha256": "a664ef7fcddc86742c2e8600fe299b89fb090edf03326f048dc86301330277d7"
     },
     {
       "path": "product_adapters/desktop_pet_v1/reading_delivery.py",
-      "bytes": 4144,
-      "sha256": "5d52b08e7f970864e72c731d1f1e93d5f617819f798bcc42618f12ac1069cc32"
+      "bytes": 4898,
+      "sha256": "061e05f0e2a1e0578a1ed6b30444d3f3ad8aae4b8aae7289a92e7fafab23eb20"
     },
     {
       "path": "product_adapters/desktop_pet_v1/realization.py",
-      "bytes": 76121,
-      "sha256": "6b791e48d594756d660d134e815fa69dbe6eca916400bda69dd81c299c6f2bd9"
+      "bytes": 94578,
+      "sha256": "140120bb8b0c3237b0ddbda5ba876174e8060955e10fefe3dd81496d970664b1"
     },
     {
       "path": "product_adapters/desktop_pet_v1/realizers.py",
-      "bytes": 2090,
-      "sha256": "602022d9fcb89f17df67767f895af3cc95e4c6f78772546adeb0b5579089ab9e"
+      "bytes": 2333,
+      "sha256": "fc7019d8d0cece84bda9645d304d22390e9109998d57868dde69b88a30c1620d"
     },
     {
       "path": "product_adapters/desktop_pet_v1/referent_context.py",
-      "bytes": 3762,
-      "sha256": "c3a36d1f413b690a859f63937f3d36e1ce073c81ae21ad1c383932ec8e5421e4"
+      "bytes": 3973,
+      "sha256": "1cc7ce8f90dd588df3ee65df81cc6e7c6b9e36be43ec8dc613175022ef375abb"
     },
     {
       "path": "product_adapters/desktop_pet_v1/relation_annotations.py",
-      "bytes": 6345,
-      "sha256": "df482106fee94c504b52b3553a6b09aae243710780c9ff469b60b6554abd4109"
+      "bytes": 7146,
+      "sha256": "c5a31f7a709e9944dab73b5859b89c4a039859f0e31b3df6a7921fa191413048"
+    },
+    {
+      "path": "product_adapters/desktop_pet_v1/relationship_context.py",
+      "bytes": 6038,
+      "sha256": "4c2b399a1742fa97277dd4a658083c768ea697669d1ac78dd35ba4570037b41b"
+    },
+    {
+      "path": "product_adapters/desktop_pet_v1/required_prompt.py",
+      "bytes": 2974,
+      "sha256": "f37749bf155816fe40e5803768d6445fe1984ec48acf51c14519735e0c93c28c"
     },
     {
       "path": "product_adapters/desktop_pet_v1/retired_writer.py",
@@ -3914,18 +4474,18 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/semantic.py",
-      "bytes": 23676,
-      "sha256": "7db270790179e70d2c2509338edb95c0d4751bf0e19f679336395031343f30b1"
+      "bytes": 28254,
+      "sha256": "78663c738f38a97730bed1e02f2ac56e249065df1dfd4c520faafa50b0445df0"
     },
     {
       "path": "product_adapters/desktop_pet_v1/sequence_delivery.py",
-      "bytes": 3056,
-      "sha256": "08ac9eef6dcecf5bd2b5cd7f7d1b99985107650c4198172626fe9a8d1a7d9e3b"
+      "bytes": 11375,
+      "sha256": "3c5f0e21cecce236ad7f0695b1bbb70a808419741307ce8cd0303a6d2b2213f0"
     },
     {
       "path": "product_adapters/desktop_pet_v1/settled_presentation.py",
-      "bytes": 5230,
-      "sha256": "3fc1fd78f9890c3757feb7ee526d43ebafe1846e34803d7121b7ae77584ef9d8"
+      "bytes": 5366,
+      "sha256": "e7f2ba1be24590d97e86765616634462a970e1328db444c995cd744eb55a44f2"
     },
     {
       "path": "product_adapters/desktop_pet_v1/settlement_audit.py",
@@ -3944,8 +4504,8 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/spatial_delivery.py",
-      "bytes": 2256,
-      "sha256": "c8f63e0b97f5f607ca64aebfd8591d05c29ad68f6486a4a4168169c530522625"
+      "bytes": 2529,
+      "sha256": "dfe2383db9d88a0debfabdb422efa1f74bd4451dc11be2edb1ee504844500b1c"
     },
     {
       "path": "product_adapters/desktop_pet_v1/speaker_view.py",
@@ -3954,13 +4514,13 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/staged_execution.py",
-      "bytes": 5087,
-      "sha256": "4cdbd0ecf6cc68a07b810fafd5174e6a06f5b8efa3e39f091f9fdc7b091735cd"
+      "bytes": 5045,
+      "sha256": "cf1bf6d299fb6e1fd179be230621f16035de8daf960916bc19d51a693902e924"
     },
     {
       "path": "product_adapters/desktop_pet_v1/temporal_measurement.py",
-      "bytes": 16189,
-      "sha256": "709947128d91365ce877c71bdbfe201e3518422440bd89b7df1a52e6c86a9a01"
+      "bytes": 17608,
+      "sha256": "fdc5ce6c121ab3f156f11e716f9f1c20da288ef216edf4160cdca8a437ddb08c"
     },
     {
       "path": "product_adapters/desktop_pet_v1/visible_context.py",
@@ -4079,13 +4639,13 @@
     },
     {
       "path": "requirements-pet.lock.txt",
-      "bytes": 341,
-      "sha256": "6df3a536fe18c522dd28dcd8f07883de29a856a68f6462d9dd545a64749e98b8"
+      "bytes": 393,
+      "sha256": "3115e4a2cea90a703963439582af35b1ad56c6a126ed121e982efe33cdfc06b2"
     },
     {
       "path": "requirements-pet.txt",
-      "bytes": 224,
-      "sha256": "19a010f7c53596127278304d8f7340d24dd60038633906c18f1d5fd9db3c652e"
+      "bytes": 351,
+      "sha256": "8327203c226d03d479f4c2588681f231cc4432632e9fba40091a575b94c853d2"
     },
     {
       "path": "resume_pet.ps1",

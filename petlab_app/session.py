@@ -184,6 +184,10 @@ class SinglePetApplication:
             from .imported_source import verify
             verify(self,event,imported)
             return
+        if imported is not None and imported.get('origin')=='cx67_private_intention':
+            from .intention_source import verify
+            verify(self,event,imported)
+            return
         product = {"sources": {event.event_id: thaw_model_data(raw.get("sources",{}).get(event.event_id))},
                    "executions": {event.event_id: thaw_model_data(raw.get("executions",{}).get(event.event_id))}}
         source = product["sources"].get(event.event_id)
@@ -279,12 +283,16 @@ class SinglePetApplication:
         updated = replace(self.runtime.session,profile=profile)
         publish_session(self,updated)
 
-    def _require_ready(self):
+    def _require_ready(self,*,during_live_execution=False):
         product = self.runtime.session.profile.get(PRODUCT_KEY,{"sources":{},"executions":{}})
         committed = self.runtime.session.profile.get(EVENT_JOURNAL_KEY,{})
-        if any(event_id not in committed for event_id in product["sources"]):
+        pending=[event_id for event_id in product['sources'] if event_id not in committed]
+        from .measurement_pipeline import permits
+        if pending and not permits(self,pending):
             raise RuntimeError("pending source must be settled before accepting another event")
-        if any(entry["status"] != "executed" for entry in product["executions"].values()):
+        from .live_execution import accepts_input
+        if any(entry["status"] != "executed" and not (during_live_execution and accepts_input(self,key,entry))
+               for key,entry in product["executions"].items()):
             raise ExecutionUncertain("pending external execution needs reconciliation")
 
     def _settle(self,event,measure):
@@ -292,7 +300,10 @@ class SinglePetApplication:
             return IngestResult(self.runtime.memory_instance(event.event_id),None,True)
         product = self._product(source_id=event.event_id)
         source = product["sources"][event.event_id]
-        if event.event_kind == "npc_output" and source['origin']!='transcript':
+        if source['origin']=='input':
+            notify=getattr(self,'on_input_committed',None)
+            if notify is not None:notify(event)
+        if event.event_kind == "npc_output" and source['origin']=='execution':
             # The execution fact is already durable; its later psychological
             # settlement must not delay another Actor hearing the actual speech.
             self._verify_source(event)
@@ -303,6 +314,10 @@ class SinglePetApplication:
             measurement = measure(event)
             if not isinstance(measurement,Mapping):
                 raise ValueError("semantic provider did not return a measurement mapping")
+            # Preparation may have durably accepted the next queued input.
+            # Preserve that source rather than publishing this earlier copy.
+            product=self._product(source_id=event.event_id)
+            source=product['sources'][event.event_id]
         shadow = self.runtime.fork()
         policy = source["evidence"].get("response_policy") if source["origin"] == "input" else None
         result = shadow.ingest(event,measurement_payload=measurement,response_policy=policy)
@@ -312,7 +327,7 @@ class SinglePetApplication:
                 transaction=result.transaction,session=shadow.session,source=source,_products=live_products)
         from product_adapters.desktop_pet_v1.settlement_view import attach as attach_settlement_view
         from model_packages.desktop_pet_v1.reaction import results_for
-        if event.event_kind=='npc_output' and source['origin']!='transcript':
+        if event.event_kind=='npc_output' and source['origin']=='execution':
             actual=source['evidence']['fact']['model_payload']['execution_receipt']
             reaction_results=actual.get('reaction_results') or results_for(event.contents,
                 actual_ids=actual['outcome']['completed_content_ids'],
@@ -327,19 +342,29 @@ class SinglePetApplication:
             # Invalid measurements never become permanent retry inputs. This pure
             # transaction has not yet published any live state or checkpoint.
             source["measurement"] = thaw_model_data(measurement)
-            self._publish_product(product)
-            profile = dict(shadow.session.profile)
-            profile[PRODUCT_KEY] = self.runtime.session.profile[PRODUCT_KEY]
-            shadow.session = replace(shadow.session,profile=profile)
+            source.pop('prefetched_payload',None)
+            source.pop('prefetched_payload_fingerprint',None)
+            # Publish this validated measurement with its settlement below.
+            # Some providers recover by this product cache rather than a receipt;
+            # retain that cache on the exceptional final-save path only.
         # The result accompanies this one formal event; holds are not extra effects.
         from product_adapters.desktop_pet_v1.settlement_view import KEY as SETTLEMENT_KEY
         source['reaction']=thaw_model_data(shadow.session.profile[SETTLEMENT_KEY]['reaction'])
-        if event.event_kind=='npc_output' and source['origin']!='transcript':
+        if event.event_kind=='npc_output' and source['origin']=='execution':
             from product_adapters.desktop_pet_v1.settlement_audit import build as settlement_audit
             source['settlement_audit']=settlement_audit(event=event,settled=settled,fact=result.memory.fact)
         profile=dict(shadow.session.profile);profile[PRODUCT_KEY]=product
         shadow.session=replace(shadow.session,profile=profile)
-        shadow.session=publish_session(self,shadow.session)
+        try:
+            shadow.session=publish_session(self,shadow.session)
+        except Exception:
+            if needs_cache:
+                # State/History did not commit. Preserve the paid measurement,
+                # without presenting the failed settlement as an actual result.
+                source.pop('reaction',None)
+                source.pop('settlement_audit',None)
+                self._publish_product(product)
+            raise
         # Publish this read-only shortcut only after the formal commit succeeded.
         self._live_input_products=(event.event_id,live_products[0]) if live_products else None
         from model_packages.desktop_pet_v1.declaration_sources import register_committed
@@ -347,6 +372,24 @@ class SinglePetApplication:
         return result
 
     def receive(self, *, event_id,scope_ref,actor_ref,contents,coordinate,measure,response_policy="required",admission_coordinate=None,admission_version=ADMISSION_VERSION,input_source=None):
+        with self._lock:
+            event=self.accept_input(event_id=event_id,scope_ref=scope_ref,actor_ref=actor_ref,
+                contents=contents,coordinate=coordinate,response_policy=response_policy,
+                admission_coordinate=admission_coordinate,admission_version=admission_version,input_source=input_source)
+            return self.settle_received(event.event_id,measure=measure)
+
+    def settle_received(self,event_id,*,measure):
+        """Settle a previously accepted input; never accept caller-written event data."""
+        with self._lock:
+            source=self._product(source_id=event_id)['sources'].get(event_id)
+            if source is None or source['origin']!='input':
+                raise ValueError('settlement requires an accepted input source')
+            event=PetEvent.from_record(source['event'])
+            self._verify_source(event)
+            return self._settle(event,measure)
+
+    def accept_input(self, *, event_id,scope_ref,actor_ref,contents,coordinate,response_policy="required",admission_coordinate=None,admission_version=ADMISSION_VERSION,input_source=None):
+        """Accept the durable source without holding the application lock over network I/O."""
         with self._lock:
             from .external_input import validate as validate_external,INPUT_VERSION
             saved=self._product(source_id=event_id)['sources'].get(event_id)
@@ -399,10 +442,14 @@ class SinglePetApplication:
                 if existing["event"] != event.to_record():
                     raise ValueError("received source identity conflicts with an earlier input")
             else:
-                self._require_ready()
+                self._require_ready(during_live_execution=True)
                 product["sources"][event_id] = {"origin":"input","event":event.to_record(),"evidence":raw}
+                from .measurement_pipeline import bind as bind_prefetch
+                bind_prefetch(self,event,product)
+                from .live_execution import record_input
+                record_input(self,event,product)
                 self._publish_product(product)
-            return self._settle(event,measure)
+            return event
 
     def execute(self,prepared:PreparedExecution,*,executor,coordinate,measure,_recovered_outcome=None):
         with self._lock:
@@ -420,27 +467,32 @@ class SinglePetApplication:
                     return self._settle(event,measure)
             if _recovered_outcome is None:self._require_ready()
             else:
-                if existing is None or 'composite' not in prepared.request.control:
+                if existing is None or prepared.composite_plan() is None:
                     raise ValueError('recovery requires existing composite execution')
                 full=self._product();committed_ids=self.runtime.session.profile.get(EVENT_JOURNAL_KEY,{})
                 if any(key not in committed_ids for key in full['sources']) or any(
                         key!=plan.action_id and row['status']!='executed' for key,row in full['executions'].items()):
                     raise ExecutionUncertain('other pending facts prevent recovery')
-            if prepared.position != session.position:
+            recovered_admission=_recovered_outcome is not None and 'admitted_position' in existing
+            recovered_inputs=[]
+            if recovered_admission:
+                from .live_execution import verify_recovery
+                recovered_inputs=verify_recovery(self,prepared,existing)
+            if not recovered_admission and prepared.position != session.position:
                 raise ValueError("candidate uses a stale runtime position")
             destination=prepared.request.readonly_facts.get('participant_destination')
-            if destination is not None:
+            if destination is not None and not recovered_admission:
                 from .destinations import destination as expected_destination
                 if model_data_fingerprint(expected_destination(self,prepared.authorization.source_fact_ref))!=model_data_fingerprint(destination):raise ValueError('execution destination differs from source')
             idle=prepared.authorization.host_authorization_evidence.get('origin')=='dynamic_idle_tick'
-            if idle:
+            if idle and not recovered_admission:
                 from .idle_opening import authorize,source as idle_source
                 source,_grant=idle_source(self,prepared.authorization.source_fact_ref,current=True)
                 if authorize(self,source.tick_id)!=prepared.authorization or prepared.scope_ref!=prepared.authorization.host_authorization_evidence['scope_ref']:
                     raise ValueError('idle source lacks its actual Tick grant or destination')
-            else:source=self.runtime.memory_instance(prepared.authorization.source_fact_ref)
+            elif not idle:source=self.runtime.memory_instance(prepared.authorization.source_fact_ref)
             deferred=prepared.authorization.host_authorization_evidence.get('origin')=='deferred_direct_reply_v1'
-            if deferred:
+            if deferred and not recovered_admission:
                 from product_adapters.desktop_pet_v1.deferred_reply import authorize
                 if authorize(self,source.event.event_id)!=prepared.authorization or prepared.scope_ref!=source.event.scope_ref:
                     raise ValueError('deferred reply differs from its required input or current planning state')
@@ -453,13 +505,13 @@ class SinglePetApplication:
                     or source.fact.temporal_position_fingerprint != prepared.authorization.source_position_fingerprint
                     or source.fact.settlement_ref["acceptance_fingerprint"] != prepared.authorization.source_settlement_fingerprint):
                 raise ValueError("direct reply source differs from its formal input")
-            if prepared.authorization.host_authorization_evidence.get("origin")=="eligible_peer_reply_v1":
+            if not recovered_admission and prepared.authorization.host_authorization_evidence.get("origin")=="eligible_peer_reply_v1":
                 from .peer_reaction import authorize as authorize_peer
                 if authorize_peer(self,source.event.event_id)!=prepared.authorization:raise ValueError("peer source lacks its current assessment")
-            if prepared.authorization.action_kind=="autonomous_opening" and not idle:
+            if not recovered_admission and prepared.authorization.action_kind=="autonomous_opening" and not idle:
                 from .interaction_observer import authorize_interaction_tick
                 if authorize_interaction_tick(self,source.event.event_id)!=prepared.authorization:raise ValueError("autonomous source lacks its actual Tick grant")
-            if self.action_verifier(prepared,source) is not None:
+            if not recovered_admission and self.action_verifier(prepared,source) is not None:
                 raise ValueError("action verifier must validate successfully or raise")
             completion_clock = coordinate if callable(coordinate) else None
             actual_coordinate = None if completion_clock is not None else coordinate
@@ -467,11 +519,17 @@ class SinglePetApplication:
                 position = self.runtime.temporal_runtime.normalize_position(actual_coordinate)
                 self.runtime.temporal_runtime.prove_order(session.position.position,position)
             entry = {"status":"started","prepared_fingerprint":prepared.fingerprint,
-                     "coordinate":actual_coordinate,"candidate_ref":prepared.candidate.candidate_ref}
+                     "coordinate":actual_coordinate,"candidate_ref":prepared.candidate.candidate_ref,
+                     "admitted_position":prepared.position.to_record(),
+                     **({'live_input_sources':recovered_inputs} if recovered_inputs else {})}
             product["executions"][plan.action_id] = entry
             self._publish_product(product)
             try:
-                outcome = _recovered_outcome if _recovered_outcome is not None else executor(plan.action_id,contents)
+                from .live_execution import running
+                live_inputs=recovered_inputs
+                if _recovered_outcome is not None:outcome=_recovered_outcome
+                else:
+                    with running(self,plan.action_id) as live_inputs:outcome=executor(plan.action_id,contents)
                 if not isinstance(outcome,ExecutionOutcome):
                     raise ValueError("executor returned no verified outcome")
                 composite=prepared.composite_plan()
@@ -479,6 +537,7 @@ class SinglePetApplication:
                     from model_packages.desktop_pet_v1.composite import validate_outcome
                     validate_outcome(composite,outcome)
                 realization_evidence=thaw_model_data(prepared.candidate.realization_evidence)
+                if live_inputs:realization_evidence['live_input_sources']=list(live_inputs)
                 delivery_prepared=prepared
                 if 'late_speech' in prepared.candidate.candidate_payload:
                     delivery_prepared=None
@@ -513,7 +572,7 @@ class SinglePetApplication:
                 delivered = realized_contents(contents, outcome)
                 if not delivered or set(outcome.completed_content_ids) != {item.content_id for item in delivered}:
                     raise ValueError("executor returned invalid completed content identities")
-                if prepared.request.control.get('action_sequence_contract'):
+                if prepared.request.control.get('action_sequence_contract') or prepared.request.control.get('whisper_contract') or prepared.request.control.get('audience_motion_contract'):
                     # Candidate evidence stays frozen. This receipt separately
                     # states which language channels actually became a fact.
                     realization_evidence['sequence_actual_channels']=[c.kind for c in delivered if c.kind in {'speech','thought'}]
@@ -521,6 +580,17 @@ class SinglePetApplication:
                     actual_coordinate=(outcome.details["occurred_at_wall_ms"] if "occurred_at_wall_ms" in outcome.details else completion_clock())
                     position = self.runtime.temporal_runtime.normalize_position(actual_coordinate)
                     self.runtime.temporal_runtime.prove_order(session.position.position,position)
+                occurred_position=position
+                if live_inputs:
+                    # Playback can end while the already admitted input is still
+                    # being measured. Keep its physical time in the receipt;
+                    # append its effect after those inputs on the formal line.
+                    input_coordinates=[self._product(source_id=ref['event_id'])['sources'][ref['event_id']]['event']['position']['coordinate'] for ref in live_inputs]
+                    actual_coordinate=max(actual_coordinate,self.runtime.session.position.position.coordinate,*input_coordinates)
+                    position=self.runtime.temporal_runtime.normalize_position(actual_coordinate)
+                    self.runtime.temporal_runtime.prove_order(self.runtime.session.position.position,position)
+                    if position!=occurred_position:
+                        realization_evidence['physical_completion_position']=occurred_position.to_record()
             except ExecutionCancelled:
                 # A typed executor result confirms zero effect, distinct from uncertainty.
                 product=self._product(source_id=plan.action_id,execution_id=plan.action_id);product["executions"].pop(plan.action_id)
@@ -575,6 +645,18 @@ class SinglePetApplication:
             if expression_commit is not None:
                 product["sources"][plan.action_id]["expression_commit"] = expression_commit
             self._publish_product(product,expression_state=expression_state)
+            accepted=self.runtime.session.profile.get(EVENT_JOURNAL_KEY,{})
+            if any(r['event_id'] not in accepted for r in live_inputs):
+                pending=getattr(self,'_pending_playback_intake',None)
+                if pending is not None and pending.action_id==plan.action_id:
+                    # The commit gate above has already accepted the real
+                    # effect. Peers may consume it before its owner's later
+                    # psychological settlement, just as in _settle.
+                    self._verify_source(event)
+                    self.on_execution_committed(event)
+                    from .live_execution import PlaybackSettlementPending
+                    raise PlaybackSettlementPending(plan.action_id)
+                raise RuntimeError('pending input must settle before actual output; effect is archived')
             return self._settle(event,measure)
 
     def close(self):

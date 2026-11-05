@@ -46,6 +46,7 @@ class _Playback:
     execution_context: object = None
     visible_observer: object = None
     visible_phases: set = field(default_factory=set)
+    obstruction: object = None
 
 
 from .execution_context import ExecutionContexts
@@ -65,7 +66,8 @@ class DesktopExecutor(ExecutionContexts):
         self.meal_host=None
         self.meal_owner=None
         self.meal_pose=None
-        self._meal_mirrors={}
+        from .frame_mirror import MirrorCache
+        self._meal_mirrors=MirrorCache()
         self.gaze_target=None
         self.current_gaze_direction=None
         from .gaze_renderer import GazeRenderer
@@ -73,7 +75,10 @@ class DesktopExecutor(ExecutionContexts):
         self.closed=False
         self._owned_timers=set()
         self.active=None
-        self.requests=queue.Queue()
+        # One prepared parent may wait behind this pet's current playback.
+        # The existing Actor/commit gate owns admission; this is only bounded
+        # presentation backpressure, not a new autonomous dispatch mechanism.
+        self.requests=queue.Queue(maxsize=1)
         self._request_lock=threading.Lock()
         self.visual_timer=None
         self.feedback_binding=None
@@ -84,8 +89,11 @@ class DesktopExecutor(ExecutionContexts):
         self.visual_body_frame_indices={}
         self.expression_frame_indices={}
         self.rest_motion_clips={}
+        from .idle_timing import IdleTiming
+        self.idle_timing=IdleTiming()
         self.walk_clips={}
         self.carry_walk_clips={}
+        self.carry_activity_clips={}
         self.walk_config=None
         self.walking_action=None
         self.walking_phase=None
@@ -255,7 +263,10 @@ class DesktopExecutor(ExecutionContexts):
                     whole_bytes=whole_manifest.read_bytes()
                     whole=json.loads(whole_bytes)
                     from .whole_frame_renderer import build_whole_frames
-                    self.expression_frames=build_whole_frames(alpha_frames,whole,asset_dir,self.base_frame_count)
+                    activity_path=asset_dir/'activities.json'
+                    activity_declaration=json.loads(activity_path.read_text(encoding='utf-8')) if activity_path.exists() else None
+                    self.expression_frames=build_whole_frames(alpha_frames,whole,asset_dir,self.base_frame_count,
+                        defer_motion=bool(activity_declaration and activity_declaration.get('rig_binding')))
                     from .whole_frame_renderer import emotion_motion_clips
                     self.emotion_motion_clips=emotion_motion_clips(whole,base_frame_count=self.base_frame_count)
                     activity_path=asset_dir/'activities.json'
@@ -265,7 +276,7 @@ class DesktopExecutor(ExecutionContexts):
                         # distal tail moves, with identical face, hair and lighting.
                         from .whole_frame_renderer import build_activity_frames
                         self.expression_frames,self.activity_clips,activity_indices=build_activity_frames(
-                            self.expression_frames,whole,asset_dir,json.loads(activity_path.read_text(encoding='utf-8')),
+                            self.expression_frames,whole,asset_dir,activity_declaration,
                             self.emotion_motion_clips['normal'])
                     from .whole_frame_renderer import build_rest_frames
                     self.expression_frames,self.rest_motion_clips,rest_indices=build_rest_frames(self.expression_frames,whole)
@@ -285,6 +296,9 @@ class DesktopExecutor(ExecutionContexts):
                     activity_indices.update(walk_indices)
                     from .walk_renderer import build_carry_frames
                     self.expression_frames,self.carry_walk_clips,carry_indices=build_carry_frames(self.expression_frames,self.activity_clips,self.walk_config)
+                    from .carry_activity import build as build_carry_activity
+                    self.expression_frames,self.carry_activity_clips,carry_activity_indices=build_carry_activity(self.expression_frames,self.activity_clips)
+                    activity_indices.update(carry_activity_indices)
                     activity_indices.update(carry_indices)
                     if self.walk_config is not None:
                         if not hasattr(self,'contact_frame_offsets'):self.contact_frame_offsets={}
@@ -299,6 +313,10 @@ class DesktopExecutor(ExecutionContexts):
                     self.visual_body_frame_indices=self.expression_frame_indices[self.expression_code]
                     from .whole_frame_renderer import drag_motion_clips
                     self.drag_motion_clips=drag_motion_clips(whole,base_frame_count=self.base_frame_count)
+                    from .rig_feedback import replace_drag
+                    drag_start=self.feedback_bindings.get('drag',{}).get('start')
+                    self.expression_frames=replace_drag(self.expression_frames,self.drag_motion_clips,
+                        lead_in=self.feedback_clips.get(drag_start))
                     self.expression_asset_sha256=hashlib.sha256(whole_bytes).hexdigest()
                     declaration=whole.get('presentation',{})
                     if not isinstance(declaration,dict) or declaration.get('version','desktop-pet-visual-declaration-v1')!='desktop-pet-visual-declaration-v1':
@@ -327,7 +345,11 @@ class DesktopExecutor(ExecutionContexts):
                     self.body_map=self.expression_body_maps.get(self.expression_code,self.standing_body_map)
                     alpha_frames=self.expression_frames[self.expression_code]
                 from .facing_renderer import FacingAssets
-                self.facing_assets=FacingAssets(asset_dir,(alpha_frames[0].width,alpha_frames[0].height))
+                # Bound gait/facing owns its poses. Keep legacy metadata for
+                # layout/hits, but do not bake ten unused whole-image cycles.
+                from .rig_activity import RigFrame
+                self.facing_assets=FacingAssets(asset_dir,(alpha_frames[0].width,alpha_frames[0].height),
+                    eager_cycles=not isinstance(alpha_frames[0],RigFrame))
                 if self.facing_assets.available:
                     self.native_layout_frame=tk.PhotoImage(master=root,width=self.facing_assets.size[0],height=self.facing_assets.size[1])
                     self.sprite.configure(image=self.native_layout_frame,width=self.facing_assets.size[0],height=self.facing_assets.size[1])
@@ -372,8 +394,12 @@ class DesktopExecutor(ExecutionContexts):
         if self.alpha_surface is None or self.closed or self._presenting:return
         self._presenting=True
         try:
+            pending=getattr(self,'_pose_transition_job',None)
+            if pending is not None:
+                self._cancel_scheduled(pending);self._pose_transition_job=None
+            followup=False;refresh_ms=33
             current=getattr(self,'rendering_action',None) if self._sprite_active else None
-            walking=current is not None and current.semantic_key=='move_near'
+            walking=current is not None and current.semantic_key in ('move_near','stroll','move_away','relocate')
             if self.expression_frames:
                 activity=current is not None and current.semantic_key in self.activity_clips
                 self.alpha_surface.frames=(self.original_alpha_frames if self._sprite_active and not activity and not walking
@@ -386,43 +412,147 @@ class DesktopExecutor(ExecutionContexts):
             if self.facing_target not in visible:self.facing_target=None
             settling=getattr(self,'meal_settle',None)
             settling=settling is not None and time.monotonic()<settling['until']
-            profile=(self.facing_assets is not None and self.facing_assets.available and self.facing_target is not None and self.meal_pose is None and not settling
+            body_direction=getattr(self,'body_turn_direction',0)
+            meal_target=self._meal_facing_target(current,settling=settling,walking=walking)
+            bound_target=meal_target if meal_target in visible else self.facing_target
+            resting=getattr(self,'resting_pose',None) is not None and not self._sprite_active and self.feedback_binding is None
+            profile=(not resting and self.facing_assets is not None and self.facing_assets.available and (self.facing_target is not None or body_direction) and self.meal_pose is None and not settling
                 and (not self._sprite_active or walking) and self.feedback_binding is None and getattr(self,'phone_activity_id',None) is None)
             self.facing_direction=0
             frames=self.alpha_surface.frames;index=self.frame_index;source=frames[index]
+            rig_blink=getattr(self,'_rig_idle_blink',None)
+            if not self._sprite_active and self.feedback_binding is None and rig_blink is not None and rig_blink[:2]==(index,self.expression_code):
+                source=rig_blink[2]
+            from .rig_activity import RigFrame
+            from .rig_expression import RigExpressionPresenter
+            timing=getattr(self,'idle_timing',None)
+            if timing is not None:
+                enabled=(isinstance(source,RigFrame) and not self._sprite_active
+                    and self.feedback_binding is None and self.walking_action is None
+                    and self.meal_pose is None and not resting and not settling
+                    and getattr(self,'phone_activity_id',None) is None
+                    and self.visual_clip==self.manifest['visual_only_clip'])
+                offsets=timing.micro_pose(time.monotonic(),getattr(self,'persistent_expression_code','normal'),enabled=enabled)
+                if offsets:
+                    from .idle_timing import micro_frame
+                    source=micro_frame(source,offsets)
+                    transient=True;followup=True
+            bound_facing=isinstance(source,RigFrame) and bool(source.rig.get('facing'))
+            orientation_active=False
+            multiview=bound_facing and bool(source.rig.get('views'))
+            if multiview:
+                from .rig_orientation import Orientation
+                family=source.rig.get('_view_family')
+                if getattr(self,'_orientation_family',None) is not family:
+                    self._rig_orientation=Orientation();self._orientation_family=family
+            self._bound_facing_direction=0
+            bound_turn=getattr(self,'_turn_motion',None) if bound_facing and current is not None and current.semantic_key in ('turn_left','turn_right') else None
+            if bound_turn is not None:
+                from .rig_facing import turn_frame as bound_turn_frame
+                source=bound_turn_frame(source,*bound_turn)
+                if multiview:
+                    origin,target,phase=bound_turn
+                    self._rig_orientation.sync(origin+(target-origin)*phase,time.monotonic())
+                self._bound_facing_direction=bound_turn[1] if bound_turn[2]>=1 else bound_turn[0]
+                profile=False
+            elif bound_facing and not resting and self.feedback_binding is None and (bound_target is not None or body_direction):
+                from .rig_facing import facing_frame
+                dx=direction(scene,bound_target)['horizontal'] if bound_target is not None else body_direction
+                heading=-1 if dx<0 else (1 if dx>0 else 0)
+                if multiview:
+                    source,orientation_active=self._rig_orientation.present(source,heading,time.monotonic())
+                else:source=facing_frame(source,heading)
+                self._bound_facing_direction=heading
+                # Keep current expression materials on the bound geometry.
+                # Do not replace it later with an expression-baked side atlas.
+                profile=False
+            elif multiview:
+                source,orientation_active=self._rig_orientation.present(source,0,time.monotonic())
+            if not hasattr(self,'_rig_expression_presenter'):self._rig_expression_presenter=RigExpressionPresenter()
+            bound_gaze=isinstance(source,RigFrame) and bool(source.rig.get('gaze_part'))
+            if isinstance(source,RigFrame):
+                transition=getattr(self,'_rig_pose_transition',None)
+                if transition is not None:
+                    elapsed=time.monotonic()-transition[1]
+                    from .rig_pose_transition import between,compatible
+                    if elapsed<.16 and compatible(transition[0],source):
+                        source=between(transition[0],source,elapsed/.16)
+                        transient=True
+                        followup=True
+                    else:self._rig_pose_transition=None
+                self._presented_rig_frame=source
+                gaze_transform=None
+                if bound_gaze and not resting and not (current is not None and 'meal' in current.parameters) and (self.meal_pose is None or walking) and self.gaze_target in visible and self._gaze_pose_supported():
+                    from .rig_gaze import material_transform
+                    d=direction(scene,self.gaze_target);self.current_gaze_direction=d
+                    gaze_transform=material_transform(source.rig,self.gaze_renderer,d['horizontal'],d['vertical'])
+                source,changing=self._rig_expression_presenter.present(source,time.monotonic()*1000,material_transform=gaze_transform)
+                changing=changing or orientation_active
+                transient=transient or changing
+                followup=followup or changing
+            else:
+                if getattr(self,'_rig_pose_transition',None) is not None:
+                    # A fixed authored posture can follow a bound posture.
+                    # Preserve the actual prior display as the bridge source.
+                    previous=getattr(self,'_presented_frame',None)
+                    if previous is not None:self._pose_transition=(previous,self._rig_pose_transition[1],'morph')
+                self._presented_rig_frame=None;self._rig_pose_transition=None
+                self._rig_expression_presenter.reset()
             meal_active=current is not None and 'meal' in current.parameters
-            meal_target=None
-            if meal_active:meal_target=current.parameters['meal']['target_ref']
-            elif settling and scene is not None:meal_target=next((r['ref'] for r in scene['participants'] if r['ref']!=self.meal_owner),None)
-            elif walking and self.meal_pose is not None:meal_target=current.parameters['movement']['target_ref']
-            elif not walking and self.meal_pose is not None and scene is not None:meal_target=next((r['ref'] for r in scene['participants'] if r['ref']!=self.meal_owner),None)
-            if meal_target is not None and scene is not None:
+            if not bound_facing and meal_target is not None and scene is not None:
                 target=meal_target
                 if target in visible and direction(scene,target)['horizontal']<0:
                     # Whole-pose mirroring only, not an independent face overlay.
-                    from .windows_alpha import AlphaFrame
-                    cache_key=id(source)
-                    if cache_key not in self._meal_mirrors:
-                        w,h=source.width,source.height
-                        data=b''.join(b''.join(source.bgra[(y*w+x)*4:(y*w+x+1)*4] for x in range(w-1,-1,-1)) for y in range(h))
-                        self._meal_mirrors[cache_key]=AlphaFrame(w,h,data)
-                    source=self._meal_mirrors[cache_key]
-            if profile:
-                dx=direction(scene,self.facing_target)['horizontal']
+                    source=self._meal_mirrors.frame(source)
+            turning=getattr(self,'_turn_motion',None) if current is not None and current.semantic_key in ('turn_left','turn_right') else None
+            if turning is not None and not bound_facing and self.facing_assets is not None and self.facing_assets.available:
+                from .facing_renderer import turn_frame
+                source=turn_frame(self.facing_assets,self.expression_frames[self.expression_code][0],self.expression_code,*turning)
+                transient=True
+            elif profile:
+                dx=direction(scene,self.facing_target)['horizontal'] if self.facing_target is not None else body_direction
                 self.facing_direction=-1 if dx<0 else 1
                 phase=self.walking_phase if self.walking_action is not None else None
                 source=self.facing_assets.frame(self.expression_code,self.facing_direction,phase=phase,rest_phase=int(time.monotonic()*6)%24)
+                # A finished turn retains orientation, not a frozen bitmap.
+                # The registered pose transition bridges its endpoint into
+                # this side's idle cycle; its tail can keep moving afterwards.
                 layout=self.facing_assets.gaze_layout(self.expression_code,self.facing_direction,phase=phase)
             elif self.facing_assets is not None and self.facing_assets.available:
                 source=self.facing_assets.front(source)
                 layout=self.facing_assets.gaze_layout(self.expression_code,0,front_shift=getattr(self,'contact_frame_offsets',{}).get(self.frame_index,(0,0)),front_regions=self.gaze_renderer.value['eye_regions'])
-            if not meal_active and (self.meal_pose is None or walking) and self.gaze_target is not None and self.gaze_target in visible and self._gaze_pose_supported():
+            if not bound_gaze and not resting and not meal_active and (self.meal_pose is None or walking) and self.gaze_target is not None and self.gaze_target in visible and self._gaze_pose_supported():
                 d=direction(scene,self.gaze_target);self.current_gaze_direction=d
                 transformed=self.gaze_renderer.apply(source,d['horizontal'],d['vertical'],self.expression_code,layout=layout)
                 transient=transformed is not source;source=transformed
+            transition=getattr(self,'_pose_transition',None)
+            if transition is not None:
+                elapsed=time.monotonic()-transition[1]
+                duration=.24 if len(transition)>2 and transition[2]=='morph' else .16
+                if elapsed<duration:
+                    from .pose_transition import blend,morph
+                    interpolate=morph if len(transition)>2 and transition[2]=='morph' else blend
+                    source=interpolate(transition[0],source,elapsed/duration);transient=True
+                    followup=True;refresh_ms=16
+                else:self._pose_transition=None
+            self._presented_frame=source
             self.alpha_surface.frames=frames[:index]+(source,)+frames[index+1:]
             self.alpha_surface.present(self.frame_index,x=self.sprite.winfo_x(),y=self.sprite.winfo_y(),**({"cache":False} if transient else {}))
+            if followup:
+                self._pose_transition_job=self._schedule(refresh_ms,self._continue_pose_transition)
         finally:self._presenting=False
+
+    def _begin_pose_transition(self,*,registered=False):
+        bound=getattr(self,'_presented_rig_frame',None)
+        if registered and bound is not None:
+            self._rig_pose_transition=(bound,time.monotonic());self._pose_transition=None
+            return
+        source=getattr(self,'_presented_frame',None)
+        if source is not None:self._pose_transition=(source,time.monotonic(),"morph" if registered else "blend")
+
+    def _continue_pose_transition(self):
+        self._pose_transition_job=None
+        if not self.closed:self._present_alpha()
 
     def presentation_capabilities(self):
         from model_packages.desktop_pet_v1.visual_capabilities import validate
@@ -434,14 +564,23 @@ class DesktopExecutor(ExecutionContexts):
         self._display_expression(code)
 
     def _gaze_pose_supported(self):
+        bound=getattr(self,'_presented_rig_frame',None)
+        if bound is not None and bound.rig.get('gaze_part'):
+            open_eye=bound.rig.get('gaze_layout',{}).get('open_eye',False)
+            return (self.alpha_surface is not None and self.gaze_renderer.available
+                    and (open_eye or self.gaze_renderer.supports(self.expression_code))
+                    and self.feedback_binding is None
+                    and getattr(self,'phone_activity_id',None) is None)
         current=getattr(self,'rendering_action',None)
-        walking=current is not None and current.semantic_key=='move_near'
+        walking=current is not None and current.semantic_key in ('move_near','stroll','move_away','relocate')
         return (self.alpha_surface is not None and (self.facing_direction!=0 or self.gaze_renderer.supports(self.expression_code))
                 and self.feedback_binding is None and (not self._sprite_active or walking)
                 and getattr(self,'phone_activity_id',None) is None
                 and (self.facing_direction!=0 or self.visual_body_frame_indices.get(self.frame_index,self.frame_index)!=2))
 
     def clear_gaze(self):
+        self.body_turn_direction=0
+        self.body_turn_pose=None
         self.gaze_target=None;self.current_gaze_direction=None
         self.facing_target=None;self.facing_action=None;self.facing_direction=0
         self._present_alpha()
@@ -526,6 +665,8 @@ class DesktopExecutor(ExecutionContexts):
         self.select_presentation_target(context['target_ref'])
 
     def restore_settled_expression(self):
+        task=getattr(self,'active',None)
+        if task is not None and any(c.kind=='expression' and 'hold_ms' in c.parameters for c in task.contents):return
         if not self.speech_expression_active:return
         self.speech_expression_active=False
         self._display_expression(self.persistent_expression_code)
@@ -567,17 +708,43 @@ class DesktopExecutor(ExecutionContexts):
         self.phone_activity_id=event_id
         self._stop_visual_timer();self._visual_frame(0)
 
+    def _meal_facing_target(self,current,*,settling=False,walking=False):
+        meal=None if current is None else current.parameters.get('meal')
+        if meal is not None and meal['key']!='eat_rice':return meal['target_ref']
+        if settling:return getattr(self,'meal_settle',{}).get('target_ref')
+        if walking and self.meal_pose is not None:return current.parameters['movement']['target_ref']
+        if self.meal_pose is not None:
+            snapshot=getattr(self,'_meal_snapshot',None)
+            if snapshot is not None and snapshot.get('offer') is not None:return self.meal_pose_target
+            # Keep the whole held-prop pose in its actual handoff orientation.
+            # Gaze/front is not a command to mirror the body after follow-through.
+            if getattr(self,'meal_pose_target',None) is not None:return self.meal_pose_target
+            if getattr(self,'gaze_target',None)=='front':return None
+            return self.facing_target or getattr(self,'meal_pose_target',None)
+        return None
+
     def update_meal_pose(self,value):
         previous=getattr(self,'_meal_snapshot',None)
         self._meal_snapshot=value
+        if value is None or previous is None or previous['interaction_id']!=value['interaction_id']:
+            self.meal_pose_target=None
+        if value is not None and value.get('offer') is not None:
+            offer=value['offer']
+            if self.meal_owner==offer['actor_ref']:self.meal_pose_target=offer['target_ref']
+            elif self.meal_owner==offer['target_ref']:self.meal_pose_target=offer['actor_ref']
         if (previous is not None and value is not None and previous['interaction_id']==value['interaction_id']
                 and previous['holder_ref']!=value['holder_ref'] and self.meal_owner in (previous['holder_ref'],value['holder_ref'])):
             # The transfer already committed. Show its local follow-through,
             # never a second independently selected/settled action.
             now=time.monotonic();receiving=value['holder_ref']==self.meal_owner
-            frames=([self.activity_clips['offer_bowl']['frames'][-1],self.activity_clips['eat_rice']['frames'][0]] if receiving
+            DesktopExecutor._begin_pose_transition(self,registered=True)
+            # Acceptance already played the reaching gesture. Continue into
+            # holding; the offering pose here would look like another handoff.
+            frames=([self.activity_clips['eat_rice']['frames'][0]] if receiving
                     else [self.activity_clips['accept_bowl']['frames'][-1]])
-            self.meal_settle={'start':now,'until':now+.35,'frames':frames}
+            target=previous['holder_ref'] if receiving else value['holder_ref']
+            self.meal_pose_target=target
+            self.meal_settle={'start':now,'until':now+.35,'frames':frames,'target_ref':target}
         pose=None
         if value is not None and value['portions'] and value['holder_ref']==self.meal_owner:
             pose='offer_bowl' if value['offer'] is not None else 'hold_bowl'
@@ -599,21 +766,44 @@ class DesktopExecutor(ExecutionContexts):
         elif self.meal_pose is not None and self.visual_clip==self.manifest['visual_only_clip']:
             activity=self.activity_clips['eat_rice' if self.meal_pose=='hold_bowl' else self.meal_pose]
             clip={'frames':[activity['frames'][-1 if self.meal_pose=='offer_bowl' else 0]],'durations_ms':[1000]}
+        if getattr(self,'resting_pose',None)=='lie_down' and self.meal_pose is None and getattr(self,'phone_activity_id',None) is None:
+            clip={'frames':[self.activity_clips['lie_down']['frames'][-1]],'durations_ms':[1000]}
         settle=getattr(self,'meal_settle',None)
         if settle is not None:
             elapsed=time.monotonic()-settle['start']
             if elapsed<.35:
                 phase=min(len(settle['frames'])-1,int(elapsed/.2))
                 clip={'frames':[settle['frames'][phase]],'durations_ms':[25]}
-            else:self.meal_settle=None
+            else:
+                self._begin_pose_transition(registered=True)
+                self.meal_settle=None
         index%=len(clip["frames"])
-        self._show_frame(clip["frames"][index])
-        self.visual_timer=self._schedule(clip["durations_ms"][index],lambda:self._visual_frame(index+1))
+        frame=clip['frames'][index];delay=clip['durations_ms'][index]
+        self._rig_idle_blink=None
+        if clip is getattr(self,'rest_motion_clips',{}).get(self.expression_code):
+            timing=self.idle_timing
+            phase=(index+timing.phase)%len(clip['frames'])
+            # Remove the old once-per-loop blink; each pet has its own blink clock.
+            from .rig_activity import RigFrame
+            candidate=clip['frames'][phase]
+            bound=isinstance(self.expression_frames[self.expression_code][candidate],RigFrame)
+            frame=candidate if bound else clip['frames'][0 if phase==2 else phase]
+            if self.expression_code=='normal' and timing.blink(time.monotonic()):
+                from .rig_activity import RigFrame
+                base=self.expression_frames[self.expression_code][frame]
+                if isinstance(base,RigFrame) and base.rig.get('idle') is not None:
+                    self._rig_idle_blink=(frame,self.expression_code,RigFrame(base.rig,base.pose,base.rig['idle']['blink_code'],(base.width,base.height)))
+                else:frame=clip['frames'][2]
+            delay=timing.delay(delay)
+        self._show_frame(frame)
+        self.visual_timer=self._schedule(delay,lambda:self._visual_frame(index+1))
 
     def _prepare_target_facing(self,task,identity,planned,target):
         if self.facing_assets is None or not self.facing_assets.available:return 0
+        self._leave_rest_pose()
         self._cancel_visual_feedback()
-        self.facing_target=target;self.gaze_target=target;self.facing_action=task.action_id
+        self.facing_target=None if target=='front' else target;self.gaze_target=target;self.facing_action=task.action_id
+        if target=='front':self.body_turn_direction=-1 if planned['end'][0]<planned['start'][0] else 1
         self._present_alpha()
         from .walk_renderer import VERSION
         task.movement_visuals[identity]={'version':VERSION,'direction':-1 if planned['end'][0]<planned['start'][0] else 1,
@@ -665,12 +855,32 @@ class DesktopExecutor(ExecutionContexts):
 
     def hit_body_region(self,x,y):
         if self.body_map is None:return None
+        bound=getattr(self,'_presented_rig_frame',None)
+        if bound is not None and 'body_hits' in bound.rig:
+            if not self.is_sprite_opaque(x,y):return None
+            dx,dy=self.facing_assets.front_offset if self.facing_assets is not None and self.facing_assets.available else (0,0)
+            from .rig_hit import hit
+            return hit(bound,x-dx,y-dy)
         if getattr(self,'facing_assets',None) is not None and self.facing_assets.available and self.facing_direction!=0:
             return self.facing_assets.hit(self.expression_code,self.facing_direction,x,y,is_opaque=self.is_sprite_opaque,phase=self.walking_phase)
         dx,dy=getattr(self,'contact_frame_offsets',{}).get(self.frame_index,(0,0))
         if getattr(self,'facing_assets',None) is not None and self.facing_assets.available:
             dx+=self.facing_assets.front_offset[0];dy+=self.facing_assets.front_offset[1]
         return self.body_map.hit(frame_index=self.visual_body_frame_indices.get(self.frame_index,self.frame_index),x=x-dx,y=y-dy,width=self.frames[0].width(),height=self.frames[0].height(),is_opaque=lambda px,py:self.is_sprite_opaque(px+dx,py+dy))
+
+    def notice_visible_action(self,target,source_ref):
+        """Immediate local attention to actual public playback, no model/state event."""
+        if (self.closed or self._sprite_active or self.walking_action is not None
+                or self.feedback_binding is not None or self.speech_expression_active
+                or getattr(self,'phone_activity_id',None) is not None
+                or getattr(self,'_last_visible_notice',None)==source_ref):return False
+        from model_packages.desktop_pet_v1.spatial import targets
+        scene=self.scene_snapshot() if callable(self.scene_snapshot) else None
+        if scene is None or target not in targets(scene):return False
+        self._last_visible_notice=source_ref
+        self.facing_target=target;self.gaze_target=target
+        self._present_alpha()
+        return True
 
     def acknowledge_input(self,value):
         """Attend using the last formal relation, without simulating a touch."""
@@ -698,10 +908,16 @@ class DesktopExecutor(ExecutionContexts):
         # ordinary listening leaves the quiet idle animation in control.
         return True
 
+    def _leave_rest_pose(self):
+        if getattr(self,'resting_pose',None) is None:return
+        self._begin_pose_transition(registered=True)
+        self.resting_pose=None
+
     def start_body_feedback(self,target):
         """A finite input acknowledgement; no Action, provider, or root access."""
         if threading.get_ident()!=self.ui_thread:raise RuntimeError("body feedback requires Tk thread")
         if self.closed or self._sprite_active or self.body_map is None or target is None:return False
+        self._leave_rest_pose()
         self.restore_settled_expression()
         from .body_regions import validate_body_target
         validate_body_target(target)
@@ -710,6 +926,9 @@ class DesktopExecutor(ExecutionContexts):
         loaded=[self.body_map,getattr(self,'standing_body_map',None),
             *getattr(self,'expression_body_maps',{}).values()]
         maps={m.map_sha256:m for m in loaded if m is not None}
+        bound=getattr(self,'_presented_rig_frame',None)
+        if bound is not None:
+            maps.update({row['map'].map_sha256:row['map'] for row in bound.rig.get('body_hits',{}).values()})
         if getattr(self,'facing_assets',None) is not None:maps.update(self.facing_assets.body_maps)
         source_map=maps.get(target['map_sha256'])
         if source_map is None or target['image_sha256']!=source_map.image_sha256:raise ValueError("body feedback source differs")
@@ -732,6 +951,7 @@ class DesktopExecutor(ExecutionContexts):
         """Show configured physical feedback, without an execution identity."""
         if threading.get_ident()!=self.ui_thread:raise RuntimeError("visual feedback requires the Tk thread")
         if self.closed or self._sprite_active or binding_key not in self.feedback_bindings:return False
+        self._leave_rest_pose()
         self.restore_settled_expression()
         if self.feedback_binding==binding_key and self.feedback_phase!="end":return False
         self._cancel_visual_feedback()
@@ -745,6 +965,8 @@ class DesktopExecutor(ExecutionContexts):
         if self.closed or self._sprite_active or self.feedback_binding is None:return False
         self._stop_visual_timer()
         self._feedback_generation+=1
+        if self.feedback_binding=='drag' and getattr(self,'_presented_rig_frame',None) is not None:
+            self._begin_pose_transition(registered=True)
         if cancelled or self.feedback_binding.startswith(("body:","input:")) or self.feedback_bindings[self.feedback_binding]["end"] is None:
             self.feedback_binding=None;self.feedback_phase=None
             self._visual_frame(0)
@@ -796,7 +1018,7 @@ class DesktopExecutor(ExecutionContexts):
         if not contents:raise ValueError("execution contents are empty")
         for content in contents:
             if content.kind not in ({'action','speech','expression','thought'} if composite is not None else {'action','speech'}):raise ValueError("desktop content is not deliverable")
-            if content.kind=="action" and content.semantic_key not in self.bindings and content.semantic_key not in self.activity_clips and content.semantic_key!='move_near':
+            if content.kind=="action" and content.semantic_key not in self.bindings and content.semantic_key not in self.activity_clips and content.semantic_key not in ('move_near','stroll','move_away','relocate'):
                 raise ValueError("selected action has no configured visual asset")
         if composite is not None:
             if late_speech is None:composite.validate_contents(contents)
@@ -810,7 +1032,9 @@ class DesktopExecutor(ExecutionContexts):
         task=_Playback(action_id,contents,is_cancelled=is_cancelled,composite=composite,late_speech=late_speech,execution_context=self.execution_context(action_id),visible_observer=self.execution_observer(action_id))
         with self._request_lock:
             if self.closed:raise RuntimeError("desktop window is closed")
-            self.requests.put(task)
+            try:self.requests.put_nowait(task)
+            except queue.Full:
+                raise ExecutionCancelled('presentation buffer is occupied; no effect dispatched') from None
         # Closing the window resolves every pending task; no GUI timer sends a model action.
         task.done.wait()
         if task.error is not None:raise task.error
@@ -828,7 +1052,7 @@ class DesktopExecutor(ExecutionContexts):
                     task.error=ExecutionCancelled("gesture ended before UI playback");task.done.set()
                     self._schedule(16,self._pump);return
                 self.active=task
-                task.affects_sprite=any(item.kind=="action" and item.semantic_key!="move_near" for item in task.contents)
+                task.affects_sprite=any(item.kind=="action" and item.semantic_key not in ('move_near','stroll','move_away','relocate') for item in task.contents)
                 task.started_at_wall_ms=time.time_ns()//1_000_000
                 try:
                     if task.affects_sprite:
@@ -873,20 +1097,13 @@ class DesktopExecutor(ExecutionContexts):
         except Exception as error:self._failed(task,error)
 
     def _notify_visible(self,task):
-        if task.visible_observer is None:return
-        from model_packages.desktop_pet_v1.composite import SEQUENCE_VERSION
-        sequence=task.composite is not None and task.composite.version==SEQUENCE_VERSION
-        terminal=(set(task.child_results)==set(task.composite.children) and all(r['status']!='running' for r in task.child_results.values())) if sequence else False
-        first_body=next((c.content_id for c in task.contents if c.kind=='action'),None)
+        local=getattr(self,'visible_activity_observer',None)
+        if task.visible_observer is None and local is None:return
         items=[]
         for c in task.contents:
             row=task.child_results.get(c.content_id,{})
             if c.private or c.kind not in {'action','expression','speech'} or row.get('started_at_ms') is None:continue
             phase='started' if row['status']=='running' else row['status']
-            if sequence and c.kind=='action' and not terminal:
-                # Progress stays local; publish one opening and one final actual
-                # prefix, rather than one peer inference for each clip boundary.
-                if c.content_id!=first_body or phase!='started':continue
             if phase not in {'started','completed','interrupted'}:continue
             key=(c.content_id,'started' if phase=='started' else 'ended')
             if key in task.visible_phases:continue
@@ -897,7 +1114,9 @@ class DesktopExecutor(ExecutionContexts):
                 **({'meal_result':task.meal_results[c.content_id]} if c.content_id in task.meal_results else {}),
                 **({'movement_result':task.movement_results[c.content_id]} if c.content_id in task.movement_results else {})})
             task.visible_phases.add(key)
-        if items:task.visible_observer({'version':'petlab-visible-effect-v3-object' if any('meal_result' in r for r in items) else 'petlab-visible-effect-v2-spatial' if any('gaze_result' in r or 'movement_result' in r for r in items) else 'petlab-visible-effect-v1','action_id':task.action_id,'items':items})
+        if items:
+            if task.visible_observer is not None:task.visible_observer({'version':'petlab-visible-effect-v3-object' if any('meal_result' in r for r in items) else 'petlab-visible-effect-v2-spatial' if any('gaze_result' in r or 'movement_result' in r for r in items) else 'petlab-visible-effect-v1','action_id':task.action_id,'items':items})
+            if local is not None:local(task.action_id,items)
 
     def _maybe_finish_composite(self,task):
         if task.done.is_set() or getattr(task,'_starting_children',False) or getattr(task,'_advancing_children',False):return
@@ -912,7 +1131,8 @@ class DesktopExecutor(ExecutionContexts):
         """UI backpressure on existing authorized playback, never a send grant."""
         item=task.contents[index]
         available=getattr(self,'speech_slot_available',lambda:True)
-        if not available() or not getattr(self,"content_slot_available",lambda content:True)(item):
+        continuing=item.kind=='speech' and bool(task.speech_rendered)
+        if (not continuing and not available()) or not getattr(self,"content_slot_available",lambda content:True)(item):
             task.display_waits.setdefault(item.content_id,{
                 'started_at_wall_ms':time.time_ns()//1_000_000,'status':'waiting'})
             DesktopExecutor._schedule(self,16,callback)
@@ -950,15 +1170,31 @@ class DesktopExecutor(ExecutionContexts):
                 return
         if task.is_cancelled is not None and task.is_cancelled():
             self._failed(task,ExecutionCancelled('source expired before child effect'));return
+        if content.kind=='speech':
+            audience_arrival=tuple(c.parameters['audience_context'] for c in task.contents if c.parameters.get('audience_context'))
+            if audience_arrival:
+                from model_packages.desktop_pet_v1.audience_motion import verify_arrival
+                try:verify_arrival(self.scene_snapshot() if callable(self.scene_snapshot) else None,audience_arrival)
+                except ValueError:
+                    self._failed(task,ExecutionCancelled('selected listeners left speaking distance'));return
+            whisper_context=next((c.parameters.get('whisper_context') for c in task.contents if c.parameters.get('whisper_context')),None)
+            if whisper_context is not None:
+                from model_packages.desktop_pet_v1.whisper import check_arrival
+                try:check_arrival(self.scene_snapshot() if callable(self.scene_snapshot) else None,whisper_context)
+                except ValueError:
+                    self._failed(task,ExecutionCancelled('whisper target left speaking distance'));return
+        if content.kind=='speech' and time.monotonic()<getattr(task,'next_speech_at',0):
+            self._schedule(16,lambda:self._start_composite_child(task,index))
+            return
         hidden_thought=content.kind=='thought' and not self.show_thought
-        if not hidden_thought and content.kind in {'speech','expression','thought'} and self._await_surface(task,index,
+        if not hidden_thought and content.kind in {'speech','thought'} and self._await_surface(task,index,
                 lambda:self._start_composite_child(task,index)):return
         if content.kind!='thought':self._select_execution_target(task)
         stamp=time.time_ns()//1_000_000
         if content.kind=='action':
             task.affects_sprite=True
             self.rendering_action=content
-            if content.semantic_key=='move_near':
+            if content.semantic_key in ('move_near','stroll','move_away','relocate'):
                 from .movement_playback import play
                 play(self,task,index)
             else:self._play_frame(task,index,content.semantic_key if content.semantic_key in self.activity_clips else self.bindings[content.semantic_key],0)
@@ -979,13 +1215,27 @@ class DesktopExecutor(ExecutionContexts):
                 self.last_displayed_content=content
                 self.bubble.configure(text=display_text)
                 if self.speech_presenter is not None:self.speech_presenter(display_text)
+                if content.kind=='speech':
+                    from .speech_bubble import speech_progress_ms
+                    task.next_speech_at=time.monotonic()+speech_progress_ms(display_text)/1000
                 rendered=task.thought_rendered if content.kind=='thought' else task.speech_rendered
                 rendered.append({'content_id':content.content_id,'at_unix_ms':stamp})
             task.completed.append(content.content_id)
         if task.done.is_set():return
+        if content.kind=='expression' and content.parameters.get('hold_ms') is not None:
+            task.child_results[content.content_id]={'status':'running','started_at_ms':stamp,'ended_at_ms':None}
+            self._schedule(content.parameters['hold_ms'],lambda:self._finish_expression_child(task,content.content_id))
         task.child_results.setdefault(content.content_id,{'status':'running' if content.kind=='action' else 'completed',
             'started_at_ms':stamp,'ended_at_ms':None if content.kind=='action' else time.time_ns()//1_000_000})
         if not getattr(task,'_starting_children',False):DesktopExecutor._notify_visible(self,task)
+        self._maybe_finish_composite(task)
+
+    def _finish_expression_child(self,task,identity):
+        if self.closed or task.done.is_set():return
+        row=task.child_results.get(identity)
+        if row is None or row['status']!='running':return
+        row.update(status='completed',ended_at_ms=time.time_ns()//1_000_000)
+        self._notify_visible(task)
         self._maybe_finish_composite(task)
 
     def _next_content(self,task,index):
@@ -1015,17 +1265,36 @@ class DesktopExecutor(ExecutionContexts):
             self._next_content(task,index+1)
         else:
             self.rendering_action=content
-            if content.semantic_key=='move_near':
+            if content.semantic_key in ('move_near','stroll','move_away','relocate'):
                 from .movement_playback import play
                 play(self,task,index)
             else:self._play_frame(task,index,content.semantic_key if content.semantic_key in self.activity_clips else self.bindings[content.semantic_key],0)
 
     def _play_frame(self,task,content_index,clip_name,frame_index):
         if self.closed or task.done.is_set():return
+        frame_started=time.monotonic()
         clip=self.activity_clips.get(clip_name,self.clips.get(clip_name))
+        if clip_name=='play_tail' and self.meal_pose in self.carry_activity_clips:
+            clip=self.carry_activity_clips[self.meal_pose]
         try:
             content=task.contents[content_index]
+            if frame_index==0:
+                if clip.get('bound_turn'):
+                    task.turn_origin=(getattr(self,'_bound_facing_direction',0)
+                                      or getattr(self,'body_turn_direction',0))
+                if clip.get('facing_turn'):
+                    if self.facing_assets is None or not self.facing_assets.available:raise ExecutionCancelled('turn binding unavailable')
+                    task.turn_origin=getattr(self,'facing_direction',0)
+                if clip_name=='stand_up':task.stand_from_rest=getattr(self,'resting_pose',None)=='lie_down'
+                self._leave_rest_pose()
+                if clip_name in ('lie_down','stand_up'):self.clear_gaze()
+            if clip_name=='stand_up' and not getattr(task,'stand_from_rest',False):
+                clip={'frames':[clip['frames'][-1],clip['frames'][-1]],'durations_ms':[200,150]}
             self.rendering_action=content
+            if clip_name in ('head_bow','head_tilt','turn_left','turn_right','nod','shake_head','wave_hand','beckon','lie_down','stand_up') and self.meal_host is not None:
+                held=self.meal_host.snapshot()
+                if held is not None and held['holder_ref']==self.meal_owner and held['portions']:
+                    raise ExecutionCancelled('empty-hand pose unavailable while holding bowl')
             if 'meal' in content.parameters:
                 if self.meal_host is None or self.meal_owner!=content.parameters['meal']['actor_ref']:raise ExecutionCancelled('meal scene/actor unavailable')
                 try:self.meal_host.check(content.parameters['meal'])
@@ -1041,8 +1310,27 @@ class DesktopExecutor(ExecutionContexts):
                 self.interrupt_activity(reason='source_expired',cause_ref=task.action_id+'#source-guard')
                 return
             if frame_index==len(clip["frames"]):
+                if clip_name=="lie_down":self.resting_pose="lie_down"
+                if clip_name in ('turn_left','turn_right'):
+                    self.body_turn_direction=-1 if clip_name=='turn_left' else 1
+                    # Retain the target endpoint, never the last intermediate frame.
+                    endpoint=self.facing_assets.frame(self.expression_code,self.body_turn_direction,rest_phase=0) if clip.get('facing_turn') else self.expression_frames[self.expression_code][clip['frames'][-1]]
+                    if clip.get('bound_turn'):
+                        from .rig_facing import facing_frame
+                        endpoint=facing_frame(endpoint,self.body_turn_direction)
+                    if not clip.get('facing_turn') and self.facing_assets is not None and self.facing_assets.available:endpoint=self.facing_assets.front(endpoint)
+                    self._turn_motion=None
+                    self.body_turn_pose=(endpoint,self.expression_code)
+                    self.facing_target=None;self.gaze_target=None
+                if clip_name in ('head_bow','head_tilt','turn_left','turn_right','nod','shake_head','wave_hand','beckon','lie_down','stand_up'):
+                    if not clip.get('bound_turn') and not clip.get('authored_transition'):self._begin_pose_transition(registered=True)
                 if 'meal' in content.parameters:
                     task.meal_results[content.content_id]=self.meal_host.finish(task.action_id+'#'+content.content_id,content.parameters['meal'],status='completed',frames=task.action_frames[content.content_id])
+                    self.update_meal_pose(self.meal_host.snapshot())
+                    if clip_name=='accept_bowl' and self.meal_pose=='hold_bowl':
+                        # Publish the committed held pose before a following speech
+                        # or expression can repaint the last empty-hand action frame.
+                        self._show_frame(self.activity_clips['eat_rice']['frames'][0])
                 task.completed.append(task.contents[content_index].content_id)
                 if task.composite is not None:
                     task.child_results[task.contents[content_index].content_id].update(status='completed',ended_at_ms=time.time_ns()//1_000_000)
@@ -1053,8 +1341,19 @@ class DesktopExecutor(ExecutionContexts):
                         self._visual_frame(0)
                 else:self._next_content(task,content_index+1)
                 return
-            if frame_index==0:self._select_execution_target(task)
+            if frame_index==0:
+                if clip_name in ('accept_bowl','offer_bowl'):self._begin_pose_transition(registered=True)
+                self._select_execution_target(task)
             index=clip["frames"][frame_index]
+            if clip.get('authored_transition'):
+                # This sequence already contains the artist's intermediate
+                # postures. Optical-flow morphing would invent extra limbs.
+                self._pose_transition=None;self._rig_pose_transition=None
+            elif clip_name in ('head_bow','head_tilt','turn_left','turn_right','nod','shake_head','wave_hand','beckon','lie_down','stand_up') and index!=self.frame_index and not clip.get('continuous_expression_motion'):
+                self._begin_pose_transition(registered=True)
+            if clip.get('facing_turn') or clip.get('bound_turn'):
+                self._turn_motion=(task.turn_origin,clip.get('bound_turn',clip.get('facing_turn')),frame_index/(len(clip['frames'])-1))
+                self._pose_transition=None
             self._show_frame(index)
             if task.composite is not None:
                 task.child_results.setdefault(task.contents[content_index].content_id,{
@@ -1063,17 +1362,20 @@ class DesktopExecutor(ExecutionContexts):
             if clip_name in self.activity_clips:
                 content_id=task.contents[content_index].content_id
                 task.action_frames[content_id]=task.action_frames.get(content_id,0)+1
-            self._schedule(clip["durations_ms"][frame_index],
+            # The clip interval includes rendering. Waiting the entire interval
+            # again after a registered turn frame compounds UI render latency.
+            remaining_ms=max(1,round(clip["durations_ms"][frame_index]-(time.monotonic()-frame_started)*1000))
+            self._schedule(remaining_ms,
                 lambda:self._play_frame(task,content_index,clip_name,frame_index+1))
         except Exception as error:self._failed(task,error)
 
     def interrupt_activity(self,*,reason='unknown',cause_ref=None):
         """UI stops physical playback; the worker still settles the actual result."""
         task=self.active
-        if task is None or not any(c.semantic_key in self.activity_clips or c.semantic_key=='move_near' for c in task.contents):return
-        if reason not in {'unknown','user_contact','source_expired','technical_failure','window_closed'}:
+        if task is None or not any(c.semantic_key in self.activity_clips or c.semantic_key in ('move_near','stroll','move_away','relocate') for c in task.contents):return
+        if reason not in {'unknown','user_contact','source_expired','technical_failure','window_closed','physical_contact'}:
             raise ValueError('invalid interruption reason')
-        if reason in {'user_contact','source_expired'} and not cause_ref:raise ValueError('interruption needs causal reference')
+        if reason in {'user_contact','source_expired','physical_contact'} and not cause_ref:raise ValueError('interruption needs causal reference')
         if not task.action_frames and not task.completed:
             task.error=ExecutionCancelled('activity cancelled before first frame')
             task.done.set();self.active=None
@@ -1082,8 +1384,11 @@ class DesktopExecutor(ExecutionContexts):
 
     def _finish(self,task,*,interrupted=False,reason='unknown',cause_ref=None):
         if task.done.is_set():return
+        if interrupted:
+            self._pose_transition=None;self._rig_pose_transition=None
         self._end_walk(task)
         self.rendering_action=None
+        self._turn_motion=None
         if self.facing_action==task.action_id:self.facing_action=None
         for row in task.display_waits.values():
             if row['status']=='waiting':row.update(status='cancelled',ended_at_wall_ms=time.time_ns()//1_000_000)
@@ -1119,6 +1424,7 @@ class DesktopExecutor(ExecutionContexts):
                 if key not in task.completed:task.completed.append(key)
             path=self.trace_dir/(hashlib.sha256(task.action_id.encode("utf-8")).hexdigest()+".json")
             trace={"version":"petlab-desktop-playback-v1","action_id":task.action_id,
+                **({'obstruction':task.obstruction} if getattr(task,'obstruction',None) else {}),
                 "completed_content_ids":task.completed,"frames":task.frames,"action_results":action_results,
                 **({"gaze_results":task.gaze_results} if task.gaze_results else {}),
                 **({"presentation_sources":task.presentation_sources} if task.presentation_sources else {}),
@@ -1134,6 +1440,7 @@ class DesktopExecutor(ExecutionContexts):
                 trace['termination']={'reason':reason if interrupted else None,'cause_ref':cause_ref}
             with path.open("x",encoding="utf-8") as output:json.dump(trace,output,ensure_ascii=False)
             details={"adapter":"tk-sprite-v1","interrupted":interrupted,"renderer":trace["renderer"]}
+            if getattr(task,'obstruction',None):details['obstruction']=task.obstruction
             if action_results:details['action_results']=action_results
             if task.gaze_results:details['gaze_results']=task.gaze_results
             if task.presentation_sources:details['presentation_sources']=task.presentation_sources
@@ -1159,12 +1466,22 @@ class DesktopExecutor(ExecutionContexts):
     def _failed(self,task,error):
         self._end_walk(task)
         if task.completed or task.action_frames:
+            from product_adapters.desktop_pet_v1.execution import ExecutionBlocked
+            if isinstance(error,ExecutionBlocked):
+                task.obstruction=error.observation
+                self._finish(task,interrupted=True,reason='destination_occupied',cause_ref=error.observation['blocker_ref'])
+                return
             reason='window_closed' if self.closed else 'source_expired' if isinstance(error,ExecutionCancelled) else 'technical_failure'
             self._finish(task,interrupted=True,reason=reason,cause_ref=task.action_id+'#source-guard' if reason=='source_expired' else None)
         else:
             task.error=error
             task.done.set()
             self.active=None
+            self.rendering_action=None
+            self._turn_motion=None
+            self._pose_transition=None;self._rig_pose_transition=None
+            if self.facing_action==task.action_id:self.facing_action=None
+            if not self.closed:self.restore_settled_expression()
             if not self.closed and task.affects_sprite:self._visual_frame(0)
 
     def close(self):

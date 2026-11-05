@@ -1,0 +1,179 @@
+{
+  "version": "petlab-target-facing-v1",
+  "whole_manifest_sha256": "5b8476614cfbe23e8c8549caaa8f6774dd2cfea86f67565d948dced74d08a073",
+  "original_reference_sha256": "e2653e1518460ea4db71613e717d10eeff199c70a4585b5d5ff50034eccf7338",
+  "canvas": [
+    640,
+    544
+  ],
+  "front_origin": [
+    64,
+    16
+  ],
+  "target_anchor": [
+    312,
+    512
+  ],
+  "profile_scale": 0.98,
+  "look_before_move_ms": 140,
+  "profiles": {
+    "left": {
+      "image": "facing-left-original-v404.png",
+      "image_sha256": "484c847a267f5d71d0a3ecc207d6587b34a9e7b4e6d6edc9875e578e8c6377fe",
+      "grid": {
+        "columns": 3,
+        "rows": 2,
+        "cell_width": 512,
+        "cell_height": 512
+      },
+      "codes": {
+        "normal": 0,
+        "happy": 1,
+        "sad": 2,
+        "aggrieved": 3,
+        "angry": 4
+      },
+      "anchors": [
+        [
+          217,
+          511
+        ],
+        [
+          224,
+          511
+        ],
+        [
+          232,
+          511
+        ],
+        [
+          217,
+          509
+        ],
+        [
+          224,
+          508
+        ],
+        [
+          231,
+          509
+        ]
+      ],
+      "eye_regions": [
+        [
+          0.245,
+          0.345,
+          0.315,
+          0.455
+        ],
+        [
+          0.33,
+          0.34,
+          0.445,
+          0.455
+        ]
+      ],
+      "feet": [
+        [
+          0.3,
+          0.81,
+          0.43,
+          0.999
+        ],
+        [
+          0.43,
+          0.81,
+          0.56,
+          0.999
+        ]
+      ],
+      "tail": [
+        0.78,
+        0.63,
+        0.999,
+        0.93
+      ],
+      "body_map": "facing-left-body-v404.json",
+      "body_map_sha256": "ad3de138bd0ea112fd56603d83d18dca48192f0971eab0a8da4186a365c7ccc8"
+    },
+    "right": {
+      "image": "facing-right-original-v404.png",
+      "image_sha256": "150cdb7714b7bf1a387bc89c4662e34f96df887b0fd64a41ceb450c9f107c6e0",
+      "grid": {
+        "columns": 3,
+        "rows": 2,
+        "cell_width": 512,
+        "cell_height": 512
+      },
+      "codes": {
+        "normal": 0,
+        "happy": 1,
+        "sad": 2,
+        "aggrieved": 3,
+        "angry": 4
+      },
+      "anchors": [
+        [
+          333,
+          508
+        ],
+        [
+          299,
+          508
+        ],
+        [
+          289,
+          508
+        ],
+        [
+          333,
+          502
+        ],
+        [
+          298,
+          502
+        ],
+        [
+          288,
+          502
+        ]
+      ],
+      "eye_regions": [
+        [
+          0.6,
+          0.34,
+          0.7,
+          0.45
+        ],
+        [
+          0.735,
+          0.33,
+          0.8,
+          0.45
+        ]
+      ],
+      "feet": [
+        [
+          0.53,
+          0.81,
+          0.65,
+          0.999
+        ],
+        [
+          0.65,
+          0.81,
+          0.78,
+          0.999
+        ]
+      ],
+      "tail": [
+        0.05,
+        0.55,
+        0.33,
+        0.91
+      ],
+      "body_map": "facing-right-body-v404.json",
+      "body_map_sha256": "ee136aad5ae52286b18bd5e45ff77eb8eb393cd6ef541e83ded4371b78c32c0e"
+    }
+  }
+}

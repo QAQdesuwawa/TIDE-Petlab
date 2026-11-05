@@ -12,6 +12,8 @@ def archive_root(app):return app.store.path.with_suffix('.resources')
 
 
 def validate(app,receipt,contents,*,event_id=None):
+ from .obstruction_input import VERSION as OBSTRUCTION,validate as validate_obstruction
+ if receipt.get('version')==OBSTRUCTION:return validate_obstruction(app,receipt,contents,event_id=event_id)
  from .participant_input import VERSIONS as PARTICIPANT_VERSIONS,validate as validate_participant
  if receipt.get('version') in PARTICIPANT_VERSIONS:return validate_participant(app,receipt,contents,event_id=event_id)
  from model_packages.desktop_pet_v1.web_observation import content
@@ -59,5 +61,9 @@ def validate(app,receipt,contents,*,event_id=None):
 
 
 def allowed_policies(receipt):
- from .participant_input import NPC_VERSIONS
- return {'eligible'} if receipt.get('version') in {READING_SOURCE_VERSION,*NPC_VERSIONS} else {'required'}
+ from .obstruction_input import VERSION as OBSTRUCTION
+ if receipt.get('version')==OBSTRUCTION:return {'eligible'}
+ from .participant_input import NPC_VERSIONS,OBSERVED_VERSIONS
+ from .human_interaction import VERSION as HUMAN_VERSION
+ if receipt.get('version')==HUMAN_VERSION:return {'required','eligible'}
+ return {'eligible'} if receipt.get('version') in {READING_SOURCE_VERSION,*OBSERVED_VERSIONS,*NPC_VERSIONS} else {'required'}

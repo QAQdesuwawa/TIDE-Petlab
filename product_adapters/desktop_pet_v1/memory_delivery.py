@@ -14,7 +14,7 @@ def memory_content_attributes(contents,*,bounded=True,natural=False):
     return content_attributes(contents,compact=bounded and has_observations(contents),natural=natural)
 
 
-def memory_cards(memories, *, recall, read, history, owner_ref, numbered=False, links=False,bounded=True,natural=False,content_view_version=None,annotation_profile=None,application=None):
+def memory_cards(memories, *, recall, read, history, owner_ref, numbered=False, links=False,bounded=True,natural=False,content_view_version=None,annotation_profile=None,application=None,intention_snapshot=None):
     if not isinstance(numbered,bool) or not isinstance(links,bool) or (links and not numbered):
         raise ValueError("memory links require explicitly numbered memory")
     if not memories:return ()
@@ -22,7 +22,10 @@ def memory_cards(memories, *, recall, read, history, owner_ref, numbered=False, 
     selected=tuple(m.event.event_id for m in ordered)
     if len(selected)!=len(set(selected)) or set(selected)!=set(recall.recalled_fact_ids):
         raise ValueError("memory display differs from exact recall")
-    rows=[];refs=[]
+    # These two formal receipts belong to the entire selection. Compute their
+    # fingerprints once for this synchronous assembly, not once per memory.
+    recall_ref=recall.fingerprint;read_ref=read.fingerprint
+    rows=[];refs=[];extra_refs=[]
     for index,memory in enumerate(ordered,1):
         event=memory.event
         contents=event.visible_contents(owner_ref)
@@ -37,6 +40,12 @@ def memory_cards(memories, *, recall, read, history, owner_ref, numbered=False, 
         if application is not None:
             from petlab_app.visible_delivery import presentation_fields
             rows[-1]=presentation_fields(application,event,rows[-1])
+        added=()
+        if application is not None:
+            from .intention_delivery import annotation as intention_annotation,FIELD as INTENTION_FIELD
+            note,added=intention_annotation(application,memory,reader_ref=owner_ref,snapshot=intention_snapshot)
+            if note is not None:rows[-1][INTENTION_FIELD]=note
+        extra_refs.append(added);refs.extend(added)
         from model_packages.desktop_pet_v1.content_view import DECLARED_MEMORY_VERSION
         if content_view_version==DECLARED_MEMORY_VERSION:
             from model_packages.desktop_pet_v1.declaration_sources import for_source
@@ -58,17 +67,17 @@ def memory_cards(memories, *, recall, read, history, owner_ref, numbered=False, 
             from .relation_annotations import for_memory,FIELD
             annotation=for_memory(annotation_profile,memory,owner_ref)
             if annotation is not None:rows[-1][FIELD]=annotation
-        refs.extend((memory.fact.fingerprint,recall.fingerprint,read.fingerprint))
+        refs.extend((memory.fact.fingerprint,recall_ref,read_ref))
     observed=bounded and any(has_observations(m.event.visible_contents(owner_ref)) for m in ordered)
     provenance={"presentation_version":content_view_version if content_view_version==HIERARCHY_MEMORY_VERSION else DECLARED_MEMORY_VERSION if content_view_version==DECLARED_MEMORY_VERSION else (NATURAL_VERSION if natural else BOUNDED_VERSION) if observed else "desktop-pet-numbered-memory-v1",
         "selected_memory_ids":selected,"fields_fingerprint":model_data_fingerprint(rows),
         "source_records":[{"event":m.event.to_record(),"fact_fingerprint":m.fact.fingerprint} for m in ordered]}
     if not numbered:
         return tuple(WriterCard(card_id="memory:"+m.event.event_id,lane="memory",kind="recalled_pet_event",
-            source_id=m.event.event_id,fields=row,source_receipt_refs=(m.fact.fingerprint,recall.fingerprint,read.fingerprint),
+            source_id=m.event.event_id,fields=row,source_receipt_refs=(m.fact.fingerprint,recall_ref,read_ref,*added),
             provenance={"selected_memory_ids":[m.event.event_id],**({"presentation_version":NATURAL_VERSION if natural else BOUNDED_VERSION}
                 if bounded and has_observations(m.event.visible_contents(owner_ref)) else {})},budget_policy="preserve_selection")
-            for m,row in zip(ordered,rows))
+            for m,row,added in zip(ordered,rows,extra_refs))
     parent=WriterCard(card_id="memory:numbered:"+model_data_fingerprint(provenance),lane="memory",
         kind="numbered_pet_memory",source_id="desktop-pet-numbered-memory-v1",
         fields={"相关记忆（按发生顺序）":rows},provenance=provenance,

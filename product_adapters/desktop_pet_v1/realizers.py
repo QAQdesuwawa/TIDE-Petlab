@@ -6,9 +6,13 @@ from model_packages.desktop_pet_v1.behavior import VERSION
 class PetRealizers:
     def __init__(self,product):self.product=product
 
-    def prepare(self,event_id,*,on_language_ready=lambda:None):
+    def prepare(self,event_id,*,on_language_ready=lambda:None,is_cancelled=lambda:False):
         from petlab_app.idle_opening import KEY
         product=self.product
+        def writer_prepare(**kwargs):
+            waiter=getattr(product,'prepare_waiting_writer',None)
+            return (product.writer.prepare(event_id,**kwargs) if waiter is None else
+                    waiter(event_id,is_cancelled=is_cancelled,**kwargs))
         selection=product.application.runtime.session.profile.get(KEY,{}).get('ticks',{}).get(event_id,{}).get('behavior_selection')
         if selection is None:
             from petlab_app.reaction_action import ensure
@@ -18,15 +22,15 @@ class PetRealizers:
             context=context_for(product.application,event_id,selection)
             if context is not None:
                 on_language_ready()
-                return product.writer.prepare(event_id,action_sequence_context=context)
+                return writer_prepare(action_sequence_context=context)
         if route_for(thaw_model_data(selection))==LOCAL:
             from .behavior import prepare
             return prepare(product,event_id)
         if product.writer is None:raise RuntimeError('selected behavior requires a language realizer; Writer is disabled')
         if selection is None:
             on_language_ready()
-            return product.writer.prepare(event_id)
-        prepared=product.writer.prepare(event_id)
+            return writer_prepare()
+        prepared=writer_prepare()
         from .quiet_realization import QuietRealization
         if not isinstance(prepared,QuietRealization):on_language_ready()
         return prepared

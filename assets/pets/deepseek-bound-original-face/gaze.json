@@ -1,0 +1,32 @@
+{
+  "version": "petlab-local-gaze-v1",
+  "whole_manifest_sha256": "5b8476614cfbe23e8c8549caaa8f6774dd2cfea86f67565d948dced74d08a073",
+  "open_expressions": [
+    "normal",
+    "sad",
+    "aggrieved",
+    "angry"
+  ],
+  "eye_regions": [
+    [
+      0.381,
+      0.335,
+      0.477,
+      0.43
+    ],
+    [
+      0.516,
+      0.325,
+      0.611,
+      0.42
+    ]
+  ],
+  "max_displacement_source_px": [
+    4,
+    3
+  ],
+  "source_size": [
+    512,
+    512
+  ]
+}

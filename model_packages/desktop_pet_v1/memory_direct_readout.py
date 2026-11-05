@@ -6,6 +6,7 @@ an immutable node, exact incoming edges, parameter versions and the evaluated
 source frontier. Cache hits never return a previous live vector.
 """
 from collections import OrderedDict
+import math
 from .memory_time_window import profile_for_node
 from framework.model_api import model_data_fingerprint
 from model_packages.cx_six_seven_v1.memory_projection import CanonicalMemoryProjection
@@ -15,6 +16,8 @@ from model_packages.cx_six_seven_v1.memory_runtime_order import order_record
 from model_packages.cx_six_seven_v1.full_v2_package import _evaluation_time_ms
 from model_packages.cx_six_seven_v1.interaction_geometry import ROOT_ORDER,relationship_transition
 from model_packages.cx_six_seven_v1.continuous_root_projection import project_continuous_roots
+from model_packages.cx_six_seven_v1.root_dynamics import LEVER_AXES,HOUR_MS
+from model_packages.cx_six_seven_v1.memory_forward_readout import _INTRINSIC_BOUND_RADIUS
 VERSION='validated-source-fresh-phi-v1'
 
 class Lineage:
@@ -39,6 +42,12 @@ class DirectReader:
         self.parameter_key=model_data_fingerprint({'forward':package._package_params('memory_forward_readout'),'projection':package._package_params('shared_projection')})
         if not hasattr(view.index,'_direct_readout_certificates'):view.index._direct_readout_certificates=OrderedDict()
         self.cache=view.index._direct_readout_certificates
+        # One query can validate the same parent at the same child timestamp
+        # through several edges. Reuse that exact evaluation only within this
+        # reader; never carry a live vector into another query/time frontier.
+        self._numeric_cache={}
+        self._flow_cache={}
+        self._checked_propagation=set()
     def key(self,identity):
         return (identity,id(self.view.node(identity)),tuple(e.fingerprint for e in self.view.incoming(identity)),self.parameter_key)
     def remember(self,raw,prepared):
@@ -69,11 +78,13 @@ class DirectReader:
         from .memory_index_query import _edge_record
         node=self.view.node(identity)
         # Validates canonical roots, frozen Phi and forward parameter bindings.
-        profile_for_node(self.package,node,self.view.incoming(identity))
+        incoming_sources=self.view.incoming(identity)
+        numeric_profile=profile_for_node(self.package,node,incoming_sources,flow_cache=self._flow_cache)
+        edge_rates={source.fingerprint:term['rates'] for source,term in zip(incoming_sources,numeric_profile['terms'])}
         projection=CanonicalMemoryProjection.from_record(node['projection'])
         if projection.event.committed_at_ms>self.at or node['accepted_runtime_ordinal']>self.ordinal:
             raise ValueError('future source is not visible')
-        evolution=node['evolution_binding'];times={evolution['root_time_parameters']['version']:evolution['root_time_parameters']};bindings={};edges=[]
+        evolution=node['evolution_binding'];times={evolution['root_time_parameters']['version']:evolution['root_time_parameters']};bindings={};edges=[];rates_by_id={}
         for source in self.view.incoming(identity):
             record=_edge_record(source);e=record['edge_evidence']['evolution_binding'];fp=e['fingerprint']
             bindings[fp]={'version':e['version'],'binding_ref':fp,'constant_binding':e['constant_binding'],
@@ -83,6 +94,7 @@ class DirectReader:
                 actual_delta=record['projected_contribution'],parent_live_readout_ref=record['edge_evidence']['parent_live_readout_ref'],
                 p4_receipt_ref=record['aggregate_stage_output_fingerprint'],propagation_binding_ref=fp,
                 formula_version='runtime-full-memory-lineage-adapter-v1',receipt_refs=(record['lineage_fingerprint'],)))
+            rates_by_id[edges[-1].edge_id]=edge_rates[source.fingerprint]
         edges.sort(key=lambda edge:edge.edge_id)
         value={'projection':projection,'edges':tuple(edges),'times':times,'bindings':bindings,'node_ordinal':node['accepted_runtime_ordinal'],
                'validated_at':self.at,'validated_ordinal':self.ordinal}
@@ -94,15 +106,60 @@ class DirectReader:
             if key in catalog and catalog[key]!=fingerprint:raise ValueError('root time parameter version conflicts')
             catalog[key]=fingerprint
         _intrinsic_live(projection,projection.event.committed_at_ms,times)
-        for edge in edges:_propagate_edge_delta(edge,age_ms=0,bindings=bindings,time_packages=times)
+        validation_keys={}
+        for edge in edges:
+            binding=bindings[edge.propagation_binding_ref]
+            # bindings/times are complete and fixed for this node. Several
+            # incoming edges share one binding; hash that same material once.
+            # profile_for_node still verifies every edge's evolution evidence.
+            ref=edge.propagation_binding_ref
+            if ref not in validation_keys:
+                validation_keys[ref]=model_data_fingerprint({'binding':binding,'times':times})
+            validation_key=validation_keys[ref]
+            if validation_key not in self._checked_propagation:
+                _propagate_edge_delta(edge,age_ms=0,bindings=bindings,time_packages=times)
+                self._checked_propagation.add(validation_key)
+        value['numeric_profile']=numeric_profile
+        value['edge_rates']=rates_by_id
         return value
     def numeric(self,source,at):
+        key=(id(source),at)
+        cached=self._numeric_cache.get(key)
+        if cached is not None:return cached[1]
         projection=source['projection'];params=self.package._package_params('memory_forward_readout')
-        intrinsic,receipt=_intrinsic_live(projection,at,source['times'])
-        incoming=[_propagate_edge_delta(edge,age_ms=at-projection.event.committed_at_ms,bindings=source['bindings'],time_packages=source['times'])[0] for edge in source['edges']]
+        profile=source.get('numeric_profile')
+        if profile is None:
+            intrinsic,receipt=_intrinsic_live(projection,at,source['times'])
+            incoming=[_propagate_edge_delta(edge,age_ms=at-projection.event.committed_at_ms,bindings=source['bindings'],time_packages=source['times'])[0] for edge in source['edges']]
+        else:
+            # The original operators already validated this immutable source.
+            # Evaluate their identical scalar expressions, preserving endpoint
+            # subtraction and multiplication/division order (not delta*decay).
+            age=at-projection.event.committed_at_ms
+            if age<0:raise ValueError('elapsed_ms must be non-negative')
+            hours=float(age)/HOUR_MS
+            before=dict(projection.x_before);after=dict(projection.x_after)
+            for axis in profile['rates']:
+                factor=math.exp(-profile['rates'][axis]*hours);rest=profile['rest'][axis]
+                before[axis]=rest+(before[axis]-rest)*factor
+                after[axis]=rest+(after[axis]-rest)*factor
+            intrinsic={axis:after[axis]-before[axis] for axis in ROOT_ORDER}
+            if _norm(intrinsic)>_INTRINSIC_BOUND_RADIUS+1e-9:
+                raise ValueError('canonical intrinsic transition exceeds its root-space bound')
+            incoming=[{axis:float(edge.actual_delta[axis])*(1.0 if axis in LEVER_AXES else
+                math.exp(-float(source['edge_rates'][edge.edge_id][axis])*age/HOUR_MS))
+                for axis in ROOT_ORDER} for edge in source['edges']]
+            receipt={'event_id':projection.event.event_id,'committed_at_ms':projection.event.committed_at_ms,
+                'age_ms':age,'effective_constants_version':projection.effective_constants_version,
+                'root_time_operator_version':projection.root_time_operator_version,
+                'root_time_parameter_version':projection.root_time_parameter_version,
+                'stimulus_receipt_ref':projection.stimulus_receipt_ref,'root_response_receipt_ref':projection.root_response_receipt_ref,
+                'phi_before_event':before,'phi_after_event':after,'intrinsic_live_vector':intrinsic}
         pre={axis:intrinsic[axis]+sum(v[axis] for v in incoming) for axis in ROOT_ORDER}
         radius=float(params['bound_radius']);factor=max(1.,_norm(pre)/radius)
-        return {axis:pre[axis]/factor for axis in ROOT_ORDER},receipt
+        result=({axis:pre[axis]/factor for axis in ROOT_ORDER},receipt)
+        self._numeric_cache[key]=(source,result)
+        return result
     def ensure(self,identity,deadline,clock):
         pending=[(identity,False)];visiting=set();local={}
         while pending:

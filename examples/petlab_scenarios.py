@@ -60,12 +60,15 @@ class OfflineFixture:
             # Use actual delivered source chronology, never the fixture's expected answer.
             card,prop=max(matches,key=lambda pair:pair[0]['发生时间'])
             values.append(prop['value']);used.append(card['记忆标记'])
-        return {'speech':'；'.join(values),'reported_used_memory_ids':list(dict.fromkeys(used))}
+        return {'speech':'；'.join(values),'reported_used_memory_ids':list(dict.fromkeys(used)),
+                **({'actions':[]} if '可选动作序列：' in system else {})}
 
     def complete(self,payload):
         self.calls.append(deepcopy(payload))
         system=payload['messages'][0]['content'];user=payload['messages'][-1]['content']
-        if system.startswith(('你实现当前角色','以当前角色的身份')):value=self.writer(system)
+        # Identify the declared Writer contract, independent of persona/header
+        # layout. This synthetic adapter never calls a real model.
+        if 'reported_used_memory_ids' in system:value=self.writer(system)
         elif '【桌宠创建范围】' in system:
             value={'persona_card':self.case['persona'],'weights':WEIGHTS,'ammo':[]}
         elif '【旧聊天联合估计合同】' in system:
@@ -132,6 +135,17 @@ class TextFileExecutor:
             f.write(json.dumps({'action_id':action_id,'contents':[c.to_record() for c in contents]},ensure_ascii=False)+'\n')
         return ExecutionOutcome(completed_content_ids=tuple(c.content_id for c in contents),
             trace_ref=str(self.path),details={'adapter':'example-text-file','native_UI':False})
+
+    def execute_composite(self,action_id,contents,*,plan,is_cancelled):
+        # This adapter only realizes text, including its current serial lane.
+        # It records actual file writes; it does not claim animation capability.
+        require(all(c.kind=='speech' for c in contents),'text adapter received a non-text action')
+        require(not is_cancelled(),'text adapter cancelled before write')
+        started=wall_clock_ms();outcome=self(action_id,contents);ended=wall_clock_ms()
+        rows={c.content_id:{'status':'completed','started_at_ms':started,'ended_at_ms':ended} for c in contents}
+        return ExecutionOutcome(outcome.completed_content_ids,outcome.trace_ref,
+            {**outcome.details,'occurred_at_wall_ms':ended,'child_results':rows,
+             'action_results':{},'composite_version':plan.version})
 
 
 def runner(work,fixture):
@@ -209,7 +223,9 @@ def exercise_case(root,case):
             product.interact(event_id='example:question:'+str(index),contents=(Speech(content_id='question',
                 description=question['text'],recipient_refs=(cfg.definition.owner_ref,)),),coordinate=wall_clock_ms(),
                 executor=TextFileExecutor(folder/'speech.jsonl'),completion_coordinate=wall_clock_ms)
-            output=list(product.application._product()['sources'].values())[-1]
+            sources=product.application._product()['sources']
+            output=next(sources[event.event_id] for event in reversed(product.application.runtime.events)
+                        if sources[event.event_id]['origin']=='execution')
             evidence=output['evidence']['fact']['model_payload']['execution_receipt']['realization_evidence']
             delivered=[e.event_id for e in imported if e.event_id in evidence['delivered_memory_ids']]
             used=[e.event_id for e in imported if e.event_id in evidence['reported_used_memory_ids']]

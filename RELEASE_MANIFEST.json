@@ -874,8 +874,8 @@
     },
     {
       "path": "examples/petlab_scenarios.py",
-      "bytes": 18782,
-      "sha256": "ac9645996042ded9f54f453919fbc1386d82f0f5e65b1eaca7e748563bab44b0"
+      "bytes": 19972,
+      "sha256": "4309876da45dc87d76384b7beb3f506b6caac6203e33a7c87f1a487b9bba85d3"
     },
     {
       "path": "examples/runtime_minimal.py",

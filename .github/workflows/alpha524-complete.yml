@@ -40,7 +40,8 @@ jobs:
           archive=result/'TIDE-PetLab-alpha.524-win-x64-models.zip'
           def write(z,stream,name,expected=None):
               assert not name.startswith('/') and '..' not in Path(name).parts
-              assert not set(Path(name).parts)&{'output','data','user-data','.env','.venv','__pycache__','sessions','traces'}
+              assert Path(name).parts[0] not in {'output','data','user-data','sessions','traces'}
+              assert not set(Path(name).parts)&{'.env','.venv','__pycache__'}
               info=zipfile.ZipInfo('TIDE-PetLab-alpha.524/'+name);info.create_system=0;info.compress_type=zipfile.ZIP_DEFLATED;info._compresslevel=1
               h=hashlib.sha256();size=0
               with z.open(info,'w',force_zip64=True) as dest:

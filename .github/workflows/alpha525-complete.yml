@@ -10,7 +10,7 @@ jobs:
     timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE: 'cb7d907a44ff2bd6ca581dbe95084e2b441fac40'
+      SOURCE: 'c95a45a65999b6c900d59dd704f4f2c807d1c2e5'
       TAG: v0.1.0-alpha.525
     steps:
       - name: Fetch exact public source and checked binary inputs
@@ -67,7 +67,7 @@ jobs:
       - name: Upload complete package to the draft and verify GitHub digest
         run: |
           test "$(gh api repos/$GITHUB_REPOSITORY/releases/434940427 --jq .draft)" = true
-          gh release upload "$TAG" "$RUNNER_TEMP/result/TIDE-PetLab-alpha.525-win-x64-models.zip" "$RUNNER_TEMP/result/bundle-verification.json" --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" "$RUNNER_TEMP/result/TIDE-PetLab-alpha.525-win-x64-models.zip" "$RUNNER_TEMP/result/bundle-verification.json" --repo "$GITHUB_REPOSITORY" --clobber
           gh api repos/$GITHUB_REPOSITORY/releases/434940427/assets > "$RUNNER_TEMP/result/assets.json"
           python3 - <<'PY'
           import os,json

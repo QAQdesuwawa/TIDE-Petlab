@@ -2,7 +2,8 @@
 param()
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
-$petPython = Join-Path $PSScriptRoot '.venv/Scripts/pythonw.exe'
+$petPython = Join-Path $PSScriptRoot '_runtime/pythonw.exe'
+if (-not (Test-Path -LiteralPath $petPython)) { $petPython = Join-Path $PSScriptRoot '.venv/Scripts/pythonw.exe' }
 if (-not (Test-Path -LiteralPath $petPython)) { throw 'Run START.cmd once to install PetLab first.' }
 $env:PYTHONDONTWRITEBYTECODE = '1'
 $petLogs = Join-Path $PSScriptRoot 'output/launcher'

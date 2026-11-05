@@ -14,3 +14,5 @@
 - https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF
 - https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF
 - https://github.com/ggml-org/llama.cpp/tree/77d554b26
+
+alpha.524完整包另附`_runtime/`中的Python3.11、Tcl/Tk及锁定依赖；双击START.cmd不需要另装Python或下载模型。Python与其第三方许可见`_runtime/LICENSE.txt`和依赖包内许可，模型仍沿原固定指纹清单。

@@ -59,8 +59,8 @@
     },
     {
       "path": "LOCAL_MODELS.md",
-      "bytes": 1872,
-      "sha256": "44762648bff1ebdb4b114eb97c02a2f819d7e302f3d4f75354398a4b3118564e"
+      "bytes": 2120,
+      "sha256": "dbab7d3024693d266cf5759020e8f3f3d01a5bb78e0286e283bd25977fa27ae9"
     },
     {
       "path": "PRIVACY.md",
@@ -69,8 +69,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 19859,
-      "sha256": "0ce55fb7a350666fb4b32f24b82a91baf06f0612f36a3fe4c3b1f303b4ad0635"
+      "bytes": 20069,
+      "sha256": "b2312b7fe08cddf517351bbfb5ee0eab598e959c56d0d40cdfff0c0c84361639"
     },
     {
       "path": "SECURITY.md",
@@ -1314,13 +1314,13 @@
     },
     {
       "path": "launch_multi_pet.ps1",
-      "bytes": 915,
-      "sha256": "5dcf72b8cf6bee8fbb29b6795e2e85eaf973d4c53bf3b9889bce68b8eb8e43dd"
+      "bytes": 1063,
+      "sha256": "16b8ce5c467d93842d6f2175043bec307877ede9ca07b87441d96d8664b3f801"
     },
     {
       "path": "launch_pet.ps1",
-      "bytes": 773,
-      "sha256": "5af0132be43918ff74a26d516d18597fa34371b1ac0a1423ca5451b8652b668b"
+      "bytes": 1133,
+      "sha256": "c68e92277f6135f13ef15e8bf736998692bfd45d8a62ae9f1e0cf9bbf66e3404"
     },
     {
       "path": "model_packages/__init__.py",
@@ -4634,8 +4634,8 @@
     },
     {
       "path": "quickstart.ps1",
-      "bytes": 2688,
-      "sha256": "ad569b8dfb827c638cfa904bd38644c53e4c87ccac3d988b08fa002eeb8aa8f5"
+      "bytes": 2986,
+      "sha256": "fb31859326971cff6992ce22666980c84dbdcd72b1ca8fa610031969729e01b7"
     },
     {
       "path": "requirements-pet.lock.txt",
@@ -4649,8 +4649,8 @@
     },
     {
       "path": "resume_pet.ps1",
-      "bytes": 690,
-      "sha256": "74fbab888cb3aec66916b35bf3dcf3b215cad81085ee6591b1ae113427c10002"
+      "bytes": 801,
+      "sha256": "7286962373b3a7d2740eee91c3be23ee3efec4ffdec8139e27c3df85f3c4596e"
     },
     {
       "path": "temporal/__init__.py",

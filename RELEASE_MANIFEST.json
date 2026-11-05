@@ -4529,8 +4529,8 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/writer_archive.py",
-      "bytes": 14068,
-      "sha256": "06835e579eebecbd101f29bff8576b2d5d8c759c129f1f99a4dd1a8503cee29b"
+      "bytes": 14504,
+      "sha256": "1ededff0d0638d6b35d28d8d750737a59387e05f66a897d0109be3af9da01c1f"
     },
     {
       "path": "product_adapters/policy_transaction_v1/__init__.py",

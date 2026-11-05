@@ -10,6 +10,17 @@ SCOPED_VERSION='petlab-writer-recipient-memory-v3-scoped-speech'
 VERSIONS.add(SCOPED_VERSION)
 CHOICE_VERSION='petlab-writer-recipient-memory-v4-stable-choice'
 VERSIONS.add(CHOICE_VERSION)
+OWNER_VERSION='petlab-writer-recipient-memory-v5-owner-cognition'
+VERSIONS.add(OWNER_VERSION)
+
+
+def output_readers(app,event_id):
+ """New owner-authored contents may address registered scene participants.
+
+ This does not change the readers of any input or recalled source.
+ """
+ if not hasattr(app,'multi_workspace'):return list(audience(app,event_id))
+ return [ref for ref in app.multi_workspace.participants if ref!=app.owner_ref]
 
 
 def plan(app,event_id,*,version=VERSION):
@@ -17,6 +28,10 @@ def plan(app,event_id,*,version=VERSION):
  if version not in VERSIONS:raise ValueError('unknown Writer memory visibility version')
  if META not in app.runtime.session.state.state:return None
  row={'version':version,'audience':list(audience(app,event_id)),'excluded':[]}
+ if version==OWNER_VERSION:
+  row['input_audience']=list(row['audience'])
+  row['owner']=app.owner_ref
+  row['audience']=output_readers(app,event_id)
  from .intention_source import enabled
  if enabled(app):row['private_intention_context']='cx67-owner-cognition-v1'
  if version==SCOPED_VERSION:
@@ -66,6 +81,12 @@ def filter_memories(app,memories,visibility,*,lane):
  if visibility['version'] not in VERSIONS:raise ValueError('unknown visibility plan')
  kept=[]
  for memory in memories:
+  if visibility['version']==OWNER_VERSION:
+   event=memory.event
+   if event.owner_ref==app.owner_ref and event.visible_contents(app.owner_ref):
+    kept.append(memory)
+   else:visibility['excluded'].append({'event_id':event.event_id,'lane':lane,'reason':'outside_owner_read_scope'})
+   continue
   if visibility.get('private_intention_context')=='cx67-owner-cognition-v1':
    from .intention_source import ORIGIN
    event=memory.event
@@ -94,10 +115,15 @@ def receipt(visibility):
 def speech_audience(destination,visibility):
  """One sealed cap used by assembly, candidate checks and publication."""
  original=list(destination['audience'])
- if visibility is None or visibility.get('version') not in {SCOPED_VERSION,CHOICE_VERSION}:return original
+ if visibility is None or visibility.get('version') not in {SCOPED_VERSION,CHOICE_VERSION,OWNER_VERSION}:return original
  row={k:v for k,v in visibility.items() if k!='fingerprint'}
  if visibility.get('fingerprint')!=fp(row):raise ValueError('memory visibility integrity differs')
  readers=row['audience']
+ if visibility['version']==OWNER_VERSION:
+  if (list(row['input_audience'])!=original or not row['owner'] or row['owner'] in readers
+      or len(set(readers))!=len(readers) or not set(original)<=set(readers)):
+   raise ValueError('owner output audience differs from source/scene')
+  return list(readers)
  if visibility['version']==CHOICE_VERSION:
   if list(readers)!=original:raise ValueError('stable speech choice differs from destination')
   return list(readers)

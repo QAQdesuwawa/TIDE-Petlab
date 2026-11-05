@@ -1,6 +1,6 @@
 {
   "version": "petlab-public-source-candidate-v1",
-  "product_version": "0.1.0-alpha.524",
+  "product_version": "0.1.0-alpha.525",
   "embedding_consumer_connected": true,
   "excluded": [
     "personal configurations",
@@ -44,8 +44,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 5626,
-      "sha256": "272b396ffbab608182b4890129a20d1f4b2231bb632e057f8683898807ac8fd4"
+      "bytes": 5953,
+      "sha256": "bf6cd22e1d87d80a860b93bace861ff526f6ba09620b5faef0bb63ffbdd314e6"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -69,8 +69,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 20069,
-      "sha256": "b2312b7fe08cddf517351bbfb5ee0eab598e959c56d0d40cdfff0c0c84361639"
+      "bytes": 20322,
+      "sha256": "beef65e649f71b13524e0eaf44faa1d041c32e508a58c2fd35939d82fcf33bf8"
     },
     {
       "path": "SECURITY.md",
@@ -90,7 +90,7 @@
     {
       "path": "VERSION",
       "bytes": 17,
-      "sha256": "249f25eb02d07a236db3d694718da56200acc22740b8a8458a8d3c3db29ffadf"
+      "sha256": "1f573695c77e11f1a01de9ce49534b2ef463b9c328f72be45fa814a492257316"
     },
     {
       "path": "agents/__init__.py",
@@ -804,8 +804,8 @@
     },
     {
       "path": "docs/developer/desktop.md",
-      "bytes": 23874,
-      "sha256": "f78b9392bd74334d1da89c50fccd70009aa56a24d0590fb341788386e8071c74"
+      "bytes": 24519,
+      "sha256": "d154204a3c52884e51b70e8236017a2c0473a04b454424dd104f6e247604ab0a"
     },
     {
       "path": "docs/developer/devkit.md",
@@ -3684,8 +3684,8 @@
     },
     {
       "path": "petlab_app/filesystem_paths.py",
-      "bytes": 464,
-      "sha256": "6bb8e9adee9cbb8ad1b56f202b7d55864897b63d9137fc58c9bb4cde5b8d916b"
+      "bytes": 623,
+      "sha256": "f5931ff9a3b01c209fab649d55cad3d989ef859f329b8d2a8c87f7528b6b4e01"
     },
     {
       "path": "petlab_app/frame_cache.py",
@@ -3719,8 +3719,8 @@
     },
     {
       "path": "petlab_app/idle_opening.py",
-      "bytes": 27454,
-      "sha256": "613323238dea15464b8fd336061bac23eb69f595139db2bc8c1caa73885a529b"
+      "bytes": 27536,
+      "sha256": "e08615bf1b19a55225fced3110611b37fc707f1b760bea05e0fb2733d3b7c01e"
     },
     {
       "path": "petlab_app/idle_targets.py",
@@ -3959,8 +3959,8 @@
     },
     {
       "path": "petlab_app/reaction_action.py",
-      "bytes": 4763,
-      "sha256": "462d87e009f7112cc96938499c0f52ebde8c4b94cf52467735f564c26720847b"
+      "bytes": 4820,
+      "sha256": "fffba7f654c9f4c5a2821cb069fcd64ce15c0751daa1dca11ab6cc1aa483f56f"
     },
     {
       "path": "petlab_app/reading_intent.py",
@@ -4154,8 +4154,8 @@
     },
     {
       "path": "petlab_app/writer_visibility.py",
-      "bytes": 5546,
-      "sha256": "027ade79855404763f0f8f1ad9e3d9b002e87bebb95c50a677ffc6efab917a17"
+      "bytes": 6770,
+      "sha256": "c2834f63d8c7a9ad6f0e24e6c6da4ac8780173c6e1049b2abefd50b681759fc6"
     },
     {
       "path": "product_adapters/__init__.py",
@@ -4234,8 +4234,8 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/audience_delivery.py",
-      "bytes": 4380,
-      "sha256": "98073fffd2b0ea2fe3809d129150ae8f6d629e7144add6c9f79eb0ece54bba00"
+      "bytes": 5030,
+      "sha256": "2e5ab6aba349806ca69be13f07b487fef7f1622db43b2b5d879ad854d9952fdd"
     },
     {
       "path": "product_adapters/desktop_pet_v1/behavior.py",
@@ -4444,8 +4444,8 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/realization.py",
-      "bytes": 94578,
-      "sha256": "140120bb8b0c3237b0ddbda5ba876174e8060955e10fefe3dd81496d970664b1"
+      "bytes": 95502,
+      "sha256": "5c273e3c212ae6bb766af1fb0479a3e47eb5bf16eba7e3cd967035fc2ff5b87f"
     },
     {
       "path": "product_adapters/desktop_pet_v1/realizers.py",
@@ -4484,8 +4484,8 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/sequence_delivery.py",
-      "bytes": 11375,
-      "sha256": "3c5f0e21cecce236ad7f0695b1bbb70a808419741307ce8cd0303a6d2b2213f0"
+      "bytes": 12690,
+      "sha256": "981db010782f9004336370994a4e4c761d2e915fb70829cfbeffe2d810dc056f"
     },
     {
       "path": "product_adapters/desktop_pet_v1/settled_presentation.py",

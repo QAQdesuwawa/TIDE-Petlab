@@ -29,7 +29,15 @@ def verify_context(app,event_id,value):
         target=row.get('target_ref',value['target_ref'])
         if target!=value['target_ref']:
             from petlab_app.destinations import audience
-            if target not in audience(app,event_id):raise ValueError('action target outside authorized audience')
+            from petlab_app.writer_visibility import output_readers
+            from petlab_app.idle_opening import KEY as IDLE_KEY
+            from petlab_app.reaction_action import KEY as INPUT_KEY
+            source=app.runtime.session.profile.get(IDLE_KEY,{}).get('ticks',{}).get(event_id)
+            if source is None:source=app.runtime.session.profile.get(INPUT_KEY,{}).get(event_id,{})
+            policy=source.get('output_target_policy')
+            if policy not in (None,'owner-scene-v1'):raise ValueError('unknown output target policy')
+            readers=output_readers(app,event_id) if policy else audience(app,event_id)
+            if target not in readers:raise ValueError('action target outside authorized audience')
         if 'meal' in row:
             bound=meal.verify_binding(row['meal'])
             if bound['actor_ref']!=value['owner_ref'] or bound['target_ref']!=target:
@@ -109,6 +117,19 @@ def normalize_action_code_objects(text):
             raise ValueError('ambiguous action code object')
     value['actions']=[item['编码'] if isinstance(item,dict) else item for item in keys]
     return json.dumps(value,ensure_ascii=False)
+
+
+def isolate_unavailable_thought(text):
+    """An undeclared optional lane cannot invalidate independent valid lanes."""
+    value=json.loads(text)
+    if not isinstance(value,dict):raise ValueError('writer output must be an object')
+    if 'thought' not in value:return text,[]
+    thought=value.pop('thought')
+    if thought is not None and (not isinstance(thought,str) or not thought.strip()):
+        raise ValueError('invalid undeclared thought proposal')
+    rejected=[] if thought is None else [{'kind':'thought','description':thought,
+        'status':'not_executed','reason':'outside_declared_channels'}]
+    return json.dumps(value,ensure_ascii=False),rejected
 
 
 def isolate_unavailable(text,context):

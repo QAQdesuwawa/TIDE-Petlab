@@ -270,11 +270,12 @@ class IdleOpeningHost:
                 meal_supplier=getattr(app,'meal_snapshot',None)
                 meal_scene=meal_supplier() if callable(meal_supplier) else None
                 from model_packages.desktop_pet_v1.action_targets import expand
-                catalog=expand(getattr(self.product,'action_catalog',None),scene=scene,meal=meal_scene,owner=app.owner_ref,primary=target_ref,audience=() if chosen is None else chosen['audience'])
+                from .writer_visibility import output_readers
+                catalog=expand(getattr(self.product,'action_catalog',None),scene=scene,meal=meal_scene,owner=app.owner_ref,primary=target_ref,audience=output_readers(app,None))
                 token_plan=viewed.profile[SETTLEMENT_KEY]['reaction']['expression_plan']
                 selection=choose(eligible=observed.assessment.eligible,tokens=compact_tokens(token_plan),source=progress.acceptance.fingerprint,catalog=catalog,allow_speech=self.product.writer is not None)
             else:selection=select_idle(eligible=observed.assessment.eligible,mode=mode)
-            scene_facts={}
+            scene_facts={'output_target_policy':'owner-scene-v1'}
             from model_packages.desktop_pet_v1 import shared_meal
             if selection is not None and (selection.get('version')=='desktop-pet-model-action-candidates-v2' or selection.get('catalog_version') in shared_meal.SEQUENCE_CATALOG_VERSIONS):
                 from model_packages.desktop_pet_v1.action_sequence import offer

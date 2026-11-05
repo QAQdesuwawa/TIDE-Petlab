@@ -49,12 +49,12 @@ def ensure(product,event_id):
     spatial_supplier=getattr(app,'scene_snapshot',None)
     spatial_scene=spatial_supplier() if callable(spatial_supplier) else None
     from model_packages.desktop_pet_v1.action_targets import expand
-    from .destinations import audience
-    catalog=expand(getattr(product,'action_catalog',None),scene=spatial_scene,meal=scene,owner=app.owner_ref,primary=auth.target_ref,audience=audience(app,event_id))
+    from .writer_visibility import output_readers
+    catalog=expand(getattr(product,'action_catalog',None),scene=spatial_scene,meal=scene,owner=app.owner_ref,primary=auth.target_ref,audience=output_readers(app,event_id))
     chosen=action_candidates.propose(eligible=True,tokens=action_candidates.compact_tokens(plan),source=auth.source_settlement_fingerprint,catalog=catalog,allow_speech=product.writer is not None)
     from model_packages.desktop_pet_v1.action_sequence import offer
     offered=offer(chosen,catalog,owner_ref=app.owner_ref,target_ref=auth.target_ref)
-    row=shared_meal.signed({'event_id':event_id,'selection':chosen,'authorization_ref':auth.fingerprint,
+    row=shared_meal.signed({'event_id':event_id,'selection':chosen,'authorization_ref':auth.fingerprint,'output_target_policy':'owner-scene-v1',
         **({'action_sequence_context':offered} if offered is not None else {})})
     from .owned_journals import publish_session
     data=dict(app.runtime.session.profile.get(KEY,{}));data[event_id]=row

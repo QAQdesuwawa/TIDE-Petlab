@@ -576,13 +576,13 @@ class PetRealizationService:
             action_sequence_context=verify_context(app,event_id,action_sequence_context)
             composite_context_version=None;body_context=None;body_delivery_version=None
         from petlab_app.writer_visibility import VERSION as VISIBILITY_VERSION,plan as visibility_plan,receipt as visibility_receipt
-        from petlab_app.writer_visibility import SCOPED_VERSION,CHOICE_VERSION,speech_audience
+        from petlab_app.writer_visibility import SCOPED_VERSION,CHOICE_VERSION,OWNER_VERSION,speech_audience
         if scene_context is _CURRENT_VISUAL:
             supplier=getattr(app,'scene_snapshot',None)
             scene_context=supplier() if callable(supplier) and self.expression_codes else None
         can_scope=(audience_envelope is not None and self.expression_codes and hasattr(app,'multi_workspace')
                    and scene_context is not None and participant_destination(app,event_id) is not None)
-        visibility=visibility_plan(app,event_id,version=(CHOICE_VERSION if can_scope else VISIBILITY_VERSION) if visibility_version is _CURRENT_VISUAL else visibility_version)
+        visibility=visibility_plan(app,event_id,version=(OWNER_VERSION if can_scope else VISIBILITY_VERSION) if visibility_version is _CURRENT_VISUAL else visibility_version)
         if composite_context_version is _CURRENT_VISUAL:
             composite_context_version=None
             if self._idle(event_id):
@@ -667,7 +667,8 @@ class PetRealizationService:
         # New selections use physical prerequisites. Sealed old requests retain
         # their explicitly absent contract during verification/recovery.
         automatic_approach=('single-target' if audience_motion_version=='physical-audience-policy-v4' else audience_motion_version is not None)
-        audience_reserve=0 if audience_envelope is None else audience_delivery.reserve(audience_envelope,automatic_approach=automatic_approach)
+        owner_cognition=visibility is not None and visibility['version']==OWNER_VERSION
+        audience_reserve=0 if audience_envelope is None else audience_delivery.reserve(audience_envelope,automatic_approach=automatic_approach,owner_cognition=owner_cognition,thought_enabled=(self.private_thought if owner_cognition else True))
         independent_gaze=composite_context_version is None and body_context is None
         scene_budget=full_budget-audience_reserve-reading_reserve-body_reserve-meal_reserve-(scene_reserve(scene_context,independent=independent_gaze) if scene_context is not None else 0)
         from .prompt_delivery import VERSION as DEFAULT_DELIVERY,CAPABILITY_VERSION,READABLE_VERSION,MARKER_VERSION,EVIDENCE_VERSION,EVIDENCE_MARKER_VERSION
@@ -713,7 +714,7 @@ class PetRealizationService:
             from .body_delivery import augment as body_augment
             prompt_delivery=body_augment(prompt_delivery,body_context,budget_chars=full_budget,include_scene=meal_scene_context is None)
         if audience_envelope is not None:
-            prompt_delivery=audience_delivery.augment(prompt_delivery,audience_envelope,budget_chars=full_budget,automatic_approach=automatic_approach)
+            prompt_delivery=audience_delivery.augment(prompt_delivery,audience_envelope,budget_chars=full_budget,automatic_approach=automatic_approach,owner_cognition=owner_cognition,thought_enabled=(self.private_thought if owner_cognition else True))
         if full_budget!=configured_budget:
             prompt_delivery['supplementary_budget']={'version':'retained-selection-overflow-v1','configured_chars':configured_budget,'retained_overflow_chars':full_budget-configured_budget,'effective_chars':full_budget}
             prompt_delivery['fingerprint']=model_data_fingerprint({k:v for k,v in prompt_delivery.items() if k!='fingerprint'})
@@ -741,6 +742,8 @@ class PetRealizationService:
             expression_delivery=prepare_deferred_delivery(app,event_id,packet,prompt_delivery)
         else:expression_delivery=prepare_delivery(app,event_id,packet,prompt_delivery=prompt_delivery,_expression=expression)
         private_control={}
+        if owner_cognition and not self.private_thought:
+            private_control['optional_channel_validation']='unavailable-private-v1'
         if self.private_thought:
             from model_packages.desktop_pet_v1.composite import THOUGHT_VERSION
             private_control={'allow_thought':True,'composite':{'version':THOUGHT_VERSION,'children':{
@@ -842,6 +845,10 @@ class PetRealizationService:
                 from model_packages.desktop_pet_v1.visual_capabilities import validate
                 frozen_capabilities=validate(request.readonly_facts.get('visual_capabilities'))
                 text=completion_text(wire);gaze=None;reading={}
+                if request.control.get('optional_channel_validation')=='unavailable-private-v1':
+                    from .sequence_delivery import isolate_unavailable_thought
+                    text,rejected=isolate_unavailable_thought(text)
+                    if rejected:reading['unexecuted_channel_proposals']=rejected
                 if request.control.get('speech_segment_normalization') in ('single-object-v1','single-object-v2-optional-timing'):
                     from .sequence_delivery import normalize_single_speech
                     text=normalize_single_speech(text,implicit_timing=request.control['speech_segment_normalization']=='single-object-v2-optional-timing')
@@ -976,6 +983,7 @@ class PetRealizationService:
                     **({'audience_motion_contract':request.control['audience_motion_contract']} if request.control.get('audience_motion_contract') else {}),
                     **({'audience_envelope':thaw_model_data(request.readonly_facts['audience_envelope']), 'selected_speech_audience':value['audience']['speech'], **({'memory_visibility':thaw_model_data(request.readonly_facts['memory_visibility'])} if request.readonly_facts.get('memory_visibility',{}).get('version')=='petlab-writer-recipient-memory-v3-scoped-speech' else {})} if request.control.get('audience_contract') else {}),
                     **({"speech_decision":"silent"} if speech is None else {}),
+                    **({"unexecuted_channel_proposals":value["unexecuted_channel_proposals"]} if value.get("unexecuted_channel_proposals") else {}),
                     **({"reading_intent":{"version":"pet-reading-parameters-v1","site":request.readonly_facts["reading_context"]["site"],"query":value["search_query"],"source_tick":event_id}} if "search_query" in value else {}),
                     "expression_delivery":thaw_model_data(request.readonly_facts["expression_delivery"]),
                     "prompt_delivery_fingerprint":delivery["fingerprint"],

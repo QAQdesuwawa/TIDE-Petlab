@@ -5,19 +5,19 @@ from model_packages.desktop_pet_v1 import audience
 
 VERSION='petlab-audience-delivery-v1'
 
-def instructions(bound,*,automatic_approach=True):
+def instructions(bound,*,automatic_approach=True,owner_cognition=False,thought_enabled=True):
  b=audience.validate(bound)
- return ('\n本轮子项可见范围：'+json.dumps({'speech可选接收者':b['allowed_speech'],
-  '动作与表情的现场观察者':b['physical_observers'],'内心思考的拥有者':b['owner']},ensure_ascii=False,separators=(',',':'))+
-  '\n输出增加 audience 对象，其中 speech 是本句话希望交付的参与者ID数组，可选其中一人、多人或全部。speech 为 null 时该数组为空。动作与表情按实际现场可见性投递，thought仅自己可见。'+('单人私语由本地落实走近；多人接收范围仅决定交付权限。移动由独立动作绑定一个明确对象，多段移动按所选行动计划执行。' if automatic_approach=='single-target' else '限定话语的靠近和实际交付由本地执行。' if automatic_approach else 'audience指定话语的接收范围；身体移动按本轮独立行动计划执行。'))
+ return (('\n当前输入与回忆是你自己获知的经历，原文附带的受众说明谁曾知道它；本轮是你新的表达与行动，可结合人设、关系和这些经历选择向谁说什么。现场对象是可以交谈或走近的人；视线、走近对象与话语受众分别选择。' if owner_cognition else '')+'\n本轮子项可见范围：'+json.dumps({'speech可选接收者':b['allowed_speech'],
+  '动作与表情的现场观察者':b['physical_observers'],**({'内心思考的拥有者':b['owner']} if thought_enabled else {})},ensure_ascii=False,separators=(',',':'))+
+  '\n输出增加 audience 对象，其中 speech 是本句话希望交付的参与者ID数组，可选其中一人、多人或全部。speech 为 null 时该数组为空。动作与表情按实际现场可见性投递'+('，thought仅自己可见。' if thought_enabled else '。')+('单人私语由本地落实走近；多人接收范围仅决定交付权限。移动由独立动作绑定一个明确对象，多段移动按所选行动计划执行。' if automatic_approach=='single-target' else '限定话语的靠近和实际交付由本地执行。' if automatic_approach else 'audience指定话语的接收范围；身体移动按本轮独立行动计划执行。'))
 
-def reserve(bound,*,automatic_approach=True):return len(instructions(bound,automatic_approach=automatic_approach))
+def reserve(bound,*,automatic_approach=True,owner_cognition=False,thought_enabled=True):return len(instructions(bound,automatic_approach=automatic_approach,owner_cognition=owner_cognition,thought_enabled=thought_enabled))
 
-def augment(delivery,bound,*,budget_chars,automatic_approach=True):
+def augment(delivery,bound,*,budget_chars,automatic_approach=True,owner_cognition=False,thought_enabled=True):
  b=audience.validate(bound);d=thaw_model_data(delivery)
  if 'audience_delivery' in d:raise ValueError('audience delivery duplicated')
  d.pop('fingerprint',None)
- d['system']+=instructions(b,automatic_approach=automatic_approach)
+ d['system']+=instructions(b,automatic_approach=automatic_approach,owner_cognition=owner_cognition,thought_enabled=thought_enabled)
  if len(d['system'])+len(d['user'])>budget_chars:raise ValueError('audience delivery exceeds reserved budget')
  d['budget_chars']=budget_chars
  d['prompt_fingerprint']=hashlib.sha256((d['system']+'\0'+d['user']).encode()).hexdigest()

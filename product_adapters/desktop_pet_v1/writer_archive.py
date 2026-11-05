@@ -15,12 +15,8 @@ from product_adapters.cx_six_seven_v1.writer_attempts import WriterAttemptJourna
 
 class PetWriterAttemptJournal(WriterAttemptJournal):
     def __init__(self,root,**kwargs):
-        root=os.path.abspath(os.fspath(root))
-        if (os.name=='nt' and not root.startswith('\\\\?\\')
-                and len(os.path.join(root,'artifacts','0'*64+'.jsonl'))>=260):
-            # Preserve the original relative artifact names and audit bytes.
-            # Only the Windows host's absolute I/O path needs extended syntax.
-            root=('\\\\?\\UNC\\'+root[2:] if root.startswith('\\\\') else '\\\\?\\'+root)
+        from petlab_app.filesystem_paths import native_directory
+        root=native_directory(root,os.path.join('artifacts','0'*64+'.jsonl'))
         super().__init__(root,**kwargs)
         self._opening_receipts=None
         self._artifact_snapshot=None

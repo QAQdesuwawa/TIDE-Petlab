@@ -33,7 +33,9 @@ def display_content(content,phase,reason):
 
 class VisibleExecutionPublisher:
  def __init__(self,link):
-  self.link=link;self.workspace=link.workspace;self.root=link.local/'visible-executions'
+  from .filesystem_paths import native_directory
+  self.link=link;self.workspace=link.workspace
+  self.root=native_directory(link.local/'visible-executions','0'*64+'/batch-'+'0'*64+'.json')
  def directory(self,parent):return self.root/_key(parent)
  def records(self,parent):
   directory=self.directory(parent)

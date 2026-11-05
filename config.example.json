@@ -27,7 +27,7 @@
   },
   "provider": {
     "endpoint": "https://api.deepseek.com/chat/completions",
-    "model": "deepseek-flash",
+    "model": "deepseek-v4-flash",
     "api_key_env": "TIDE_PET_API_KEY",
     "timeout_s": 60,
     "json_mode": true,

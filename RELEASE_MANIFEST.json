@@ -644,8 +644,8 @@
     },
     {
       "path": "config.example.json",
-      "bytes": 5408,
-      "sha256": "88e176a7ea5f33a9320c9ac298c6859e4913641b322b5e67089b73d0fa24e1e6"
+      "bytes": 5411,
+      "sha256": "f9504992d628f9fb6d7f4902e9868bd6206116db98a64cb2ef96d80b078472a5"
     },
     {
       "path": "config.hierarchy.example.json",

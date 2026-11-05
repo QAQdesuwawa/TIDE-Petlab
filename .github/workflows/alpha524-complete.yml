@@ -1,0 +1,80 @@
+name: Assemble Alpha524 complete package
+on:
+  push:
+    branches: [build/alpha524-complete]
+permissions:
+  contents: write
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE: '2cc0eb95521c4d3e1d318ba391386a7fb4511774'
+      TAG: v0.1.0-alpha.524
+    steps:
+      - name: Fetch exact public source and checked binary inputs
+        run: |
+          mkdir -p "$RUNNER_TEMP/source" "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/result"
+          gh api "repos/$GITHUB_REPOSITORY/tarball/$SOURCE" > "$RUNNER_TEMP/source.tar.gz"
+          tar -xzf "$RUNNER_TEMP/source.tar.gz" --strip-components=1 -C "$RUNNER_TEMP/source"
+          gh release download v0.1.0-alpha.492 --repo "$GITHUB_REPOSITORY" --pattern 'TIDE-PetLab-alpha.492-win-x64-models.zip' --dir "$RUNNER_TEMP/inputs"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'TIDE-PetLab-alpha.524-runtime.zip' --dir "$RUNNER_TEMP/inputs"
+      - name: Verify and assemble the complete Windows package
+        run: |
+          python3 - <<'PY'
+          import os,json,hashlib,zipfile
+          from pathlib import Path
+          temp=Path(os.environ['RUNNER_TEMP']);root=temp/'source';inputs=temp/'inputs';result=temp/'result'
+          old=inputs/'TIDE-PetLab-alpha.492-win-x64-models.zip';runtime=inputs/'TIDE-PetLab-alpha.524-runtime.zip'
+          def digest(path):
+              h=hashlib.sha256()
+              with path.open('rb') as f:
+                  for block in iter(lambda:f.read(2**20),b''):h.update(block)
+              return h.hexdigest()
+          assert digest(old)=='3bd0dadbd87844d5b0cc67144c9131efd034c47ac8131d8980535c23370307a3'
+          assert digest(runtime)=='8a6ea8bbd27895fb406a06cd735a1f738e0acc90bf80f090fc8fcaa930d86702'
+          manifest=json.loads((root/'RELEASE_MANIFEST.json').read_text('utf8'))
+          assert manifest['product_version']=='0.1.0-alpha.524'
+          sources={r['path']:r for r in manifest['files']}
+          archive=result/'TIDE-PetLab-alpha.524-win-x64-models.zip'
+          def write(z,stream,name,expected=None):
+              assert not name.startswith('/') and '..' not in Path(name).parts
+              assert not set(Path(name).parts)&{'output','data','user-data','.env','.venv','__pycache__','sessions','traces'}
+              info=zipfile.ZipInfo('TIDE-PetLab-alpha.524/'+name);info.create_system=0;info.compress_type=zipfile.ZIP_DEFLATED;info._compresslevel=1
+              h=hashlib.sha256();size=0
+              with z.open(info,'w',force_zip64=True) as dest:
+                  for block in iter(lambda:stream.read(2**20),b''):h.update(block);size+=len(block);dest.write(block)
+              if expected:assert h.hexdigest()==expected['sha256'] and size==expected['bytes'],name
+          with zipfile.ZipFile(old) as models,zipfile.ZipFile(runtime) as rt,zipfile.ZipFile(archive,'x',zipfile.ZIP_DEFLATED,compresslevel=1) as z:
+              names=[n for n in models.namelist() if n.endswith('/local_models/MODEL_MANIFEST.json')];assert len(names)==1
+              prefix=names[0][:-len('MODEL_MANIFEST.json')];mm=json.loads(models.read(names[0]));model_files={r['path']:r for r in mm['files']}
+              assert mm['files']==json.loads((root/'model_packages/desktop_pet_v1/resources/local-models/manifest.json').read_text('utf8'))['files']
+              rm=json.loads(rt.read('_runtime/RUNTIME_MANIFEST.json'));runtime_files={r['path']:r for r in rm['files']}
+              assert set(rt.namelist())=={'_runtime/'+n for n in runtime_files}|{'_runtime/RUNTIME_MANIFEST.json'}
+              for name,row in sources.items():
+                  with (root/name).open('rb') as stream:write(z,stream,name,row)
+              with (root/'RELEASE_MANIFEST.json').open('rb') as stream:write(z,stream,'RELEASE_MANIFEST.json')
+              for name,row in runtime_files.items():
+                  with rt.open('_runtime/'+name) as stream:write(z,stream,'_runtime/'+name,row)
+              with rt.open('_runtime/RUNTIME_MANIFEST.json') as stream:write(z,stream,'_runtime/RUNTIME_MANIFEST.json')
+              for name,row in model_files.items():
+                  with models.open(prefix+name) as stream:write(z,stream,'local_models/'+name,row)
+              with models.open(names[0]) as stream:write(z,stream,'local_models/MODEL_MANIFEST.json')
+          with zipfile.ZipFile(archive) as z:assert z.testzip() is None and len(z.infolist())==len(sources)+1+len(runtime_files)+1+len(model_files)+1
+          proof={'version':manifest['product_version'],'source_commit':os.environ['SOURCE'],'archive':archive.name,'archive_bytes':archive.stat().st_size,'sha256':digest(archive),'source_files':len(sources)+1,'runtime_files':len(runtime_files)+1,'local_model_files':len(model_files)+1,'source_hashes':'passed','runtime_hashes':'passed','model_hashes':'passed','CRC':'passed','private_data_included':False,'bundled_python':True}
+          (result/'bundle-verification.json').write_text(json.dumps(proof,indent=2)+'\n','utf8');print(json.dumps(proof))
+          PY
+      - name: Upload complete package to the draft and verify GitHub digest
+        run: |
+          test "$(gh api repos/$GITHUB_REPOSITORY/releases/434870235 --jq .draft)" = true
+          gh release upload "$TAG" "$RUNNER_TEMP/result/TIDE-PetLab-alpha.524-win-x64-models.zip" "$RUNNER_TEMP/result/bundle-verification.json" --repo "$GITHUB_REPOSITORY"
+          gh api repos/$GITHUB_REPOSITORY/releases/434870235/assets > "$RUNNER_TEMP/result/assets.json"
+          python3 - <<'PY'
+          import os,json
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'result';proof=json.loads((root/'bundle-verification.json').read_text())
+          assets=json.loads((root/'assets.json').read_text());asset=next(a for a in assets if a['name']==proof['archive'])
+          assert asset['state']=='uploaded' and asset['size']==proof['archive_bytes'] and asset['digest']=='sha256:'+proof['sha256']
+          print('Draft complete package verified; publication is separate.')
+          PY

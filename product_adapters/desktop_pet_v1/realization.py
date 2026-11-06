@@ -542,7 +542,7 @@ class PetRealizationService:
         return packet,authorization,expression
 
     @with_input_snapshot
-    def _request(self,event_id,*,writer_request_id,writer_version=None,visual_capabilities=_CURRENT_VISUAL,content_view_version=_CURRENT_VISUAL,composite_context_version=_CURRENT_VISUAL,prompt_delivery_version=None,rag_context=_CURRENT_VISUAL,relation_version=_CURRENT_VISUAL,visibility_version=_CURRENT_VISUAL,scene_context=_CURRENT_VISUAL,reading_context=_CURRENT_VISUAL,body_context=_CURRENT_VISUAL,meal_scene_context=_CURRENT_VISUAL,body_delivery_version=_CURRENT_VISUAL,action_sequence_context=None,audience_envelope=_CURRENT_VISUAL,relationship_context=_CURRENT_VISUAL,audience_motion_version=_CURRENT_VISUAL,intention_snapshot=_CURRENT_VISUAL,input_layout_version=_CURRENT_VISUAL,pending_conversation=_CURRENT_VISUAL):
+    def _request(self,event_id,*,writer_request_id,writer_version=None,visual_capabilities=_CURRENT_VISUAL,content_view_version=_CURRENT_VISUAL,composite_context_version=_CURRENT_VISUAL,prompt_delivery_version=None,rag_context=_CURRENT_VISUAL,relation_version=_CURRENT_VISUAL,visibility_version=_CURRENT_VISUAL,scene_context=_CURRENT_VISUAL,reading_context=_CURRENT_VISUAL,body_context=_CURRENT_VISUAL,meal_scene_context=_CURRENT_VISUAL,body_delivery_version=_CURRENT_VISUAL,action_sequence_context=None,audience_envelope=_CURRENT_VISUAL,relationship_context=_CURRENT_VISUAL,audience_motion_version=_CURRENT_VISUAL,intention_snapshot=_CURRENT_VISUAL,input_layout_version=_CURRENT_VISUAL,pending_conversation=_CURRENT_VISUAL,wire_normalization_version=_CURRENT_VISUAL):
         if content_view_version is _CURRENT_VISUAL:
             from model_packages.desktop_pet_v1.content_view import DECLARED_MEMORY_VERSION,HIERARCHY_MEMORY_VERSION,RELATION_MEMORY_VERSION,QUERY_MEMORY_VERSION
             content_view_version=(QUERY_MEMORY_VERSION if getattr(self.application,'memory_recall_version',None)=='desktop-pet-grounded-retention-recall-v2' else HIERARCHY_MEMORY_VERSION if getattr(self.application,'memory_recall_version',None) in ('desktop-pet-hierarchical-property-recall-v7','desktop-pet-property-address-recall-v8') else DECLARED_MEMORY_VERSION if getattr(self.application,'memory_recall_version',None) in ('desktop-pet-declared-form-recall-v4','desktop-pet-source-bound-reference-recall-v5','desktop-pet-owner-bound-reference-recall-v6','desktop-pet-hierarchical-property-recall-v7') else CONTENT_VIEW_VERSION)
@@ -742,6 +742,10 @@ class PetRealizationService:
             expression_delivery=prepare_deferred_delivery(app,event_id,packet,prompt_delivery)
         else:expression_delivery=prepare_delivery(app,event_id,packet,prompt_delivery=prompt_delivery,_expression=expression)
         private_control={}
+        from .wire_normalization import VERSION as WIRE_VERSION
+        if wire_normalization_version is _CURRENT_VISUAL:wire_normalization_version=WIRE_VERSION
+        if wire_normalization_version not in (None,WIRE_VERSION):raise ValueError("unknown wire normalization version")
+        if wire_normalization_version is not None:private_control["wire_normalization_version"]=wire_normalization_version
         if owner_cognition and not self.private_thought:
             private_control['optional_channel_validation']='unavailable-private-v1'
         if self.private_thought:
@@ -845,6 +849,10 @@ class PetRealizationService:
                 from model_packages.desktop_pet_v1.visual_capabilities import validate
                 frozen_capabilities=validate(request.readonly_facts.get('visual_capabilities'))
                 text=completion_text(wire);gaze=None;reading={}
+                if request.control.get("wire_normalization_version"):
+                    from .wire_normalization import normalize
+                    text,reduction=normalize(text)
+                    if reduction is not None:reading["wire_normalization"]=reduction
                 if request.control.get('optional_channel_validation')=='unavailable-private-v1':
                     from .sequence_delivery import isolate_unavailable_thought
                     text,rejected=isolate_unavailable_thought(text)
@@ -979,6 +987,7 @@ class PetRealizationService:
             return {"candidate_payload":payload,
                 "realization_evidence":{"version":request.control["version"],"writer_packet_fingerprint":packet_fingerprint,
                     **sequence_evidence,
+                    **({"wire_normalization":value["wire_normalization"]} if value.get("wire_normalization") else {}),
                     **({'whisper_contract':request.control['whisper_contract']} if request.control.get('whisper_contract') else {}),
                     **({'audience_motion_contract':request.control['audience_motion_contract']} if request.control.get('audience_motion_contract') else {}),
                     **({'audience_envelope':thaw_model_data(request.readonly_facts['audience_envelope']), 'selected_speech_audience':value['audience']['speech'], **({'memory_visibility':thaw_model_data(request.readonly_facts['memory_visibility'])} if request.readonly_facts.get('memory_visibility',{}).get('version')=='petlab-writer-recipient-memory-v3-scoped-speech' else {})} if request.control.get('audience_contract') else {}),
@@ -1079,7 +1088,7 @@ class PetRealizationService:
             rag_context=prepared.request.readonly_facts.get('rag_context'),
             relation_version=prepared.request.readonly_facts.get('memory_relation_version'),
             visibility_version=prepared.request.readonly_facts.get('memory_visibility',{}).get('version'),
-            scene_context=prepared.request.readonly_facts.get('scene_context'),reading_context=prepared.request.readonly_facts.get('reading_context'),body_context=prepared.request.readonly_facts.get('body_context'),meal_scene_context=prepared.request.readonly_facts.get('meal_scene_context'),body_delivery_version=prepared.request.readonly_facts.get('body_delivery_version'),action_sequence_context=prepared.request.readonly_facts.get('action_sequence_context'),audience_envelope=prepared.request.readonly_facts.get('audience_envelope'),relationship_context=prepared.request.readonly_facts.get('relationship_context'),audience_motion_version=prepared.request.control.get('audience_motion_policy',prepared.request.control.get('audience_motion_contract')),intention_snapshot=prepared.request.readonly_facts.get('intention_snapshot'))
+            scene_context=prepared.request.readonly_facts.get('scene_context'),reading_context=prepared.request.readonly_facts.get('reading_context'),body_context=prepared.request.readonly_facts.get('body_context'),meal_scene_context=prepared.request.readonly_facts.get('meal_scene_context'),body_delivery_version=prepared.request.readonly_facts.get('body_delivery_version'),action_sequence_context=prepared.request.readonly_facts.get('action_sequence_context'),audience_envelope=prepared.request.readonly_facts.get('audience_envelope'),relationship_context=prepared.request.readonly_facts.get('relationship_context'),audience_motion_version=prepared.request.control.get('audience_motion_policy',prepared.request.control.get('audience_motion_contract')),intention_snapshot=prepared.request.readonly_facts.get('intention_snapshot'),wire_normalization_version=prepared.request.control.get('wire_normalization_version'))
         if authorization!=prepared.authorization or request!=prepared.request:
             raise ValueError("writer candidate differs from formal source and packet")
         evidence=prepared.candidate.realization_evidence

@@ -1,6 +1,6 @@
 {
   "version": "petlab-public-source-candidate-v1",
-  "product_version": "0.1.0-alpha.525",
+  "product_version": "0.1.0-alpha.526",
   "embedding_consumer_connected": true,
   "excluded": [
     "personal configurations",
@@ -44,8 +44,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 5953,
-      "sha256": "bf6cd22e1d87d80a860b93bace861ff526f6ba09620b5faef0bb63ffbdd314e6"
+      "bytes": 6375,
+      "sha256": "225c27adf4fc575f01c0f0b498280fee05eedffd6fcc5102edd25401fa158745"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -69,8 +69,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 20322,
-      "sha256": "beef65e649f71b13524e0eaf44faa1d041c32e508a58c2fd35939d82fcf33bf8"
+      "bytes": 20545,
+      "sha256": "e1ab16d73991aec2345540fecbed138edd8486c419c574f257fa14c410c4ab81"
     },
     {
       "path": "SECURITY.md",
@@ -90,7 +90,7 @@
     {
       "path": "VERSION",
       "bytes": 17,
-      "sha256": "1f573695c77e11f1a01de9ce49534b2ef463b9c328f72be45fa814a492257316"
+      "sha256": "fba94570e175b3cd17043cbdebde7396235602a8db9f765fe3841d562e4e2e30"
     },
     {
       "path": "agents/__init__.py",
@@ -4444,8 +4444,8 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/realization.py",
-      "bytes": 95502,
-      "sha256": "5c273e3c212ae6bb766af1fb0479a3e47eb5bf16eba7e3cd967035fc2ff5b87f"
+      "bytes": 96431,
+      "sha256": "eaa929bc543ebfd689bd4471880ac5f1e6fcf733a201ddcc96f16c426c4e8b3f"
     },
     {
       "path": "product_adapters/desktop_pet_v1/realizers.py",
@@ -4531,6 +4531,11 @@
       "path": "product_adapters/desktop_pet_v1/visible_context.py",
       "bytes": 4229,
       "sha256": "503cabba7e24bd9692fc4be66567e7e9fd2e0bff6ec449f9f2f8f0d9200257ed"
+    },
+    {
+      "path": "product_adapters/desktop_pet_v1/wire_normalization.py",
+      "bytes": 1113,
+      "sha256": "9cefafe41134caf9cd65f9998e02e3c0670542e5ab28ae3c6659f0cdaf9d4467"
     },
     {
       "path": "product_adapters/desktop_pet_v1/writer_archive.py",

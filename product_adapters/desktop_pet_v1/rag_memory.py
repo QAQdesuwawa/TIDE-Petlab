@@ -172,6 +172,7 @@ class RagMemoryService:
         app=self.application
         if event.event_kind!='peer_input' or not any(c.kind=='speech' for c in event.contents):return
         if event.event_id in app.runtime.session.profile.get(EVENT_JOURNAL_KEY,{}):return
+        if getattr(self.provider,'status','ready')!='ready':return
         app._verify_source(event)
         from model_packages.desktop_pet_v1.retrieval_query import query_basis
         basis=query_basis(event,(measurement or {}).get('pet_memory_recall'));text=_literal_query(event)

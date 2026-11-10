@@ -3,6 +3,8 @@
 No embeddings, aliases, business catalogue, persistence or model invocation.
 These hashes are local read metadata, never invented business identifiers.
 """
+from functools import lru_cache
+
 from framework.model_api import model_data_fingerprint, thaw_model_data
 
 VERSION = "package-hierarchical-semantic-address-v1"
@@ -17,11 +19,17 @@ def levels(address):
     if any(not isinstance(row[key], str) or not row[key].strip()
            for key in ("slot_id", "entity_id", "attribute")):
         raise ValueError("explicit address components required")
-    parts = row["attribute"].split("/")
+    return list(_level_fingerprints(row["slot_id"], row["entity_id"], row["attribute"]))
+
+
+@lru_cache(maxsize=4096)
+def _level_fingerprints(slot_id, entity_id, attribute):
+    # Pure content hashes only. Each query still applies its own closed set.
+    parts = attribute.split("/")
     if any(not part for part in parts):
-        parts = [row["attribute"]]  # Ambiguous hierarchy remains a literal.
-    return [model_data_fingerprint({"version": VERSION, "slot_id": row["slot_id"],
-        "entity_id": row["entity_id"], "path": parts[:n]}) for n in range(len(parts), -1, -1)]
+        parts = [attribute]  # Ambiguous hierarchy remains a literal.
+    return tuple(model_data_fingerprint({"version": VERSION, "slot_id": slot_id,
+        "entity_id": entity_id, "path": parts[:n]}) for n in range(len(parts), -1, -1))
 
 
 def address_indexes(addresses):

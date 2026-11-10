@@ -2359,8 +2359,8 @@
     },
     {
       "path": "model_packages/semantic_addresses.py",
-      "bytes": 2073,
-      "sha256": "3883c21c66ea76ab66d834206f81be84e955d6427e4328711ca09d7dd9cbd9db"
+      "bytes": 2332,
+      "sha256": "a00188cdd431ca5fe55afb551ba0aea0178d552b0894425cc9c13b427c2e3bd0"
     },
     {
       "path": "ops/__init__.py",
@@ -3974,8 +3974,8 @@
     },
     {
       "path": "petlab_app/readonly_archive.py",
-      "bytes": 2595,
-      "sha256": "6637e328fb346df146f8aef2d4d2bf3d1ba1b43a2715c5378f2da25a91ec6f2f"
+      "bytes": 2678,
+      "sha256": "1cf43e824e4b396a681c54a0c7d310a7f2537cc76bd410bc4823d07621028cf6"
     },
     {
       "path": "petlab_app/response_timing.py",
@@ -4424,8 +4424,8 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/rag_memory.py",
-      "bytes": 28455,
-      "sha256": "42f09a54aaef4edfe9c181d3d1cde63d39f6fc29c517b88ee58764d3eb3d71dc"
+      "bytes": 28522,
+      "sha256": "a285b45322fbe7148a1337a505d5370aca2dc7b22983ca7562349e10ccd35987"
     },
     {
       "path": "product_adapters/desktop_pet_v1/rag_passages.py",

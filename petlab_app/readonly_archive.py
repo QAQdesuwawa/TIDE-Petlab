@@ -11,7 +11,7 @@ from framework.model_api import freeze_model_payload,thaw_model_data
 class ReadOnlyArchives:
     def __init__(self):
         self._pending=None;self._executor=None;self._futures=[]
-        self.errors=[];self._lock=threading.RLock()
+        self.errors=[];self.deferred_count=0;self._lock=threading.RLock()
 
     def defer(self,path,record):
         with self._lock:
@@ -22,17 +22,22 @@ class ReadOnlyArchives:
             self._pending=(path,freeze_model_payload(record))
         if previous is not None:self._submit(previous)
 
-    def _submit(self,item):
-        # At most two queued/running duplicate views; backpressure affects
-        # operational publication only, never model time or recall selection.
-        with self._lock:
-            self._futures[:]=[f for f in self._futures if not f.done()]
-            blocker=self._futures[0] if len(self._futures)>=2 else None
-        if blocker is not None:blocker.result()
-        with self._lock:
-            self._futures[:]=[f for f in self._futures if not f.done()]
-            if self._executor is None:self._executor=ThreadPoolExecutor(max_workers=1,thread_name_prefix='pet-readonly-archive')
-            self._futures.append(self._executor.submit(self._write,*item))
+    def _submit(self,item,*,wait=False):
+        while True:
+            with self._lock:
+                self._futures[:]=[f for f in self._futures if not f.done()]
+                if len(self._futures)<2:
+                    if self._executor is None:
+                        self._executor=ThreadPoolExecutor(max_workers=1,thread_name_prefix='pet-readonly-archive')
+                    self._futures.append(self._executor.submit(self._write,*item))
+                    return
+                if not wait:
+                    # The canonical receipt is already durable. On saturation,
+                    # leave its optional mirror to the existing recovery path.
+                    self.deferred_count+=1
+                    return
+                blocker=self._futures[0]
+            blocker.result()
 
     def _write(self,path,record):
         from .providers import _save_trace
@@ -45,7 +50,7 @@ class ReadOnlyArchives:
 
     def publish(self,*,wait=False):
         with self._lock:item=self._pending;self._pending=None
-        if item is not None:self._submit(item)
+        if item is not None:self._submit(item,wait=wait)
         with self._lock:futures=tuple(self._futures)
         if wait:
             for future in futures:future.result()

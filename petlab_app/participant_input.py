@@ -41,7 +41,8 @@ def prepare(app,row,workspace,*,coordinate=None):
  source=workspace.source_event(row['delivery']['source_event_id'])
  if observed and 'human_content' in source:raise ValueError('typed human observation requires its own visibility adapter')
  event_id='participant:'+_key(row['delivery']['delivery_id'])
- saved=app._product()['sources'].get(event_id)
+ from .session import PRODUCT_KEY
+ saved=app.runtime.session.profile.get(PRODUCT_KEY,{}).get('sources',{}).get(event_id)
  at=saved['event']['position']['coordinate'] if saved is not None else time.time_ns()//1000000 if coordinate is None else coordinate
  if type(at)is not int or at<source['event']['committed_at_ms']:raise ValueError('delivery precedes source')
  relative='participants/'+_key(row['delivery']['delivery_id'])[:24]+'.json'
@@ -70,18 +71,13 @@ def prepare(app,row,workspace,*,coordinate=None):
 
 def captured_coordinate(app, receipt, contents, *, event_id):
  """Physical time of a source-bound human capture, separate from receipt time."""
- row=validate(app,receipt,contents,event_id=event_id)
+ row,artifact=validate(app,receipt,contents,event_id=event_id,return_artifact=True)
  if row['version']!=HUMAN_INTERACTION_VERSION:
   raise ValueError('physical mouse capture requires typed human source')
- path=app.store.path.with_suffix('.resources')/row['artifact']
- raw=path.read_bytes()
- if hashlib.sha256(raw).hexdigest()!=row['artifact_sha256']:
-  raise ValueError('participant artifact differs')
- source=json.loads(raw)['source']
- return source['event']['committed_at_ms']
+ return artifact['source']['event']['committed_at_ms']
 
 
-def validate(app,receipt,contents,*,event_id=None):
+def validate(app,receipt,contents,*,event_id=None,return_artifact=False):
  row=thaw_model_data(receipt)
  if set(row)!={'version','event_id','actor_ref','reader_ref','session_binding_fingerprint','artifact','artifact_sha256','received_at_ms','fingerprint'}:raise ValueError('participant input fields differ')
  if (row['version'] not in VERSIONS or row['fingerprint']!=fp({k:v for k,v in row.items() if k!='fingerprint'})
@@ -134,4 +130,4 @@ def validate(app,receipt,contents,*,event_id=None):
   if 'visible_manifest' in source or 'visible' in artifact or 'human_content' in source:raise ValueError('typed source requires its versioned input')
   expected=(Speech(content_id='speech',description=projection.text,recipient_refs=(app.owner_ref,)),)
  if tuple(contents)!=expected:raise ValueError('participant input content differs from source')
- return row
+ return (row,artifact) if return_artifact else row

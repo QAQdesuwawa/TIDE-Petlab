@@ -16,6 +16,7 @@ from .relation_annotations import for_memory,FIELD
 CONTEXT_VERSION='desktop-pet-local-rag-exchange-content-context-v2'
 RETRIEVAL_TEXT_VERSION='desktop-pet-literal-query-address-filter-v1'
 
+
 def _literal_query(event):
     return '\n'.join(c.description for c in event.visible_contents(event.owner_ref) if c.kind=='speech')
 
@@ -56,7 +57,9 @@ class RagMemoryService:
         return self._documents_for(event=source.event,before_ordinal=source.fact.accepted_runtime_ordinal,history=history,document_version=document_version)
     def _documents_for(self,*,event,before_ordinal,history,document_version=DOCUMENT_VERSION):
         query_scope=event.scope_ref
-        app=self.application;docs=[];memories={};journal=app.runtime.session.profile.get(EVENT_JOURNAL_KEY,{})
+        from petlab_app.session import PRODUCT_KEY
+        app=self.application;docs=[];memories={};profile=app.runtime.session.profile
+        journal=profile.get(EVENT_JOURNAL_KEY,{});sources=profile.get(PRODUCT_KEY,{}).get('sources',{})
         for fact in history.facts():
             if fact.accepted_runtime_ordinal>=before_ordinal:continue
             key=fact.fingerprint
@@ -69,7 +72,7 @@ class RagMemoryService:
                 speech=[c.description for c in visible if c.kind=='speech' or is_content(c)]
                 from petlab_app.intention_source import ORIGIN,enabled
                 own_intention=(enabled(app) and event.owner_ref==app.owner_ref and event.actor_ref==app.owner_ref
-                    and app._product(source_id=event.event_id)['sources'][event.event_id]['origin']==ORIGIN)
+                    and sources[event.event_id]['origin']==ORIGIN)
                 if own_intention:
                     app._verify_source(event)
                     speech=[c.description for c in visible if c.kind=='thought' and c.private]
@@ -88,7 +91,6 @@ class RagMemoryService:
         anchors={(m.fact.accepted_runtime_ordinal,m.fact.temporal_position_fingerprint):i
                  for i,m in memories.items() if m.event.event_kind=='peer_input'}
         if self.reply_source_key is not None:
-            sources=app._product()['sources']
             for i,m in memories.items():
                 row=sources.get(i)
                 if m.event.event_kind!='npc_output' or row is None or row['origin']!='execution':continue
@@ -220,11 +222,15 @@ class RagMemoryService:
             'numeric_recall_fingerprint':recall.fingerprint,'result':result,
             'selected_sources':[{'event_id':i,'content_fingerprint':by_id[i]['content_fingerprint'],'member_event_ids':by_id[i]['member_event_ids'],**({'source_slice':by_id[i]['source_slice']} if 'source_slice' in by_id[i] else {})} for i in selected],
             'elapsed_ms':round((time.perf_counter()-start)*1000),'parallel_with_measurement':parallel,'state_commit_authority':False,'send_authority':False})
-        self.validate(record,event_id,history=history)
+        self._validate(record,event_id,history=history,
+            prepared=(source,recall,docs,memories,basis,address_selection,snapshot))
         self.trace_dir.mkdir(parents=True,exist_ok=True)
         with path.open('x',encoding='utf8') as f:json.dump(record,f,ensure_ascii=False,separators=(',',':'),allow_nan=False)
         return record
     def validate(self,context,event_id,*,history=None):
+        return self._validate(context,event_id,history=history)
+
+    def _validate(self,context,event_id,*,history=None,prepared=None):
         from petlab_app.destinations import _INPUT_SNAPSHOT
         app=self.application
         c=thaw_model_data(context)
@@ -234,19 +240,26 @@ class RagMemoryService:
         cached=cache.get(cache_key) if cache is not None else None
         if cached is not None and cached[0] is self and cached[1] is app.runtime.session:
             return cached[2]
-        source=self._source(event_id)
-        history=history or app.runtime._history();recall=self._recall(event_id,history)
-        docs,memories=self._documents(source,history,document_version=context.get('document_version'))
-        if 'address_selection' in context:
-            basis=self._basis(source);docs,selection=self._address_documents(docs,memories,basis)
-            if thaw_model_data(context['address_selection'])!=selection:raise ValueError('RAG address selection differs from committed sources')
+        if prepared is None:
+            source=self._source(event_id)
+            history=history or app.runtime._history();recall=self._recall(event_id,history)
+            docs,memories=self._documents(source,history,document_version=c.get('document_version'))
+            basis=self._basis(source) if 'query_basis' in c or 'address_selection' in c else None
+            selection=None
+            if 'address_selection' in c:
+                docs,selection=self._address_documents(docs,memories,basis)
+            snapshot=_snapshot(docs)
+        else:
+            # Only context() supplies this, within the same synchronous build.
+            source,recall,docs,memories,basis,selection,snapshot=prepared
+        if 'address_selection' in c and c['address_selection']!=selection:
+            raise ValueError('RAG address selection differs from committed sources')
         by_id={r['event_id']:r for r in docs}
         from .relation_annotations import _measurement
         if _measurement(app.runtime.session.profile,source).get('pet_memory_recall',{}).get('version')=='desktop-pet-property-address-recall-v8':
             if 'query_basis' not in c or 'address_selection' not in c:raise ValueError('RAG property source contract missing')
         text='\n'.join(x.description for x in source.event.visible_contents(app.owner_ref) if x.kind=='speech')
         if 'query_basis' in c:
-            basis=self._basis(source)
             if 'addresses' in basis and 'address_selection' not in c:raise ValueError('RAG address selection missing')
             if c['query_basis']!=basis:raise ValueError('RAG query basis differs from committed source')
             text=basis['text']
@@ -257,7 +270,7 @@ class RagMemoryService:
             or c['session_binding_fingerprint']!=source.fact.session_binding_fingerprint or c['scope_ref']!=source.event.scope_ref
             or c['numeric_recall_fingerprint']!=recall.fingerprint
             or c['query_fingerprint']!=hashlib.sha256(text.encode('utf8')).hexdigest()
-            or c['candidate_snapshot']!=_snapshot(docs)
+            or c['candidate_snapshot']!=snapshot
             or c['state_commit_authority'] is not False or c['send_authority'] is not False):raise ValueError('local RAG context source differs')
         if c.get('assembly_version') not in (None,ASSEMBLY_VERSION):raise ValueError('unsupported RAG assembly version')
         result=c['result'];selected=result['selected']

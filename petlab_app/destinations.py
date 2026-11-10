@@ -1,5 +1,4 @@
 """Freeze recipient identity from committed Conversation provenance, not text."""
-import json
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
@@ -53,7 +52,8 @@ def _input(app,event_id):
 
 
 def _read_input(app,event_id):
- source=app._product()['sources'][event_id];event=app.runtime.memory_instance(event_id).event;app._verify_source(event)
+ from .session import PRODUCT_KEY
+ source=app.runtime.session.profile[PRODUCT_KEY]['sources'][event_id];event=app.runtime.memory_instance(event_id).event;app._verify_source(event)
  from .participant_input import VERSIONS,validate as validate_input
  receipt=source['evidence'].get('input_source',{})
  from .obstruction_input import VERSION as OBSTRUCTION
@@ -64,8 +64,7 @@ def _read_input(app,event_id):
   row.update(source_event_id=event_id,source_binding_ref=event.source_binding_ref)
   return validate(app,{**row,'fingerprint':fp(row)})
  if receipt.get('version') not in VERSIONS:return None
- validate_input(app,receipt,event.contents,event_id=event_id)
- artifact=json.loads((app.store.path.with_suffix('.resources')/receipt['artifact']).read_text(encoding='utf8'))
+ _,artifact=validate_input(app,receipt,event.contents,event_id=event_id,return_artifact=True)
  if 'participants' not in artifact:raise ValueError('multi destination lacks frozen participant snapshot')
  origin=artifact['source']['event'];conversation=artifact['conversation'];people=artifact['participants']
  # A public physical envelope can carry a speech child visible to this recipient

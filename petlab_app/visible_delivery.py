@@ -134,13 +134,12 @@ def project(root,source,reader):
 
 def source_context(app,event):
  """Read only this retained input's recipient artifact, never the full history."""
- import json
  from .participant_input import VISIBLE_VERSION,SPEECH_VERSIONS,validate
- source=app._product()['sources'].get(event.event_id,{})
+ from .session import PRODUCT_KEY
+ source=app.runtime.session.profile.get(PRODUCT_KEY,{}).get('sources',{}).get(event.event_id,{})
  receipt=source.get('evidence',{}).get('input_source',{})
  if receipt.get('version') not in {VISIBLE_VERSION,*SPEECH_VERSIONS}:return None
- validate(app,receipt,event.contents,event_id=event.event_id)
- artifact=json.loads((app.store.path.with_suffix('.resources')/receipt['artifact']).read_text(encoding='utf8'))
+ _,artifact=validate(app,receipt,event.contents,event_id=event.event_id,return_artifact=True)
  if receipt['version']==VISIBLE_VERSION:return artifact['visible']
  original=artifact['source']['event']
  return {'target_refs':original['addressed_participant_ids'],

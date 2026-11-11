@@ -325,6 +325,11 @@ class _Bridge(ExecutionContexts):
             self.outgoing.put(('input_feedback',{**value,'input_generation':self.input_generation,
                 'activity_generation':self.processing_activity}))
 
+    def present_action_hint(self,emoji,request_ref,*,eye_pose=None):
+        if not self.is_cancelled():
+            self.outgoing.put(('action_hint',{'emoji':emoji,'request_ref':request_ref,'eye_pose':eye_pose,
+                'input_generation':self.input_generation,'activity_generation':self.processing_activity}))
+
     def rpc(self,kind,*,_late_speech=None,**fields):
         factory=getattr(self,'playback_intake',None)
         if kind=='execute' and factory is not None:

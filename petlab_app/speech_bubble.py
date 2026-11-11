@@ -24,6 +24,68 @@ def speech_progress_ms(text):
     return min(30000,max(1600,700+count*180))
 
 
+class PetActionHint:
+    """Independent transient icon with no speech history or execution effect."""
+    SIZE=48
+    HOLD_MS=2300
+    KEY='#ff00fe'
+    _instances=weakref.WeakSet()
+
+    def __init__(self,root):
+        self.root=root
+        self.window=tk.Toplevel(root)
+        self.window.withdraw()
+        self.window.overrideredirect(True)
+        self.window.configure(bg=self.KEY)
+        self.window.wm_attributes('-topmost',True)
+        if sys.platform=='win32':self.window.wm_attributes('-transparentcolor',self.KEY)
+        self.canvas=tk.Canvas(self.window,width=self.SIZE,height=self.SIZE,bg=self.KEY,highlightthickness=0)
+        self.canvas.pack()
+        self.canvas.create_oval(2,2,self.SIZE-2,self.SIZE-2,fill='#ffffff',outline='#d9e0ea',width=2)
+        self.icon=self.canvas.create_text(self.SIZE//2,self.SIZE//2,font=('Segoe UI Emoji',16))
+        self.dismiss_job=None
+        self.last_ref=None
+        self._instances.add(self)
+
+    def place(self):
+        root=self.root
+        x,y=root.winfo_x(),root.winfo_y()
+        width,height=root.winfo_screenwidth(),root.winfo_screenheight()
+        blocked=[b._layout_rect for b in PetSpeechBubble._instances
+                 if b.mode!='hidden' and not b._closed and getattr(b,'_layout_rect',None) is not None]
+        for top in (y+8,y+62,y+116):
+            for left in (x+root.winfo_width()+5,x-self.SIZE-5):
+                if not (0<=left<=width-self.SIZE and 0<=top<=height-self.SIZE):continue
+                if any(left<bx+bw and left+self.SIZE>bx and top<by+bh and top+self.SIZE>by
+                       for bx,by,bw,bh in blocked):continue
+                self.window.geometry(f'+{left}+{top}')
+                return True
+        self.window.withdraw()
+        return False
+
+    def show(self,emoji,request_ref):
+        from product_adapters.desktop_pet_v1.action_intents import valid_emoji
+        if request_ref==self.last_ref or not valid_emoji(emoji):return False
+        self.last_ref=request_ref
+        self.hide()
+        self.canvas.itemconfigure(self.icon,text=emoji)
+        if not self.place():return False
+        self.window.deiconify()
+        self.window.lift()
+        self.dismiss_job=self.root.after(self.HOLD_MS,self.hide)
+        return True
+
+    def hide(self):
+        if self.dismiss_job is not None:
+            self.root.after_cancel(self.dismiss_job)
+            self.dismiss_job=None
+        self.window.withdraw()
+
+    def close(self):
+        self.hide()
+        self.window.destroy()
+
+
 class PetSpeechBubble:
     _instances=weakref.WeakSet()
     KEY="#ff00fe"
@@ -66,12 +128,14 @@ class PetSpeechBubble:
         screen=(bubbles[0].root.winfo_screenwidth(),bubbles[0].root.winfo_screenheight())
         layout=arrange(rows,screen)
         for b in bubbles:
-            x,y,_,_=layout[id(b)]
+            x,y,_,_=b._layout_rect=layout[id(b)]
             tip=max(18,min(b._width-18,b._placement[2]-x))
             if tip!=b._tail_x:
                 b._tail_x=tip
                 b._move_tail()
             b.window.geometry(f'+{x}+{y}')
+        for hint in PetActionHint._instances:
+            if hint.dismiss_job is not None:hint.place()
 
     def _move_tail(self):
         # Relayout must not destroy/recreate embedded text windows mid-paint.

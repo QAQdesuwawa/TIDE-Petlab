@@ -425,6 +425,11 @@ class DesktopExecutor(ExecutionContexts):
                 source=rig_blink[2]
             from .rig_activity import RigFrame
             from .rig_expression import RigExpressionPresenter
+            eye_pose=getattr(self,'_temporary_eye_pose',None)
+            if (eye_pose is not None and isinstance(source,RigFrame) and source.rig.get('idle')
+                    and current is None and self.feedback_binding is None):
+                code='normal' if eye_pose=='open' else source.rig['idle']['blink_code']
+                source=RigFrame(source.rig,source.pose,code,(source.width,source.height))
             timing=getattr(self,'idle_timing',None)
             if timing is not None:
                 enabled=(isinstance(source,RigFrame) and not self._sprite_active
@@ -694,6 +699,32 @@ class DesktopExecutor(ExecutionContexts):
             self._stop_visual_timer();self._visual_frame(0)
         else:self._present_alpha()
 
+    def present_action_hint(self,emoji,request_ref,*,eye_pose=None):
+        presenter=getattr(self,'action_hint_presenter',None)
+        if presenter is not None:presenter(emoji,request_ref,eye_pose)
+
+    def show_eye_hint(self,pose,request_ref):
+        if (self.closed or pose not in {'closed','open','sleep'}
+                or request_ref==getattr(self,'_last_eye_hint_ref',None)):
+            return False
+        self._last_eye_hint_ref=request_ref
+        self.clear_eye_hint(redraw=False)
+        self._temporary_eye_pose=pose
+        from .speech_bubble import PetActionHint
+        duration=PetActionHint.HOLD_MS if pose=='sleep' else 650
+        self._eye_hint_job=self._schedule(duration,self.clear_eye_hint)
+        self._present_alpha()
+        return True
+
+    def clear_eye_hint(self,*,redraw=True):
+        job=getattr(self,'_eye_hint_job',None)
+        if job is not None:self._cancel_scheduled(job)
+        self._eye_hint_job=None
+        if getattr(self,'_temporary_eye_pose',None) is not None:
+            self._temporary_eye_pose=None
+            self._rig_idle_blink=None
+            if redraw:self._present_alpha()
+
     def _show_frame(self,index):
         self.frame_index=index
         # Native alpha owns the entire visible character; the Tk widget is only
@@ -909,6 +940,7 @@ class DesktopExecutor(ExecutionContexts):
         return True
 
     def _leave_rest_pose(self):
+        self.clear_eye_hint(redraw=False)
         if getattr(self,'resting_pose',None) is None:return
         self._begin_pose_transition(registered=True)
         self.resting_pose=None

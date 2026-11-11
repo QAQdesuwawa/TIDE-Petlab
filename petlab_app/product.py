@@ -83,6 +83,12 @@ class PetProduct:
                 return None
         from product_adapters.desktop_pet_v1.quiet_realization import QuietRealization
         if isinstance(prepared,QuietRealization):
+            hint=prepared.evidence['candidate']['realization_evidence'].get('activity_hint')
+            presenter=getattr(executor,'present_action_hint',None)
+            if (hint is not None and presenter is not None and not is_cancelled()
+                    and (continuation is None or continuation.check('before_execution'))):
+                presenter(hint['emoji'],prepared.request_id,
+                    **({'eye_pose':hint['eye_pose']} if 'eye_pose' in hint else {}))
             self.last_quiet_realization=prepared
             if self.writer is not None:self.writer.publish_readonly_archives()
             return None
@@ -105,6 +111,11 @@ class PetProduct:
                         session_binding=self.application.runtime.session.session_binding.fingerprint,
                         authorization_ref=prepared.authorization.fingerprint,observer=effect_sink):
                     composite=prepared.composite_plan()
+                    hint=prepared.candidate.realization_evidence.get('activity_hint')
+                    presenter=getattr(executor,'present_action_hint',None)
+                    if hint is not None and presenter is not None:
+                        presenter(hint['emoji'],prepared.request.request_ref,
+                            **({'eye_pose':hint['eye_pose']} if 'eye_pose' in hint else {}))
                     if composite is not None:
                         if 'late_speech' in prepared.candidate.candidate_payload:
                             from product_adapters.desktop_pet_v1.staged_execution import execute_staged

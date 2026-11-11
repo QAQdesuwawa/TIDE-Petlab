@@ -14,7 +14,7 @@ def public_value(value):
     if isinstance(value,(tuple,list)):return [public_value(v) for v in value]
     return value
 
-def project(packet, *, memory_evidence=False,shared_bodies=False,optional_context=False,independent_children=False,current_time=False,subtype_references=False,speaker_framing=False,conversation_context=False,shared_metadata=False,grouped_metadata=False,body_context=None,action_sequence_context=None,contextual=False,intention_time_labels=False,property_owners=False,property_owner_events=None):
+def project(packet, *, memory_evidence=False,shared_bodies=False,optional_context=False,independent_children=False,current_time=False,subtype_references=False,speaker_framing=False,conversation_context=False,shared_metadata=False,grouped_metadata=False,body_context=None,action_sequence_context=None,contextual=False,intention_time_labels=False,property_owners=False,property_owner_events=None,free_action_intents=False):
     sections={}
     owner=packet.output_identity.speaker_participant_id
     bodies={}
@@ -70,9 +70,11 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
                     from .sequence_delivery import fields as sequence_fields
                     fields.pop('本轮已选行动计划',None)
                     fields.pop('身体行动事实',None)
-                    fields['表达职责']='按已获准候选形成本轮动作序列；讲话、表情与私有独白是并行子项。'
-                    fields['output_fields']=list(dict.fromkeys([*fields.get('output_fields',[]),'actions']))
-                    fields.update(sequence_fields(action_sequence_context))
+                    fields['表达职责']=('本轮可自由提出身体动作意图；讲话、表情与私有独白是并行子项。' if free_action_intents
+                                      else '按已获准候选形成本轮动作序列；讲话、表情与私有独白是并行子项。')
+                    field='action_intents' if free_action_intents else 'actions'
+                    fields['output_fields']=list(dict.fromkeys([*fields.get('output_fields',[]),field]))
+                    if not free_action_intents:fields.update(sequence_fields(action_sequence_context))
                     if subtype_references and guidance is not None:
                         # Validate the old source references, replace only the
                         # single-action common role for this versioned contract.

@@ -34,7 +34,7 @@ def project(packet):
     return replace(result, packet_fingerprint=model_data_fingerprint(result.content_record()))
 
 
-def core(*, private, sequence, expression, mode, idle):
+def core(*, private, sequence, expression, mode, idle, free_action_intents=False):
     text = ('【表达与资料边界】\n'
         '以人格原文中的角色身份，结合此刻关系状态、经历与情境，自主选择措辞、语气和表达内容。'
         '日常回应通常一两句、约8–35个汉字，详细问题按实际需要展开。\n'
@@ -53,8 +53,12 @@ def core(*, private, sequence, expression, mode, idle):
     if not sequence and not private and (idle or mode == 'contextual'):
         text += 'speech可为null，表示本轮选择安静，此时reported_used_memory_ids为空数组。\n'
     if sequence:
-        text += ('actions为本轮可执行候选的有序数组，可为空；speech可为null。其他角色独立决定其回应。\n'
-            '可选speech_timing为null或含action_index（从0开始）和phase（start/end）的对象，指定本轮动作开始/结束时讲话；为空即本轮可说。'
+        if free_action_intents:
+            from .action_intents import FORMAT
+            text += FORMAT + ' speech可为null。\n'
+        else:
+            text += 'actions为本轮可执行候选的有序数组，可为空；speech可为null。其他角色独立决定其回应。\n'
+        text += ('可选speech_timing为null或含action_index（从0开始）和phase（start/end）的对象，指定本轮动作开始/结束时讲话；为空即本轮可说。'
             'speech也可为最多4个{text,timing}对象组成的有序数组，此时省略顶层speech_timing；每段沿日常句长。\n')
         if expression:
             text += ('可选expressions为最多4个{expression,hold_ms,timing}对象，hold_ms为100–10000毫秒，timing沿话语规则；'

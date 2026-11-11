@@ -4,10 +4,10 @@ from framework.model_api import thaw_model_data,model_data_fingerprint as fp
 VERSION='pet-reading-parameters-v1'
 RESULTS_VERSION='pet-reading-parameters-v2-linked-results'
 
-def split_output(text,*,site):
+def split_output(text,*,site,optional=False):
  value=json.loads(text)
- if not isinstance(value,dict) or 'search_query' not in value:raise ValueError('reading action requires search_query or null')
- query=value.pop('search_query')
+ if not isinstance(value,dict) or (not optional and 'search_query' not in value):raise ValueError('reading action requires search_query or null')
+ query=value.pop('search_query',None)
  if query is not None:
   if not isinstance(query,str) or not query.strip() or len(query)>96 or any(ord(c)<32 for c in query):raise ValueError('invalid bounded search query')
   from petlab_app.web_search import resources
@@ -42,13 +42,15 @@ def context_for(app,event_id,*,selected_ids=(),readers=(),action_sequence_contex
  if linked:value['activity_results']=linked
  return {**value,'fingerprint':fp(value)}
 
-def supplement(context):
+def supplement(context,*,free_action_intents=False):
  if context['version'] not in (VERSION,RESULTS_VERSION) or context['fingerprint']!=fp({k:v for k,v in context.items() if k!='fingerprint'}):raise ValueError('reading context integrity differs')
  system=''
  if context['site'] is not None:
   system='\n已选动作是阅读网页。另输出search_query：结合本轮人设、已交付上下文与自己的兴趣，给出这次想了解的简短搜索词（最多96字），没有具体想查的内容时填null。搜索词作为已选动作的参数，由工具限定在'+context['site']+'执行；speech仍可为null。'
   if context.get('optional_action'):
    system='\n阅读网页是本轮可选动作之一。另输出search_query：当actions包含read_web时，结合人设、记忆和兴趣填写想了解的简短搜索词（最多96字）；未选阅读或没有具体搜索意图时填null。工具在'+context['site']+'执行。'
+   if free_action_intents:
+    system='\n如主动提出需要搜索的动作意图，可用search_query附上最多96字的检索词。'
  user=''
  if context['result'] is not None:
   result=context['result'];user='\n\n[本次阅读活动已交付的公开网页片段]\n'+json.dumps({k:result[k] for k in ['title','url','excerpt','coverage']},ensure_ascii=False,separators=(',',':'))
@@ -60,10 +62,11 @@ def supplement(context):
   user+='\n\n[已选动作对应的实际阅读结果，时间由近到远]\n'+json.dumps([readable(r) for r in linked['results']],ensure_ascii=False,separators=(',',':'))
  return system,user
 
-def reserve(context):return sum(len(v) for v in supplement(context)) if context is not None else 0
+def reserve(context,*,free_action_intents=False):
+ return sum(len(v) for v in supplement(context,free_action_intents=free_action_intents)) if context is not None else 0
 
-def augment(delivery,context,*,budget_chars):
- system,user=supplement(context);result=thaw_model_data(delivery)
+def augment(delivery,context,*,budget_chars,free_action_intents=False):
+ system,user=supplement(context,free_action_intents=free_action_intents);result=thaw_model_data(delivery)
  system=delivery['system']+system;user=delivery['user']+user
  if len(system)+len(user)>budget_chars:raise ValueError('reading context exceeds Writer budget')
  result.update(system=system,user=user,budget_chars=budget_chars,prompt_fingerprint=hashlib.sha256((system+'\0'+user).encode()).hexdigest(),reading_delivery={'version':context['version'],'context_fingerprint':context['fingerprint'],'base_delivery_fingerprint':delivery['fingerprint']})

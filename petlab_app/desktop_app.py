@@ -18,7 +18,7 @@ from model_packages.desktop_pet_v1.events import Speech,Interaction
 from model_packages.desktop_pet_v1.expression_profile import validate_expression_profile
 from framework.model_api import thaw_model_data
 from .composition import PetDefinition,validate_definition
-from .speech_bubble import PetSpeechBubble
+from .speech_bubble import PetActionHint,PetSpeechBubble
 from .desktop_view import DesktopExecutor
 from .ingress import MouseInputAdapter,ContinuousMouseInputAdapter
 from .product import wall_clock_ms
@@ -209,6 +209,9 @@ class DesktopPetWindow:
         self.dialog.bind("<Escape>",lambda event:self.hide_dialog())
         self.dialog.protocol("WM_DELETE_WINDOW",self.hide_dialog)
         self.speech_bubble=PetSpeechBubble(root,position=self._position_surface)
+        self.action_hint=PetActionHint(root)
+        self.view.action_hint_presenter=lambda emoji,ref,eyes:self.results.put(
+            ('action_hint',{'emoji':emoji,'request_ref':ref,'eye_pose':eyes}))
         self.speech_bubble.on_hide=self._on_speech_hidden
         self.view.speech_slot_available=self.speech_bubble.accepts_speech
         if getattr(product,'is_isolated',False):
@@ -300,6 +303,7 @@ class DesktopPetWindow:
         self._follow_job=None
         if self.closed:return
         if self.speech_bubble.mode!="hidden":self._position_surface(self.speech_window)
+        if self.action_hint.dismiss_job is not None:self.action_hint.place()
         if self.dialog.winfo_viewable():self._position_surface(self.dialog)
 
     def open_menu(self,event):
@@ -452,6 +456,8 @@ class DesktopPetWindow:
     def _press(self,event):
         if self.closed or self._drag_origin is not None or getattr(self,'_recovery_drag_origin',None) is not None:return
         if self.view.body_map is not None and not self.view.is_sprite_opaque(event.x,event.y):return
+        hint=getattr(self,'action_hint',None)
+        if hint is not None:hint.hide()
         if getattr(self,'_actor_unavailable',False) or (getattr(self.product,'recovery_pending',0) and not getattr(self.product,'recovering',False)):
             # Recovery protects semantic ingress, not the physical window.
             # Physical acknowledgement remains local; it cannot settle or
@@ -743,6 +749,15 @@ class DesktopPetWindow:
         if not self.closed:self._poll_job=self.root.after(30,self._poll)
 
     def _consume_result(self,kind,result):
+        if kind=='action_hint':
+            if self._drag_origin is None and all(
+                key not in result or result[key]==getattr(self.product,'_'+key,None)
+                for key in ('input_generation','activity_generation')):
+                if result.get('eye_pose') is not None:
+                    self.view.show_eye_hint(result['eye_pose'],result['request_ref'])
+                if result.get('emoji') is not None:
+                    self.action_hint.show(result['emoji'],result['request_ref'])
+            return
         if kind=='actor_exited':
             self._actor_unavailable=True
             self._pending_ui_jobs=0;self._pending_job_kinds=[];self._sampling=False;self._multi_processing=False
@@ -826,6 +841,7 @@ class DesktopPetWindow:
         if self.diagnostics is not None:self.diagnostics.close()
         self.jobs.put(None)
         self.speech_bubble.close()
+        self.action_hint.close()
         self.view.close()
 
 

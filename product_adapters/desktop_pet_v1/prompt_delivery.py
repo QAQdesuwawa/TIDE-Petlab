@@ -57,7 +57,7 @@ RELATION_VERSIONS={RELATION_VERSION,RELATION_MARKER_VERSION,RELATION_PAIR_VERSIO
 CONTINUITY_GUIDANCE='前文中本角色已经说出口的话与实际动作阶段各自成立，当前回应沿这些既有表态和进展继续。当下态度落实为措辞、语气与节奏；本轮speech与actions共同表达同一次选择，动作完成进度由实际执行记录提供。'
 DEFAULT_PET_PROMPT_BUDGET_CHARS = 16384
 
-def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body_context=None,action_sequence_context=None,interaction_mode=None,relationship_context=None,input_layout_version=None,property_owner_events=None):
+def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body_context=None,action_sequence_context=None,interaction_mode=None,relationship_context=None,input_layout_version=None,property_owner_events=None,free_action_intents=False,action_emoji=False,action_eyes=False):
     from .current_turn_delivery import VERSION as INPUT_LAYOUT, LEGACY_VERSION as OLD_INPUT_LAYOUT, PROPERTY_VERSION, SOURCE_VERSION, place_current_input
     if input_layout_version not in (None, OLD_INPUT_LAYOUT, PROPERTY_VERSION, SOURCE_VERSION, INPUT_LAYOUT):raise ValueError("unsupported current input layout")
     from .required_prompt import preserves_required_selection
@@ -127,7 +127,7 @@ def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body
     original_packet=packet
     if delivery_version in {READABLE_VERSION,MARKER_VERSION,EVIDENCE_VERSION,EVIDENCE_MARKER_VERSION}:
         from .readable_prompt import project
-        packet=project(packet,memory_evidence=delivery_version in {EVIDENCE_VERSION,EVIDENCE_MARKER_VERSION},shared_bodies=optional_idle or shared_all,optional_context=opportunity,independent_children=independent,current_time=timed,subtype_references=typed_references,speaker_framing=speaker_framing,conversation_context=conversation_context,shared_metadata=shared_metadata,grouped_metadata=grouped_metadata,body_context=body_context,action_sequence_context=action_sequence_context,contextual=relation_delivery and interaction_mode=="contextual",intention_time_labels=input_layout_version is not None,property_owners=input_layout_version in (PROPERTY_VERSION,SOURCE_VERSION,INPUT_LAYOUT),property_owner_events=property_owner_events if input_layout_version in (SOURCE_VERSION,INPUT_LAYOUT) else None)
+        packet=project(packet,memory_evidence=delivery_version in {EVIDENCE_VERSION,EVIDENCE_MARKER_VERSION},shared_bodies=optional_idle or shared_all,optional_context=opportunity,independent_children=independent,current_time=timed,subtype_references=typed_references,speaker_framing=speaker_framing,conversation_context=conversation_context,shared_metadata=shared_metadata,grouped_metadata=grouped_metadata,body_context=body_context,action_sequence_context=action_sequence_context,contextual=relation_delivery and interaction_mode=="contextual",intention_time_labels=input_layout_version is not None,property_owners=input_layout_version in (PROPERTY_VERSION,SOURCE_VERSION,INPUT_LAYOUT),property_owner_events=property_owner_events if input_layout_version in (SOURCE_VERSION,INPUT_LAYOUT) else None,free_action_intents=free_action_intents)
         core_text=("以当前角色的身份，依据人物资料直接回应当前输入。性格和当下态度体现在自然口语与句子节奏中。日常回应通常一两句、约8–35个汉字，详细问题按实际需要展开。\n"
             "当前输入和正式记忆给出已经发生的事实，已选表达资源给出本轮态度。身体行动的选择和播放由外部完成；本轮讲话与已选行动计划配合，具体往事以交付的记忆正文为据。\n"
             "输出JSON：speech为对对方说出的感受、观点或回应；其中身体姿势与运动的事实沿已交付的完成记录表达。reported_used_memory_ids为实际参考的记忆标记数组，未参考时填空数组。")
@@ -191,10 +191,22 @@ def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body
         packet=layered_project(packet)
         core_text=core(private=private_expression,sequence=action_sequence_context is not None,
             expression=any('presentation_contract' in c.fields for c in original_packet.sections['form']),
-            mode=interaction_mode,idle=optional_idle)
+            mode=interaction_mode,idle=optional_idle,free_action_intents=free_action_intents)
+    elif free_action_intents:
+        from .action_intents import FORMAT
+        core_text=core_text.replace('本轮actions从当前获准候选中选择','本轮提出动作意图')
+        core_text=core_text.replace('从已获准候选中组织为顺序计划','可按时间顺序提出意图')
+        core_text=core_text.replace('另含actions字段：按先后顺序填写可选动作编码数组，可为空。',FORMAT)
+        core_text=core_text.replace('actions','action_intents').replace('从可用动作中安排活动','描述想做的活动')
     if relation_delivery:
         from .relationship_context import text as relationship_text
         core_text+=relationship_text(relationship_context)
+    if action_emoji:
+        from .action_intents import EMOJI_FORMAT
+        core_text+='\n'+EMOJI_FORMAT
+    if action_eyes:
+        from .action_intents import EYE_FORMAT
+        core_text+='\n'+EYE_FORMAT
     cap = DEFAULT_PET_PROMPT_BUDGET_CHARS if budget_chars is None else budget_chars
     if required_budget:
         from .required_prompt import preserve_required

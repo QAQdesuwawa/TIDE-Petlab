@@ -1,7 +1,7 @@
-name: Assemble Alpha527 complete package
+name: Assemble Alpha528 complete package
 on:
   push:
-    branches: [build/alpha527-complete]
+    branches: [build/alpha528-complete]
 permissions:
   contents: write
 jobs:
@@ -11,7 +11,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       SOURCE: 'd6514444471b43017f1b9e49e7b26417b1defc09'
-      TAG: v0.1.0-alpha.527
+      TAG: v0.1.0-alpha.528
     steps:
       - name: Fetch exact public source and checked binary inputs
         run: |
@@ -33,14 +33,14 @@ jobs:
               return h.hexdigest()
           assert digest(old)=='d1721afe3c651976eae145060d44414e22355e42a9d0e2fe69886e0d18f32a5c'
           manifest=json.loads((root/'RELEASE_MANIFEST.json').read_text('utf8'))
-          assert manifest['product_version']=='0.1.0-alpha.527'
+          assert manifest['product_version']=='0.1.0-alpha.528'
           sources={r['path']:r for r in manifest['files']}
-          archive=result/'TIDE-PetLab-alpha.527-win-x64-models.zip'
+          archive=result/'TIDE-PetLab-alpha.528-win-x64-models.zip'
           def write(z,stream,name,expected=None):
               assert not name.startswith('/') and '..' not in Path(name).parts
               assert Path(name).parts[0] not in {'output','data','user-data','sessions','traces'}
               assert not set(Path(name).parts)&{'.env','.venv','__pycache__'}
-              info=zipfile.ZipInfo('TIDE-PetLab-alpha.527/'+name);info.create_system=0;info.compress_type=zipfile.ZIP_DEFLATED;info._compresslevel=1
+              info=zipfile.ZipInfo('TIDE-PetLab-alpha.528/'+name);info.create_system=0;info.compress_type=zipfile.ZIP_DEFLATED;info._compresslevel=1
               h=hashlib.sha256();size=0
               with z.open(info,'w',force_zip64=True) as dest:
                   for block in iter(lambda:stream.read(2**20),b''):h.update(block);size+=len(block);dest.write(block)
@@ -67,7 +67,7 @@ jobs:
       - name: Upload complete package to the draft and verify GitHub digest
         run: |
           test "$(gh api repos/$GITHUB_REPOSITORY/releases/442949671 --jq .draft)" = true
-          gh release upload "$TAG" "$RUNNER_TEMP/result/TIDE-PetLab-alpha.527-win-x64-models.zip" "$RUNNER_TEMP/result/bundle-verification.json" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" "$RUNNER_TEMP/result/TIDE-PetLab-alpha.528-win-x64-models.zip" "$RUNNER_TEMP/result/bundle-verification.json" --repo "$GITHUB_REPOSITORY" --clobber
           gh api repos/$GITHUB_REPOSITORY/releases/442949671/assets > "$RUNNER_TEMP/result/assets.json"
           python3 - <<'PY'
           import os,json

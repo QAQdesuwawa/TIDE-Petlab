@@ -5,7 +5,7 @@ from product_adapters.desktop_pet_v1.execution import ExecutionCancelled
 from . import movement_route
 
 
-def play(view,task,index,planned=None,started=None,orient_until=None,target_bounds=None):
+def play(view,task,index,planned=None,started=None,orient_until=None,target_bounds=None,*,rerouted=frozenset(),detour_from=None):
  if view.closed or task.done.is_set():return
  try:
   if task.is_cancelled is not None and task.is_cancelled():raise ExecutionCancelled('movement source expired')
@@ -41,6 +41,9 @@ def play(view,task,index,planned=None,started=None,orient_until=None,target_boun
       reserved=reserved,reachable=reachable)
     else:planned=movement.plan(scene,content.parameters['movement'])
    except ValueError as error:
+    if detour_from is not None:
+     view.interrupt_activity(reason='physical_contact',cause_ref=detour_from)
+     return
     if not target.startswith('world:'):raise
     raise ExecutionCancelled('world object has no usable approach') from error
    target_bounds=list(current_target)
@@ -75,14 +78,20 @@ def play(view,task,index,planned=None,started=None,orient_until=None,target_boun
    orient_until=time.monotonic()+lead/1000
   if started is None:
    if time.monotonic()<orient_until:
-    view._schedule(16,lambda:play(view,task,index,planned,None,orient_until,target_bounds));return
+    view._schedule(16,lambda:play(view,task,index,planned,None,orient_until,target_bounds,rerouted=rerouted));return
    started=time.monotonic()
   elapsed=(time.monotonic()-started)*1000
   point,heading=movement_route.sample(planned['route'],elapsed/planned['duration_ms'],heading=planned['heading'])
   from .spatial_contact import blocker
   contact=blocker(scene,point,include_objects=True)
   if contact is not None:
-   reason='source_expired' if contact.startswith('world:') else 'physical_contact'
+   peer_contact=not contact.startswith('world:')
+   if solid_approach and peer_contact and contact not in rerouted:
+    # Another actor can enter the route after it was planned. Preserve this
+    # action and its actual start, and try a fresh route once per blocker.
+    view._schedule(16,lambda:play(view,task,index,rerouted=rerouted|{contact},detour_from=contact))
+    return
+   reason='physical_contact' if peer_contact else 'source_expired'
    view.interrupt_activity(reason=reason,cause_ref=contact)
    return
   view._walk_pose(task,identity,{**planned,'heading':heading},point)
@@ -106,5 +115,5 @@ def play(view,task,index,planned=None,started=None,orient_until=None,target_boun
     view._notify_visible(task);view._maybe_finish_composite(task)
    else:view._next_content(task,index+1)
    return
-  view._schedule(16,lambda:play(view,task,index,planned,started,orient_until,target_bounds))
+  view._schedule(16,lambda:play(view,task,index,planned,started,orient_until,target_bounds,rerouted=rerouted))
  except Exception as error:view._failed(task,error)

@@ -1,6 +1,6 @@
 {
   "version": "petlab-public-source-candidate-v1",
-  "product_version": "0.1.0-alpha.527",
+  "product_version": "0.1.0-alpha.528",
   "embedding_consumer_connected": true,
   "excluded": [
     "personal configurations",
@@ -44,8 +44,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 6605,
-      "sha256": "d427092f8bdfab14b96d5a31e26765cfb4a3c9fa087492b54fb65f611672cf9f"
+      "bytes": 6907,
+      "sha256": "e8f57983dadff04758db0b46327409203004ed3b90041e53602fa8801bceed57"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -69,8 +69,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 20678,
-      "sha256": "0d43b740dea0c9f8e8f49ed236710d55d8194b5376544c8e07a173c7a378a599"
+      "bytes": 20729,
+      "sha256": "167e0f243ac0a374ef7902055a1774923331e1251afa0318f5ad59e64c3c219e"
     },
     {
       "path": "SECURITY.md",
@@ -90,7 +90,7 @@
     {
       "path": "VERSION",
       "bytes": 16,
-      "sha256": "73cfa0684974111d220c6bcc2d227517b0615094dd14d21a5a90b341309a0b52"
+      "sha256": "9ee15dbdadaef1085d1d572e725dbcadcd8e57b0c1c318e93e8ef6bf76e38b44"
     },
     {
       "path": "agents/__init__.py",
@@ -3844,8 +3844,8 @@
     },
     {
       "path": "petlab_app/movement_playback.py",
-      "bytes": 6627,
-      "sha256": "5a3eefc05699d2de7862f47cfcbee08b28f00c5d3f146929b6653653f6fff69f"
+      "bytes": 7187,
+      "sha256": "e35545ddfa2d1bc0e113db63f2a68160d191a99ac24b284e6d2e9d65d8079a2d"
     },
     {
       "path": "petlab_app/movement_route.py",

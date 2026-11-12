@@ -27,7 +27,12 @@ def verify_context(app,event_id,value):
     # actual child effect, not substituted into an old sealed Writer request.
     for row in value['catalog']['candidates']:
         target=row.get('target_ref',value['target_ref'])
-        if target!=value['target_ref']:
+        if 'world_object' in row:
+            from model_packages.desktop_pet_v1 import spatial
+            obj=spatial.world_object(row['world_object'])
+            if target!=obj['ref'] or row['key']!='move_near@'+target or row.get('action_key')!='move_near':
+                raise ValueError('world movement candidate differs from its object')
+        elif target!=value['target_ref']:
             from petlab_app.destinations import audience
             from petlab_app.writer_visibility import output_readers
             from petlab_app.idle_opening import KEY as IDLE_KEY

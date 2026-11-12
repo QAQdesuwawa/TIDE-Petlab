@@ -36,6 +36,7 @@ class _Playback:
     action_frames: dict = field(default_factory=dict)
     gaze_results: dict = field(default_factory=dict)
     movement_results: dict = field(default_factory=dict)
+    movement_landing: list[int] | None = None
     meal_results: dict = field(default_factory=dict)
     movement_visuals: dict = field(default_factory=dict)
     presentation_sources: dict = field(default_factory=dict)
@@ -408,7 +409,7 @@ class DesktopExecutor(ExecutionContexts):
             transient=False;layout=None
             scene=self.scene_snapshot() if callable(self.scene_snapshot) else None
             from model_packages.desktop_pet_v1.spatial import direction,targets
-            visible=() if scene is None else targets(scene)
+            visible=() if scene is None else (*targets(scene),*(obj['ref'] for obj in scene.get('objects',())))
             if self.facing_target not in visible:self.facing_target=None
             settling=getattr(self,'meal_settle',None)
             settling=settling is not None and time.monotonic()<settling['until']
@@ -416,7 +417,9 @@ class DesktopExecutor(ExecutionContexts):
             meal_target=self._meal_facing_target(current,settling=settling,walking=walking)
             bound_target=meal_target if meal_target in visible else self.facing_target
             resting=getattr(self,'resting_pose',None) is not None and not self._sprite_active and self.feedback_binding is None
-            profile=(not resting and self.facing_assets is not None and self.facing_assets.available and (self.facing_target is not None or body_direction) and self.meal_pose is None and not settling
+            walk_heading=getattr(self,'_movement_heading',None) if walking else None
+            profile_heading=walk_heading if walk_heading is not None else (direction(scene,self.facing_target)['horizontal'] if self.facing_target is not None else body_direction)
+            profile=(not resting and self.facing_assets is not None and self.facing_assets.available and profile_heading and self.meal_pose is None and not settling
                 and (not self._sprite_active or walking) and self.feedback_binding is None and getattr(self,'phone_activity_id',None) is None)
             self.facing_direction=0
             frames=self.alpha_surface.frames;index=self.frame_index;source=frames[index]
@@ -515,8 +518,7 @@ class DesktopExecutor(ExecutionContexts):
                 source=turn_frame(self.facing_assets,self.expression_frames[self.expression_code][0],self.expression_code,*turning)
                 transient=True
             elif profile:
-                dx=direction(scene,self.facing_target)['horizontal'] if self.facing_target is not None else body_direction
-                self.facing_direction=-1 if dx<0 else 1
+                self.facing_direction=-1 if profile_heading<0 else 1
                 phase=self.walking_phase if self.walking_action is not None else None
                 source=self.facing_assets.frame(self.expression_code,self.facing_direction,phase=phase,rest_phase=int(time.monotonic()*6)%24)
                 # A finished turn retains orientation, not a frozen bitmap.
@@ -834,10 +836,11 @@ class DesktopExecutor(ExecutionContexts):
         self._leave_rest_pose()
         self._cancel_visual_feedback()
         self.facing_target=None if target=='front' else target;self.gaze_target=target;self.facing_action=task.action_id
-        if target=='front':self.body_turn_direction=-1 if planned['end'][0]<planned['start'][0] else 1
+        heading=planned.get('heading') or (-1 if planned['end'][0]<planned['start'][0] else 1)
+        if target=='front':self.body_turn_direction=heading
         self._present_alpha()
         from .walk_renderer import VERSION
-        task.movement_visuals[identity]={'version':VERSION,'direction':-1 if planned['end'][0]<planned['start'][0] else 1,
+        task.movement_visuals[identity]={'version':VERSION,'direction':heading,
             'samples':0,'phase_mask':0,'facing_version':self.facing_assets.value['version'],'target_ref':target,
             'look_displayed_at_ms':time.time_ns()//1_000_000,'first_motion_at_ms':None,
             'facing_manifest_sha256':self.facing_assets.manifest_sha256,
@@ -851,7 +854,8 @@ class DesktopExecutor(ExecutionContexts):
         import math
         if self.walking_action!=task.action_id:
             self._cancel_visual_feedback();self.walking_action=task.action_id
-        direction=-1 if planned['end'][0]<planned['start'][0] else 1
+        direction=planned.get('heading') or (-1 if planned['end'][0]<planned['start'][0] else 1)
+        self._movement_heading=direction
         phase=phase_index(math.dist(planned['start'],actual),planned['distance_px'],self.frames[0].width(),self.walk_config)
         self.walking_phase=phase
         row=task.movement_visuals.setdefault(identity,{'version':VERSION,'direction':direction,'samples':0,'phase_mask':0})
@@ -861,7 +865,7 @@ class DesktopExecutor(ExecutionContexts):
 
     def _end_walk(self,task):
         if self.walking_action!=task.action_id:return
-        self.walking_action=None;self.walking_phase=None
+        self.walking_action=None;self.walking_phase=None;self._movement_heading=None
         if not self.closed:self._visual_frame(0)
 
     def _stop_visual_timer(self):

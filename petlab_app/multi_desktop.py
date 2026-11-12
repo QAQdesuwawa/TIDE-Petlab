@@ -74,7 +74,7 @@ class MultiPetWindow(DesktopPetWindow):
   return 'break'
 
 class MultiDesktop:
- def __init__(self,root,*,configuration,workspace_root,asset_dir,count=None):
+ def __init__(self,root,*,configuration,workspace_root,asset_dir,count=None,world_objects=()):
   self.root=root;root.withdraw();self.configurations=multi_configurations(configuration,workspace_root=workspace_root,count=count)
   self.workspace=MultiPetWorkspace(workspace_root,{k:c.definition for k,c in self.configurations.items()})
   self.windows={};self.actors={};self.leases=[];self._close_alarm=None;self._scene_alarm=None;self.asset_dir=Path(asset_dir).resolve()
@@ -101,7 +101,7 @@ class MultiDesktop:
     view.content_slot_available=lambda content,alias=alias:self._content_slot_available(alias,content)
     window.notify_source=self._notify_source
    from .scene_host import DesktopScene
-   self.scene=DesktopScene(self.windows)
+   self.scene=DesktopScene(self.windows,objects=world_objects)
    from .meal_host import MealHost
    self.meal=(MealHost(self.workspace.root/'shared-meal.sqlite3',tuple(c.definition.owner_ref for c in self.configurations.values())) if len(self.configurations)>=2 else None)
    self._meal_fingerprint=None
@@ -110,6 +110,7 @@ class MultiDesktop:
     owner=window.configuration.definition.owner_ref
     window.view.visible_activity_observer=lambda parent,items,owner=owner:self._notice_playback(owner,parent,items)
     window.view.scene_snapshot=lambda owner=owner:self.scene.snapshot(owner)
+    window.view.approach_landings=lambda owner=owner:self.scene.approach_landings(owner)
     window.view.meal_host=self.meal
     window.view.meal_owner=owner
     if self.meal is not None:window.context_menu.insert_command(0,label='开饭：给 '+window.configuration.definition.name+' 一碗饭',command=lambda owner=owner:self.start_meal(owner))
@@ -166,7 +167,7 @@ class MultiDesktop:
   for alias,window in self.windows.items():
    if window.closed:continue
    value=self.scene.snapshot(window.configuration.definition.owner_ref)
-   signature=None if value is None else (value['viewport'],value['participants'])
+   signature=None if value is None else (value['viewport'],value['participants'],value.get('objects',()))
    if alias not in self._scene_signatures or self._scene_signatures[alias]!=signature:
     window.product.update_scene(value);self._scene_signatures[alias]=signature
   self._scene_alarm=self.root.after(100,self._refresh_scene)
@@ -232,8 +233,10 @@ def main():
  parser=argparse.ArgumentParser(description=__doc__)
  parser.add_argument('--config',required=True,type=Path);parser.add_argument('--workspace',required=True,type=Path);parser.add_argument('--assets',required=True,type=Path)
  parser.add_argument('--count',type=int,default=None,help='New workspace pet count; omitted restores the saved cast')
+ parser.add_argument('--world',type=Path,help='Optional JSON list of public desktop objects with ref, label, point and optional bounds')
  args=parser.parse_args();configuration=load_configuration(args.config)
- root=tk.Tk();host=MultiDesktop(root,configuration=configuration,workspace_root=args.workspace,asset_dir=args.assets,count=args.count)
+ objects=() if args.world is None else json.loads(args.world.read_text(encoding='utf8'))
+ root=tk.Tk();host=MultiDesktop(root,configuration=configuration,workspace_root=args.workspace,asset_dir=args.assets,count=args.count,world_objects=objects)
  try:root.mainloop()
  finally:host.close();host.join()
 if __name__=='__main__':main()

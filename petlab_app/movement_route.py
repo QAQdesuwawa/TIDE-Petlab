@@ -1,16 +1,14 @@
 """Deterministic desktop obstacle routing; no model or state authority."""
 import heapq
 import math
-from model_packages.desktop_pet_v1.physical_space import body
+from model_packages.desktop_pet_v1.physical_space import body,obstacle_envelopes
 
-def route(scene,start,end):
+def route(scene,start,end,*,reserved=()):
     own=next(r['bounds'] for r in scene['participants'] if r['ref']==scene['owner_ref'])
     w,h=own[2:];vx,vy,vw,vh=scene['viewport']
-    obstacles=[]
-    for row in scene['participants']:
-        if row['ref']==scene['owner_ref']:continue
-        l,t,r,b=body(row['bounds'])
-        obstacles.append((l-.78*w,t-.98*h,r-.22*w,b-.08*h))
+    envelopes=[bounds for _,bounds in obstacle_envelopes(scene)]
+    envelopes.extend(body(bounds) for bounds in reserved)
+    obstacles=[(l-.78*w,t-.98*h,r-.22*w,b-.08*h) for l,t,r,b in envelopes]
     def valid(p):
         return vx<=p[0]<=vx+vw-w and vy<=p[1]<=vy+vh-h and not any(l<p[0]<r and t<p[1]<b for l,t,r,b in obstacles)
     def clear(a,b):
@@ -46,11 +44,18 @@ def route(scene,start,end):
                 cost[j]=new;prev[j]=i;heapq.heappush(queue,(new,j))
     return None
 
-def point(points,fraction):
+def sample(points,fraction,*,heading=0):
+    """Position and horizontal facing of the same segment of the route."""
     lengths=[math.dist(a,b) for a,b in zip(points,points[1:])]
     remaining=sum(lengths)*max(0.,min(1.,fraction))
     for a,b,length in zip(points,points[1:],lengths):
+        dx=b[0]-a[0]
+        if dx:heading=1 if dx>0 else -1
         if remaining<=length and length:
-            return [round(x+(y-x)*remaining/length) for x,y in zip(a,b)]
+            return [round(x+(y-x)*remaining/length) for x,y in zip(a,b)],heading
         remaining-=length
-    return list(points[-1])
+    return list(points[-1]),heading
+
+
+def point(points,fraction):
+    return sample(points,fraction)[0]

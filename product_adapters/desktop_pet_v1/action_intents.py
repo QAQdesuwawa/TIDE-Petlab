@@ -85,7 +85,14 @@ def _option(intent, offer, *, ordinary_fallback=False):
         key = row.get('action_key', row['key'])
         directed = key in TARGETED or 'social_contact' in row
         expected = row.get('target_ref', offer['target_ref']) if directed else None
-        if key in meanings and expected == target and row['key'] in offer['allowed_keys']:
+        named_object = False
+        if expected == target and 'world_object' in row:
+            label = unicodedata.normalize('NFKC', row['world_object']['label'])
+            for suffix in (label, '「'+label+'」'):
+                if phrase.endswith(suffix) and MATCHERS[key].fullmatch(phrase[:-len(suffix)].rstrip()):
+                    named_object = True
+                    break
+        if (key in meanings or named_object) and expected == target and row['key'] in offer['allowed_keys']:
             matches.append(row['key'])
     if len(matches) == 1:
         return matches[0], None

@@ -8,7 +8,6 @@ def expand(base,*,scene,meal,owner,primary,audience):
     result=shared_meal.catalog(movement.catalog(base,scene=scene,target_ref=primary),meal,owner,primary,include_self_activities=True)
     if scene is None:return result
     peers=[p for p in spatial.targets(scene) if p not in ('front',owner,primary) and p in audience]
-    if not peers:return result
     result=deepcopy(result)
     for peer in peers:
         other=shared_meal.catalog(movement.catalog(movement.basic_catalog({'version':'target-options','candidates':[]},scene=scene,target_ref=peer),scene=scene,target_ref=peer),meal,owner,peer,include_self_activities=True)
@@ -16,4 +15,16 @@ def expand(base,*,scene,meal,owner,primary,audience):
             if row['key'] in ('eat_rice','stroll','relocate'):continue
             item=deepcopy(row);item.update(action_key=row['key'],key=row['key']+'@'+peer,target_ref=peer)
             result['candidates'].append(item)
+    if scene.get('objects'):
+        result=deepcopy(result)
+        for obj in spatial.validate(scene)['objects']:
+            motion=movement.arrival_definition()
+            try:
+                approach=movement.plan(scene,{**motion,'target_ref':obj['ref']})
+            except ValueError:
+                continue
+            if approach['distance_px']:
+                result['candidates'].append({'key':'move_near@'+obj['ref'],'action_key':'move_near',
+                    'target_ref':obj['ref'],'world_object':obj,'motion':motion,
+                    'description':'走近公共物件「'+obj['label']+'」，在旁边停下'})
     return result

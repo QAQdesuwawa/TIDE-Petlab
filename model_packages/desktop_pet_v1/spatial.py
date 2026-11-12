@@ -4,6 +4,9 @@ import json,math
 from framework.model_api import model_data_fingerprint as fp,thaw_model_data
 VERSION='desktop-pet-scene-v1'
 MULTI_VERSION='desktop-pet-scene-v2'
+WORLD_VERSION='desktop-pet-scene-v3-world'
+MAX_WORLD_OBJECTS=16
+PUBLIC_OBJECT_ROLES={'author_ref':'作者','addressee_ref':'收件人'}
 MAX_PARTICIPANTS=16  # Bounded objective context; only four-pet deployment is tested.
 PRESENTATION='desktop-pet-face-gaze-v2'
 GAZE='desktop-pet-gaze-v1'
@@ -20,7 +23,34 @@ def _bounds(v):
  return list(v)
 
 
-def create(*,owner_ref,source_ref,sampled_at_ms,viewport,participants):
+def world_object(value):
+ if not isinstance(value,Mapping) or set(value)-{'roles','bounds'}!={'ref','label','point'}:raise ValueError('invalid world object fields')
+ ref=_ref(value['ref'])
+ if not ref.startswith('world:') or len(ref)==len('world:') or '@' in ref:raise ValueError('invalid world object reference')
+ label=value['label'];point=value['point']
+ if not isinstance(label,str) or not label.strip() or len(label)>32:raise ValueError('invalid world object label')
+ if not isinstance(point,(list,tuple)) or len(point)!=2 or any(type(x)is not int or abs(x)>65536 for x in point):raise ValueError('invalid world object point')
+ row={'ref':ref,'label':label,'point':list(point)}
+ if 'bounds' in value:
+  x,y,w,h=_bounds(value['bounds'])
+  if not (x<=point[0]<x+w and y<=point[1]<y+h):raise ValueError('world object point outside bounds')
+  row['bounds']=[x,y,w,h]
+ if 'roles' in value:
+  roles=value['roles']
+  if not isinstance(roles,Mapping) or not roles or not set(roles).issubset(PUBLIC_OBJECT_ROLES):
+   raise ValueError('invalid public object roles')
+  row['roles']={key:_ref(participant) for key,participant in roles.items()}
+ return row
+
+
+def world_objects(values):
+ if not isinstance(values,(list,tuple)) or len(values)>MAX_WORLD_OBJECTS:raise ValueError('invalid world objects')
+ rows=sorted((world_object(v) for v in values),key=lambda v:v['ref'])
+ if len({v['ref'] for v in rows})!=len(rows):raise ValueError('duplicate world object reference')
+ return rows
+
+
+def create(*,owner_ref,source_ref,sampled_at_ms,viewport,participants,objects=()):
  _ref(owner_ref);_ref(source_ref)
  if type(sampled_at_ms)is not int or sampled_at_ms<0:raise ValueError('invalid scene sample time')
  if not isinstance(participants,(list,tuple)) or not 1<=len(participants)<=MAX_PARTICIPANTS:raise ValueError('scene visible participants exceed supported context bound')
@@ -30,15 +60,21 @@ def create(*,owner_ref,source_ref,sampled_at_ms,viewport,participants):
   if not isinstance(row['label'],str) or not row['label'] or len(row['label'])>32:raise ValueError('invalid scene label')
   rows.append({'ref':_ref(row['ref']),'label':row['label'],'bounds':_bounds(row['bounds'])})
  if len({r['ref'] for r in rows})!=len(rows) or owner_ref not in {r['ref'] for r in rows}:raise ValueError('scene owner/identity differs')
+ if any(r['ref'].startswith('world:') for r in rows):raise ValueError('world objects cannot be participants')
  rows.sort(key=lambda r:(r['ref']!=owner_ref,r['ref']))
  body={'version':VERSION if len(rows)<=2 else MULTI_VERSION,'owner_ref':owner_ref,'source_ref':source_ref,'sampled_at_ms':sampled_at_ms,
        'coordinate_space':'desktop_pixels_top_left','viewport':_bounds(viewport),'participants':rows}
+ visible=world_objects(objects)
+ if visible:body.update(version=WORLD_VERSION,objects=visible)
  return {**body,'fingerprint':fp(body)}
 
 
 def validate(value):
- if not isinstance(value,Mapping) or set(value)!={'version','owner_ref','source_ref','sampled_at_ms','coordinate_space','viewport','participants','fingerprint'}:raise ValueError('invalid scene fields')
- actual=create(**{k:value[k] for k in ('owner_ref','source_ref','sampled_at_ms','viewport','participants')})
+ if not isinstance(value,Mapping):raise ValueError('invalid scene fields')
+ fields={'version','owner_ref','source_ref','sampled_at_ms','coordinate_space','viewport','participants','fingerprint'}
+ if value.get('version')==WORLD_VERSION:fields.add('objects')
+ if set(value)!=fields:raise ValueError('invalid scene fields')
+ actual=create(**{k:value[k] for k in ('owner_ref','source_ref','sampled_at_ms','viewport','participants')},objects=value.get('objects',()))
  if thaw_model_data(value)!=actual:raise ValueError('scene fingerprint differs')
  return actual
 
@@ -50,10 +86,13 @@ def targets(scene):
 
 def direction(scene,target):
  scene=validate(scene)
- if target not in targets(scene):raise ValueError('gaze target is not visible')
+ point=next((r['point'] for r in scene.get('objects',()) if r['ref']==target),None)
+ if point is None and target not in targets(scene):raise ValueError('gaze target is not visible')
  if target=='front':return {'horizontal':0.0,'vertical':0.0,'elevation_degrees':0.0}
  owner=next(r for r in scene['participants'] if r['ref']==scene['owner_ref'])['bounds']
- peer=next(r for r in scene['participants'] if r['ref']==target)['bounds']
+ if point is not None:
+  peer=(*point,0,0)
+ else:peer=next(r for r in scene['participants'] if r['ref']==target)['bounds']
  # Both anchors are at the same normalized eye height, not a fabricated 3D position.
  dx=peer[0]+peer[2]*.5-owner[0]-owner[2]*.5
  dy=peer[1]+peer[3]*.38-owner[1]-owner[3]*.38
@@ -87,9 +126,14 @@ def card(scene,*,include_distances=False):
    if include_distances:
     row['距离']={k:v for k,v in separation(scene,r['ref']).items() if k not in {'scene_fingerprint','sampled_at_ms'}}
   rows.append(row)
+ objects=scene.get('objects',())
  return json.dumps({'现场':'桌面窗口当前采样，单位像素，横轴向右/纵轴向下','自己':scene['owner_ref'],
   '采样毫秒':scene['sampled_at_ms'],'可见对象':rows,'视线可选目标':list(targets(scene)),
-  'front含义':'朝向屏幕前方'},ensure_ascii=False,separators=(',',':'))
+  'front含义':'朝向屏幕前方',
+  **({'公共物件':[{'对象':obj['ref'],'名称':obj['label'],'坐标':obj['point'],
+      **({'公开角色':{PUBLIC_OBJECT_ROLES[key]:value for key,value in obj['roles'].items()}} if 'roles' in obj else {})}
+     for obj in objects]} if objects else {})},
+  ensure_ascii=False,separators=(',',':'))
 
 
 def intent(scene,target):

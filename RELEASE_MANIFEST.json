@@ -1,6 +1,6 @@
 {
   "version": "petlab-public-source-candidate-v1",
-  "product_version": "0.1.0-alpha.526",
+  "product_version": "0.1.0-alpha.527",
   "embedding_consumer_connected": true,
   "excluded": [
     "personal configurations",
@@ -44,8 +44,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 6375,
-      "sha256": "225c27adf4fc575f01c0f0b498280fee05eedffd6fcc5102edd25401fa158745"
+      "bytes": 6605,
+      "sha256": "d427092f8bdfab14b96d5a31e26765cfb4a3c9fa087492b54fb65f611672cf9f"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -69,8 +69,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 20545,
-      "sha256": "e1ab16d73991aec2345540fecbed138edd8486c419c574f257fa14c410c4ab81"
+      "bytes": 20678,
+      "sha256": "0d43b740dea0c9f8e8f49ed236710d55d8194b5376544c8e07a173c7a378a599"
     },
     {
       "path": "SECURITY.md",
@@ -89,8 +89,8 @@
     },
     {
       "path": "VERSION",
-      "bytes": 17,
-      "sha256": "fba94570e175b3cd17043cbdebde7396235602a8db9f765fe3841d562e4e2e30"
+      "bytes": 16,
+      "sha256": "73cfa0684974111d220c6bcc2d227517b0615094dd14d21a5a90b341309a0b52"
     },
     {
       "path": "agents/__init__.py",

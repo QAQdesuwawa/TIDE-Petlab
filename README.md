@@ -18,7 +18,7 @@
 
 **当前提供：框架的 Python 源码接口，以及 PetLab 的 Windows 技术 Alpha。** 框架的独立示例不依赖桌面窗口或本地模型；桌宠应用尚非免安装 EXE，当前源码提供独立角色创建页，旧 Release 仍以其版本说明为准。
 
-[**开发者快速入口**](docs/developer/README.md) · [**自定义领域包**](docs/developer/packages.md) · [**独立 Runtime**](docs/developer/runtime.md) · [**旧聊天导入**](docs/user/import-chat.md) · [**PetLab 示例下载**](https://github.com/QAQdesuwawa/TIDE-Petlab/releases/tag/v0.1.0-alpha.528)
+[**开发者快速入口**](docs/developer/README.md) · [**自定义领域包**](docs/developer/packages.md) · [**独立 Runtime**](docs/developer/runtime.md) · [**旧聊天导入**](docs/user/import-chat.md) · [**PetLab 示例下载**](https://github.com/QAQdesuwawa/TIDE-Petlab/releases/tag/v0.1.0-alpha.529)
 
 ---
 
@@ -209,7 +209,7 @@ PetLab 用两只默认角色「大肥鱼」「小肥鱼」展示这套机制。�
 
 **要求：** Windows 10/11 x64、可写目录，以及自己的兼容模型 API。完整包已附 Python/Tk 和依赖；源码版需要另装64位 Python 3.11（含 Tcl/Tk）。
 
-1. 下载 [Alpha 完整包](https://github.com/QAQdesuwawa/TIDE-Petlab/releases/tag/v0.1.0-alpha.528)，解压到较短的可写路径（如 `D:\PetLab\`）。
+1. 下载 [Alpha 完整包](https://github.com/QAQdesuwawa/TIDE-Petlab/releases/tag/v0.1.0-alpha.529)，解压到较短的可写路径（如 `D:\PetLab\`）。
 2. 双击 **`START.cmd`**，完整包直接使用随包的 Python/Tk、依赖、本地检索模型与 CPU 运行时；源码版首次安装 Python 依赖；从源码 ZIP／`git clone` 启动时会下载固定版本资源（约 **1.3 GB**，可断点续下）。不需要管理员权限。
 3. 在设置窗口 **「模型」** 页填入自己的 API 密钥，点击 **「保存并启动」**。默认使用 `deepseek-flash`；「表达模型」留空则沿用量测模型。
 
@@ -253,4 +253,4 @@ PetLab 用两只默认角色「大肥鱼」「小肥鱼」展示这套机制。�
 - 表现：更新默认角色素材，修复连续转身回正突跳；沉默时也有错峰、低频的待机小动作，沿用最近正式保留的心情，不额外调用模型或产生记忆。
 - 性能：减少重复校验和装配；网络模型仍有等待，小规模测试不代表长期无人值守已完全稳定。默认仍启动大肥鱼、小肥鱼；四只的启动方法见[四宠说明](docs/user/four-pets.md)。
 
-alpha.528 完整 Release 包已配套更新，包含独立运行环境与本地模型，解压后双击 `START.cmd` 填写 API。已有设置若保存了旧素材目录，可在设置中改选 `assets/pets/deepseek-bound-original-face`。
+alpha.529 完整 Release 包已配套更新，包含独立运行环境与本地模型，解压后双击 `START.cmd` 填写 API。已有设置若保存了旧素材目录，可在设置中改选 `assets/pets/deepseek-bound-original-face`。

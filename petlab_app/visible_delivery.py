@@ -27,6 +27,9 @@ def action_description(content, description=None):
   from model_packages.desktop_pet_v1.shared_meal import verify_binding
   binding=verify_binding(content.parameters['meal'])
   text='行动者：'+binding['actor_ref']+'；动作对象：'+binding['target_ref']+'。'+text
+ if content.kind=='action' and 'social_contact' in content.parameters:
+  binding=content.parameters['social_contact']
+  text='行动者：'+binding['actor']+'；动作对象：'+binding['target']+'。'+text
  return text
 
 

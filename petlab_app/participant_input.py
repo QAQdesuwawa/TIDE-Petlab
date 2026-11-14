@@ -10,13 +10,14 @@ from model_packages.cx_six_seven_v1.multi_participant.events import CommittedCon
 from model_packages.cx_six_seven_v1.multi_participant.router import route_committed_event
 from model_packages.cx_six_seven_v1.multi_participant.local_projection import project_delivery
 from model_packages.desktop_pet_v1.events import Speech
-from .multi_pet import _immutable,_key,_verify
+from .multi_pet import OPEN_INVITATION_POLICY,_immutable,_key,_verify
 VERSION='pet-participant-delivery-input-v1'
 OBSERVED_HUMAN_VERSION='pet-participant-human-observation-v1'
 ADDRESSED_SPEECH_VERSION='pet-participant-human-speech-v2'
+OPEN_INVITATION_VERSION='pet-participant-human-open-invitation-v1'
 OBSERVED_SPEECH_VERSION='pet-participant-human-observation-v2'
 OBSERVED_VERSIONS={OBSERVED_HUMAN_VERSION,OBSERVED_SPEECH_VERSION}
-SPEECH_VERSIONS={ADDRESSED_SPEECH_VERSION,OBSERVED_SPEECH_VERSION}
+SPEECH_VERSIONS={ADDRESSED_SPEECH_VERSION,OPEN_INVITATION_VERSION,OBSERVED_SPEECH_VERSION}
 from .human_interaction import VERSION as HUMAN_INTERACTION_VERSION,content as human_content
 NPC_VERSION='pet-participant-delivery-input-v2'
 VISIBLE_VERSION='pet-participant-delivery-input-v3-visible'
@@ -30,16 +31,15 @@ def is_human_observation(row,workspace):
 def prepare(app,row,workspace,*,coordinate=None):
  alias=workspace.aliases.get(app.owner_ref)
  if alias is None or app.definition.fingerprint!=workspace.definitions[alias].fingerprint:raise ValueError('recipient owner differs from workspace')
- try:known=workspace.read_delivery(alias,workspace.inbox_path(alias,row['delivery']['delivery_id']))
+ try:known,source=workspace.read_delivery(alias,workspace.inbox_path(alias,row['delivery']['delivery_id']),include_source=True)
  except FileNotFoundError:raise ValueError('delivery not in recipient inbox') from None
  if known!=row:raise ValueError('delivery not in recipient inbox')
  from model_packages.desktop_pet_v1.relation_package import META
  if row['sender_kind']=='npc' and META not in app.runtime.session.state.state:raise ValueError('NPC input awaits directed-relation adapter')
  if row['sender_kind'] not in {'human','npc'}:raise ValueError('unsupported participant kind')
- observed=is_human_observation(row,workspace)
+ observed=(row['sender_kind']=='human' and row['delivery']['delivery_scope']=='observed'
+  and 'visible' not in row and 'human_content' not in source)
  if row['delivery']['delivery_scope']!='addressed' and 'visible' not in row and not observed:raise ValueError('observed message is not a relation input')
- source=workspace.source_event(row['delivery']['source_event_id'])
- if observed and 'human_content' in source:raise ValueError('typed human observation requires its own visibility adapter')
  event_id='participant:'+_key(row['delivery']['delivery_id'])
  from .session import PRODUCT_KEY
  saved=app.runtime.session.profile.get(PRODUCT_KEY,{}).get('sources',{}).get(event_id)
@@ -60,6 +60,8 @@ def prepare(app,row,workspace,*,coordinate=None):
   receipt=saved['evidence']['input_source']
  elif row['sender_kind']=='human' and 'human_content' not in source:
   receipt['version']=OBSERVED_SPEECH_VERSION if observed else ADDRESSED_SPEECH_VERSION
+  if source['origin'].get('opening_policy')==OPEN_INVITATION_POLICY:
+   receipt['version']=OPEN_INVITATION_VERSION
   receipt['fingerprint']=fp({k:v for k,v in receipt.items() if k!='fingerprint'})
  if 'visible' in row:
   from .visible_delivery import validate_projection
@@ -103,7 +105,13 @@ def validate(app,receipt,contents,*,event_id=None,return_artifact=False):
   if app.user_ref in people and people[app.user_ref]!=make_human_participant(app.user_ref):raise ValueError('human participant identity differs')
  if event.sender_participant_id!=row['actor_ref']:raise ValueError('participant sender differs')
  if row['version'] in {VERSION,*OBSERVED_VERSIONS,*SPEECH_VERSIONS,HUMAN_INTERACTION_VERSION}:
-  if source['origin']!={'kind':'human','participant_id':app.user_ref} or event.sender_participant_id!=app.user_ref or event.sender_action_id is not None:raise ValueError('participant human origin differs')
+  expected_origin={'kind':'human','participant_id':app.user_ref}
+  if row['version']==OPEN_INVITATION_VERSION:
+   if (event.conversation_id!='petlab:public'
+       or set(event.addressed_participant_ids)!=set(event.visible_recipient_ids)):
+    raise ValueError('open invitation scope differs')
+   expected_origin['opening_policy']=OPEN_INVITATION_POLICY
+  if source['origin']!=expected_origin or event.sender_participant_id!=app.user_ref or event.sender_action_id is not None:raise ValueError('participant human origin differs')
  else:
   from model_packages.desktop_pet_v1.relation_package import META
   from model_packages.cx_six_seven_v1.multi_participant.events import canonical_npc_output_event_id

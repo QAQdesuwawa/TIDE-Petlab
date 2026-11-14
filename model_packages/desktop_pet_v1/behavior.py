@@ -48,6 +48,8 @@ def staged_selection(selection):
 def content(user_ref, *, selection=None):
     key='play_tail' if selection is None else selected_action(selection)
     if key is None:raise ValueError('empty action selection has no body content')
+    from .social_contact import KEYS as CONTACT_KEYS, content as contact_content
+    if key in CONTACT_KEYS:return contact_content(user_ref,selection['definition'])
     if key in MEAL_KEYS:
         from .shared_meal import content as meal_content
         return meal_content(user_ref,selection['definition'])
@@ -102,6 +104,10 @@ def realized_contents(contents, outcome):
             from .shared_meal import result_content
             row=results.get(item.content_id,{})
             item=result_content(item,row.get('meal_result'),status=row.get('status'))
+        if item.kind=='action' and 'social_contact' in item.parameters:
+            from .social_contact import realized
+            row=results.get(item.content_id,{})
+            item=realized(item,row.get('contact_result'),row.get('status'))
         if item.kind=='action' and outcome.details.get('composite_version')=='desktop-pet-composite-v4-sequence':
             from .action_sequence import describe_stage
             bodies=[c.content_id for c in contents if c.kind=='action']

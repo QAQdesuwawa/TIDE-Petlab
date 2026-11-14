@@ -169,6 +169,45 @@ def _native_fields(result):
         "codec_parse":None if result.parse_receipt is None else result.parse_receipt.to_record()}
 
 
+def verify_writer_reuse(trace_dir, proof, *, session_ref, source_ref, position, request_ref, codec_ref):
+    from framework.provider_host import ProviderRequest,ProviderAttempt,ProviderResponse,ProviderExecutionResult
+    from framework.provider_codec import ProviderCodecParseReceipt
+
+    def load(invocation, fingerprint):
+        if not isinstance(invocation,str) or len(invocation)!=32 or any(c not in '0123456789abcdef' for c in invocation):
+            raise ValueError('reused Writer source receipt has invalid identity')
+        try:row=json.loads((trace_dir/(invocation+'.json')).read_text(encoding='utf8'))
+        except FileNotFoundError as error:raise ValueError('reused Writer source receipt is missing') from error
+        raw=row['execution'];request=ProviderRequest(**raw['request'])
+        attempt=ProviderAttempt(**raw['attempt']);response=ProviderResponse(**raw['response'])
+        execution=ProviderExecutionResult(version=request.version,status=raw['receipt']['status'],
+            request=request,attempt=attempt,response=response,failure=None,receipt=raw['receipt'])
+        execution.verify_integrity()
+        parse=ProviderCodecParseReceipt(**row['codec_parse']);parse.verify_integrity(response=response)
+        timing=read_host_timing(row,expected_request_fingerprint=fingerprint)
+        if (row['status']!='parsed' or parse.status!='parsed' or parse.codec_contract!=request.codec_contract
+                or row['invocation_id']!=invocation or attempt.invocation_evidence.get('invocation_id')!=invocation
+                or request.operation_kind!='writer' or request.source_fact_ref!=source_ref
+                or request.session_binding_fingerprint!=session_ref or request.fingerprint!=fingerprint
+                or timing is None or timing['response_received_at_unix_ms'] is None
+                or thaw_model_data(response.response_payload)!=row['wire_response']):
+            raise ValueError('reused Writer source receipt differs')
+        return request,attempt,parse,timing
+
+    previous=thaw_model_data(proof['original'])
+    current,attempt,parse,timing=load(proof['invocation_id'],request_ref)
+    original,original_attempt,_,original_timing=load(previous['invocation_id'],previous['request_fingerprint'])
+    if (current.runtime_ordinal!=position.runtime_ordinal
+            or current.temporal_position_fingerprint!=position.position.fingerprint
+            or parse.fingerprint!=codec_ref or thaw_model_data(attempt.invocation_evidence.get('reused_response'))!=previous
+            or timing['wire_fingerprint']!=previous['wire_fingerprint']
+            or original_timing['wire_fingerprint']!=previous['wire_fingerprint']
+            or current.request_payload!=original.request_payload
+            or current.codec_contract!=original.codec_contract.removesuffix(PROVISIONAL_WRITER_SUFFIX)
+            or attempt.invocation_evidence['transport_binding_fingerprint']!=original_attempt.invocation_evidence['transport_binding_fingerprint']):
+        raise ValueError('reused Writer source receipt differs from candidate')
+
+
 class ProviderGateway:
     def __init__(self,transport,*,trace_dir,usage_sink=None,operation_transports=None):
         if not callable(transport) or not callable(getattr(transport,"payload",None)):
@@ -257,7 +296,8 @@ class ProviderGateway:
             _save_trace(path,record)
 
     def prepare(self,*,session_binding,current_position,operation_kind,source_fact_ref,codec_contract,
-            messages,temperature,require_json,parse,source_receipt_refs=(),invocation_id=None):
+            messages,temperature,require_json,parse,source_receipt_refs=(),invocation_id=None,reuse_from=None,
+            provisional_writer=False):
         self.last_failure=None
         self._native_trace=None
         from .ordered_checkpoint import _ACTIVE_CHECKPOINT
@@ -274,6 +314,35 @@ class ProviderGateway:
         record={"version":"petlab-provider-trace-v1","status":"prepared","invocation_id":nonce,
             "transport_binding":binding,"request_payload":thaw_model_data(body),"source_fact_ref":source_fact_ref,
             "operation_kind":operation_kind}
+        if provisional_writer:
+            if operation_kind!='writer' or reuse_from is not None:
+                raise ValueError('provisional Writer requires an original Writer request')
+            record['provisional_writer']=True
+            codec_contract+=PROVISIONAL_WRITER_SUFFIX
+        reused_wire=None
+        if reuse_from is not None and operation_kind=="writer":
+            previous=json.loads(reuse_from.trace_path.read_text(encoding='utf8'))
+            if (previous['status']=='parsed' and previous['operation_kind']==operation_kind
+                and previous['source_fact_ref']==source_fact_ref
+                and reuse_from.request.session_binding_fingerprint==session_binding.fingerprint
+                and previous['transport_binding']==binding
+                and previous['provider_request']['codec_contract']==(codec_contract+PROVISIONAL_WRITER_SUFFIX
+                    if previous.get('provisional_writer') else codec_contract)
+                and previous['request_payload']==record['request_payload']
+                and thaw_model_data(reuse_from.request.request_payload)==record['request_payload']):
+                timing=read_host_timing(previous,expected_request_fingerprint=reuse_from.request.fingerprint)
+                if timing is None or timing['response_received_at_unix_ms'] is None:
+                    raise ValueError('Writer draft requires verified response timing')
+                original=reuse_from.finish()
+                response=original.execution.response
+                if (original.status!='parsed' or response is None
+                        or thaw_model_data(response.response_payload)!=previous['wire_response']
+                        or previous.get('execution',{}).get('response')!=response.to_record()):
+                    raise ValueError('Writer draft response differs from original provider receipt')
+                reused_wire=previous['wire_response']
+                record['reused_response']={'invocation_id':previous['invocation_id'],
+                    'request_fingerprint':reuse_from.request.fingerprint,
+                    'wire_fingerprint':model_data_fingerprint(reused_wire)}
         if self.diagnostic_job is not None:
             record['diagnostic_job']=dict(self.diagnostic_job)
             self.diagnostic_invocations.append({'invocation_id':nonce,'source_fact_ref':source_fact_ref,'operation_kind':operation_kind})
@@ -305,15 +374,16 @@ class ProviderGateway:
             phases=None
             try:
                 with capture() as phases:
-                    wire=transport(request,payload)
+                    wire=reused_wire if reused_wire is not None else transport(request,payload)
                 timing["response_received_at_unix_ms"]=time.time_ns()//1_000_000
                 timing["wire_fingerprint"]=model_data_fingerprint(wire)
                 # The first post-transport publication must already contain the
                 # body: even its timing write can hit a persistent reader lock.
                 record["wire_response"]=thaw_model_data(wire)
                 record["status"]="received"
-                self._record_usage(wire,record=record,path=path,operation_kind=operation_kind,
-                    completed_at=time.time_ns()//1_000_000,persist=False,deliver=False)
+                if reused_wire is None:
+                    self._record_usage(wire,record=record,path=path,operation_kind=operation_kind,
+                        completed_at=time.time_ns()//1_000_000,persist=False,deliver=False)
             finally:
                 timing["transport_finished_at_unix_ms"]=time.time_ns()//1_000_000
                 stamp_timing()
@@ -328,7 +398,8 @@ class ProviderGateway:
             session_binding=session_binding,current_position=current_position,operation_kind=operation_kind,
             source_fact_ref=source_fact_ref,codec_contract=codec_contract,request_payload=body,
             transport_payload=body,implementation_ref=binding["version"],
-            invocation_evidence={"invocation_id":nonce,"transport_binding_fingerprint":model_data_fingerprint(binding)},
+            invocation_evidence={"invocation_id":nonce,"transport_binding_fingerprint":model_data_fingerprint(binding),
+                **({"reused_response":record["reused_response"]} if reused_wire is not None else {})},
             provider_invoke=invoke,parse=parse,parent_receipt_refs=source_receipt_refs)
         self._reserved_invocations.add(nonce)
         def finish(result):
@@ -361,6 +432,9 @@ class ProviderGateway:
         call=self.prepare(**kwargs)
         call.transport()
         return call.finish()
+
+
+PROVISIONAL_WRITER_SUFFIX='+provisional-wire-v1'
 
 
 class PreparedGatewayCall:

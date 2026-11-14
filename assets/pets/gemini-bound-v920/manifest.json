@@ -1,0 +1,69 @@
+{
+  "version": "petlab-sprite-set-v1",
+  "image": "idle.png",
+  "image_sha256": "4ff51803462d5cc5cc3deb51dbab07673c264f05d2c4993267b798c416500719",
+  "grid": {
+    "columns": 6,
+    "rows": 1,
+    "cell_width": 362,
+    "cell_height": 362
+  },
+  "clips": {
+    "idle": {
+      "frames": [
+        0,
+        0,
+        0,
+        5,
+        0
+      ],
+      "durations_ms": [
+        500,
+        500,
+        500,
+        110,
+        500
+      ]
+    }
+  },
+  "action_assets": {},
+  "visual_only_clip": "idle",
+  "visual_feedback": {
+    "version": "petlab-visual-feedback-v1",
+    "image": "idle.png",
+    "image_sha256": "4ff51803462d5cc5cc3deb51dbab07673c264f05d2c4993267b798c416500719",
+    "grid": {
+      "columns": 6,
+      "rows": 1,
+      "cell_width": 362,
+      "cell_height": 362
+    },
+    "clips": {
+      "grab": {
+        "frames": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "durations_ms": [
+          52,
+          52,
+          52,
+          52,
+          52,
+          52
+        ]
+      }
+    },
+    "bindings": {
+      "drag": {
+        "start": "grab",
+        "loop": "grab",
+        "end": null
+      }
+    }
+  }
+}

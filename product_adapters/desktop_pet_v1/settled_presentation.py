@@ -1,6 +1,6 @@
 """Read-only bridge from accepted settlement to existing discrete package tokens."""
 from framework.model_api import model_data_fingerprint,thaw_model_data
-from .settlement_view import KEY,current_projection,read_settlement
+from .settlement_view import KEY,_projection_from_verified,read_settlement
 
 def snapshot(application,*,allow_pending=False,upgrade_legacy=True):
     app=application
@@ -14,12 +14,13 @@ def snapshot(application,*,allow_pending=False,upgrade_legacy=True):
         cached=getattr(app,'_settled_presentation_cache',None)
         if cached is not None and getattr(app,'_settled_presentation_cache_key',None)==cache_key:
             return thaw_model_data(cached)
-        session,previous_state,_,_,_,acceptance=read_settlement(app,historical=allow_pending)
+        settled=read_settlement(app,historical=allow_pending)
+        session,previous_state,_,_,_,acceptance=settled
         from model_packages.desktop_pet_v1.relation_package import numerical_pair
         before,after=numerical_pair(previous_state.state,acceptance.state.state,row['execution']['payload']['settlement'])
         if acceptance.state!=current.state or acceptance.position!=current.position:
             raise ValueError('presentation settlement differs from current state')
-        projection=current_projection(app,historical=allow_pending)
+        projection=_projection_from_verified(app,settled)
         result={'version':'desktop-pet-settled-presentation-v1',
             'session_binding':session.session_binding.fingerprint,
             'ordinal':session.position.runtime_ordinal,

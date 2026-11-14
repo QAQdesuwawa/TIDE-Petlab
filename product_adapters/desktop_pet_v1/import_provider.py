@@ -9,7 +9,7 @@ from petlab_app.providers import completion_text
 
 
 def estimate(workspace,gateway,*,operation_key,session_binding,current_position,
-             source_ref,codec_contract,messages,parse,source_receipt_refs=()):
+             source_ref,codec_contract,messages,parse,source_receipt_refs=(),recover_parse=None,reuse_only=False):
     """One reserved logical request. Recovering a successful return makes zero calls."""
     operation_kind='import_estimate'
     transport=gateway.transport_for(operation_kind)
@@ -20,17 +20,17 @@ def estimate(workspace,gateway,*,operation_key,session_binding,current_position,
         'request_payload_fingerprint':fingerprint(payload),
         'transport_fingerprint':fingerprint(transport.binding),
         'source_receipt_refs':list(source_receipt_refs)}
-    row,is_new=workspace.reserve_call(operation_key,binding)
+    row,is_new=workspace.reserve_call(operation_key,binding,reuse_only=reuse_only)
     nonce=row['invocation_id']
+    def parse_wire(wire, parser=parse):
+        try:
+            result=parser(completion_text(wire))
+            if result is None:raise ValueError('empty estimate')
+            return result
+        except (ValueError,TypeError,KeyError):
+            raise ProviderCodecParseFailureSignal(failure_kind='invalid_import_estimate',
+                failure_source_ref=fingerprint(wire)) from None
     if is_new:
-        def parse_wire(wire):
-            try:
-                result=parse(completion_text(wire))
-                if result is None:raise ValueError('empty estimate')
-                return result
-            except (ValueError,TypeError,KeyError):
-                raise ProviderCodecParseFailureSignal(failure_kind='invalid_import_estimate',
-                    failure_source_ref=fingerprint(wire)) from None
         gateway.run(session_binding=session_binding,current_position=current_position,
             operation_kind=operation_kind,source_fact_ref=source_ref,codec_contract=codec_contract,
             messages=messages,temperature=0.0,require_json=True,parse=parse_wire,
@@ -60,12 +60,23 @@ def estimate(workspace,gateway,*,operation_key,session_binding,current_position,
             or attempt.invocation_evidence.get('transport_binding_fingerprint')!=binding['transport_fingerprint']
             or (response is not None and fingerprint(response.response_payload)!=fingerprint(record['wire_response']))):
         raise ValueError('import provider receipt differs from reserved request')
-    if record['status']!='parsed':
+    accepted_contract=codec_contract
+    if record['status']=='failed' and recover_parse is not None and codec is not None and codec.codec_contract==codec_contract:
+        from petlab_app.provider_reparse import REVISION, reparse_failed
+        recovered=reparse_failed(gateway,session_binding=session_binding,current_position=current_position,
+            operation_kind=operation_kind,source_fact_ref=source_ref,codec_contract=codec_contract,
+            messages=messages,temperature=0.0,require_json=True,
+            parse=lambda wire:parse_wire(wire,recover_parse),source_receipt_refs=source_receipt_refs,
+            invocation_id=nonce)
+        if recovered is not None:
+            codec=recovered.parse_receipt
+            accepted_contract=codec_contract+':'+REVISION
+    if record['status']=='failed' and (codec is None or codec.status!='parsed' or accepted_contract==codec_contract):
         raise ExecutionUncertain('import call has a recorded failure; fix or reconcile it without automatic retry')
-    if codec is None or codec.status!='parsed' or codec.codec_contract!=codec_contract:
+    if codec is None or codec.status!='parsed' or codec.codec_contract!=accepted_contract:
         raise ValueError('import provider parse binding differs')
     return {'payload':thaw_model_data(codec.parsed_payload),'request_ref':request.fingerprint,
         'parse_ref':codec.fingerprint,'reservation_ref':row['fingerprint'],
-        'trace_ref':nonce,'codec_contract':codec_contract,
+        'trace_ref':nonce,'codec_contract':accepted_contract,
         'actual_model':response.response_payload.get('model'),
         'wire_fingerprint':fingerprint(response.response_payload)}

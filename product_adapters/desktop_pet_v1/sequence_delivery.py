@@ -3,6 +3,15 @@ import json
 from framework.model_api import thaw_model_data
 from model_packages.desktop_pet_v1 import action_sequence as seq,shared_meal as meal
 
+_LABELS = {
+    'head_bow':'低头', 'head_tilt':'歪头', 'turn_left':'左转', 'turn_right':'右转',
+    'nod':'点头', 'shake_head':'摇头', 'wave_hand':'挥手', 'beckon':'招手',
+    'lie_down':'躺下', 'stand_up':'起身', 'play_tail':'摆尾', 'peek_phone':'翻手机',
+    'read_web':'联网阅读', 'stroll':'散步', 'relocate':'换位置', 'move_near':'走近', 'move_away':'走开',
+    'eat_rice':'吃饭', 'request_bowl':'索要饭碗', 'offer_bowl':'递碗', 'keep_bowl':'留着饭碗',
+    'accept_bowl':'接碗', 'decline_bowl':'谢绝接碗',
+}
+
 
 def context_for(app,event_id,selection):
     from model_packages.desktop_pet_v1.action_candidates import MODEL_VERSION
@@ -43,14 +52,20 @@ def verify_context(app,event_id,value):
             if policy not in (None,'owner-scene-v1'):raise ValueError('unknown output target policy')
             readers=output_readers(app,event_id) if policy else audience(app,event_id)
             if target not in readers:raise ValueError('action target outside authorized audience')
-        if 'meal' in row:
+        if 'social_contact' in row:
+            from model_packages.desktop_pet_v1.social_contact import verify_binding
+            bound=verify_binding(row['social_contact'])
+            if (bound['actor']!=value['owner_ref'] or bound['target']!=target
+                    or bound['key']!=row.get('action_key',row['key'])):
+                raise ValueError('contact candidate participant differs')
+        elif 'meal' in row:
             bound=meal.verify_binding(row['meal'])
             if bound['actor_ref']!=value['owner_ref'] or bound['target_ref']!=target:
                 raise ValueError('sequence candidate participant differs')
         elif row.get('action_key',row['key']) in ('move_near','stroll','move_away','relocate'):
             from model_packages.desktop_pet_v1 import movement
             movement.content(target,{**row,'key':row.get('action_key',row['key'])})
-        elif value['selection'].get('version')=='desktop-pet-model-action-candidates-v2' and row['key'] in ('play_tail','read_web')+BASIC_KEYS:
+        elif value['selection'].get('version')=='desktop-pet-model-action-candidates-v2' and row['key'] in ('play_tail','peek_phone','read_web')+BASIC_KEYS:
             from model_packages.desktop_pet_v1.action_candidates import bind_proposal
             from model_packages.desktop_pet_v1.behavior import content
             content(value['target_ref'],selection=bind_proposal(value['selection'],row))
@@ -58,13 +73,30 @@ def verify_context(app,event_id,value):
     return value
 
 
-def fields(value):
+def fields(value,*,compact=False):
     value=seq.validate_offer(value)
+    if compact:
+        from model_packages.desktop_pet_v1.social_contact import KINDS
+        labels={**_LABELS,**{verb+'_'+kind:title+label for kind,label in KINDS.items()
+                for verb,title in (('invite','邀请'),('accept','接受'),('decline','谢绝'))}}
+        choices={}
+        for row in value['catalog']['candidates']:
+            code=row['key']
+            if code not in value['allowed_keys']:continue
+            key=row.get('action_key',code)
+            label=labels.get(key,row['description'])
+            if code in ('move_near','move_away',*meal.KEYS[1:]):
+                label+='（'+row.get('target_ref',value['target_ref'])+'）'
+            choices.setdefault(label,[]).append(code)
+        return {'可选动作序列':choices}
     options=[]
     for row in value['catalog']['candidates']:
         if row['key'] not in value['allowed_keys']:continue
         item={'编码':row['key'],'含义':row['description']}
         if 'target_ref' in row:item['对象']=row['target_ref']
+        if 'world_object' in row:
+            item['公共物件坐标']=row['world_object']['point']
+        if 'social_contact' in row:item['执行容量']='同一对象本轮选一项接触邀请或回应；接受与拒绝互斥。'
         if row.get('action_key',row['key']) in ('move_near','move_away'):
             target=row.get('target_ref',value['target_ref'])
             item['对象']=target
@@ -137,17 +169,21 @@ def isolate_unavailable_thought(text):
     return json.dumps(value,ensure_ascii=False),rejected
 
 
-def isolate_unavailable(text,context):
+def isolate_unavailable(text,context,*,exact=False):
     """Keep independent siblings; never repair a dependent plan by guessing."""
     value=json.loads(text)
     if not isinstance(value,dict):raise ValueError('sequence output must be an object')
     context=seq.validate_offer(context)
     keys=value.get('actions')
+    if exact and keys is None:
+        keys=[];value['actions']=keys
+        text=json.dumps(value,ensure_ascii=False)
     if not isinstance(keys,list) or len(keys)>context['max_actions'] or any(not isinstance(k,str) for k in keys):
         raise ValueError('invalid action array')
     kept=[];rejected=[]
+    check=seq.validate_keys if exact else _selected_keys
     for index,key in enumerate(keys):
-        try:resolved=_selected_keys([key],context)
+        try:resolved=check([key],context)
         except ValueError:
             rejected.append({'index':index,'proposed_key':key,'status':'not_executed','reason':'outside_frozen_candidates'})
         else:kept.extend(resolved)
@@ -161,7 +197,7 @@ def isolate_unavailable(text,context):
     # anchor. Cancel that suffix; keep independent speech and expression.
     kept=[]
     for index,key in enumerate(keys):
-        if index<first:kept.extend(_selected_keys([key],context))
+        if index<first:kept.extend(check([key],context))
         elif not any(r['index']==index for r in rejected):
             rejected.append({'index':index,'proposed_key':key,'status':'not_executed','reason':'after_unavailable_action'})
     value['actions']=kept
@@ -202,8 +238,10 @@ def split_speeches(text,context):
 
 
 def split_expressions(text,context,*,allowed):
-    value=json.loads(text);segments=value.pop('expressions',None)
-    if segments is None:return text,None
+    value=json.loads(text)
+    if 'expressions' not in value:return text,None
+    segments=value.pop('expressions')
+    if segments is None:return json.dumps(value,ensure_ascii=False),None
     if not isinstance(segments,list) or not 1<=len(segments)<=4:raise ValueError('invalid expression sequence')
     keys=_selected_keys(value.get('actions'),context)
     for row in segments:

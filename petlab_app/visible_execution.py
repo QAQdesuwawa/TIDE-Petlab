@@ -40,9 +40,13 @@ class VisibleExecutionPublisher:
  def records(self,parent):
   directory=self.directory(parent)
   rows=sorted((_verify(_read(p)) for p in directory.glob('batch-*.json')),key=lambda r:r['sequence'])
+  if not rows:return rows
+  source=_verify(_read(directory/'source.json'))
+  if source['parent_action_id']!=parent:raise ValueError('visible checkpoint source differs')
   previous=None
   for index,row in enumerate(rows):
-   if row['sequence']!=index or row['previous']!=previous or row['source']['parent_action_id']!=parent:raise ValueError('visible checkpoint lineage differs')
+   if row['source']!=source:raise ValueError('visible checkpoint source differs')
+   if row['sequence']!=index or row['previous']!=previous:raise ValueError('visible checkpoint lineage differs')
    previous=row['fingerprint']
   return rows
  def recover(self):
@@ -58,18 +62,23 @@ class VisibleExecutionPublisher:
   destination=thaw_model_data(prepared.request.readonly_facts.get('participant_destination'))
   if destination is None:return None
   from .destinations import is_npc_whisper
+  direct=prepared.candidate.realization_evidence.get('speech_to')
   meta=_signed({'version':VERSION,'parent_action_id':parent,'owner_ref':app.owner_ref,
    'profile_fingerprint':app.definition.fingerprint,'session_binding':app.runtime.session.session_binding.fingerprint,
    'authorization_ref':prepared.authorization.fingerprint,'request_ref':prepared.request.fingerprint,
    'target_ref':prepared.authorization.target_ref,'destination':destination,
    **({'selected_speech_audience':list(prepared.candidate.candidate_payload['audience']['speech'])} if prepared.request.control.get('audience_contract') else {}),
+   **({'speech_to':list(direct)} if direct is not None else {}),
    **({'physical_observers':list(prepared.request.readonly_facts['audience_envelope']['physical_observers'])} if prepared.request.control.get('audience_contract') else {}),
    **({'public_physical_envelope':True} if is_npc_whisper(destination) else {})})
   _immutable(self.directory(parent)/'source.json',meta)
   return Recorder(self,prepared,tuple(contents),meta,app.runtime.session.session_binding)
  def save(self,meta,items,*,evidence_kind='physical_execution_checkpoint',commit_ref=None):
   if not items:return None
-  existing=self.records(meta['parent_action_id']);seen={phase_key(i):i for r in existing for i in r['items']}
+  _verify(meta)
+  parent=meta['parent_action_id']
+  _immutable(self.directory(parent)/'source.json',meta)
+  existing=self.records(parent);seen={phase_key(i):i for r in existing for i in r['items']}
   fresh=[]
   for item in items:
    key=phase_key(item)
@@ -90,8 +99,7 @@ class VisibleExecutionPublisher:
   _verify(row);meta=_verify(row['source']);w=self.workspace;owner=meta['owner_ref'];parent=meta['parent_action_id']
   if (meta['version']!=VERSION or row['version']!=VERSION or owner not in w.aliases
       or w.definitions[w.aliases[owner]].fingerprint!=meta['profile_fingerprint']):raise ValueError('visible checkpoint owner differs')
-  destination=meta['destination'];descriptor=next((d for d in w.conversations.values() if d.as_record()==destination['conversation']),None)
-  if descriptor is None:raise ValueError('visible checkpoint destination differs')
+  destination=meta['destination'];_,descriptor=w.registered_destination(destination['conversation'])
   if 'physical_observers' in meta:
    observers=meta['physical_observers']
    if len(set(observers))!=len(observers) or set(observers)!=set(w.participants)-{owner}:
@@ -129,13 +137,16 @@ class VisibleExecutionPublisher:
     **{k:item[k] for k in ('phase','started_at_ms','at_ms','reason','cause_ref')}})
   if not items:return
   segment=parent+'#visible:'+row['fingerprint']
+  from product_adapters.desktop_pet_v1.audience_delivery import visible_targets
+  targets=visible_targets([meta['target_ref']],meta.get('speech_to'),items)
   manifest={'version':MANIFEST,'parent_event_id':parent,'segment_id':segment,'actor_ref':owner,
-   'target_refs':[meta['target_ref']],'items':items,'sequence':row['sequence'],
+   'target_refs':targets,'items':items,'sequence':row['sequence'],
    'previous_segment_id':None if row['previous'] is None else parent+'#visible:'+row['previous']}
   from model_packages.cx_six_seven_v1.multi_participant.events import canonical_npc_output_event_id,commit_message_event
   canonical=canonical_npc_output_event_id(conversation_id=descriptor.conversation_id,sender_participant_id=owner,action_id=segment)
+  # Route the authorized target separately from each child's visible audience.
   event=commit_message_event(descriptor,event_id=canonical,sender_participant_id=owner,text=ENVELOPE_TEXT,
-   committed_at_ms=max(i['at_ms'] for i in items),sender_action_id=segment,addressed_participant_ids=destination['addressed'])
+   committed_at_ms=max(i['at_ms'] for i in items),sender_action_id=segment,addressed_participant_ids=manifest['target_refs'])
   origin={'kind':'npc','participant_id':owner,'action_id':segment,'event_fingerprint':fp(manifest),
    'commit_fingerprint':row['fingerprint'],'evidence_kind':row['evidence_kind'],'parent_action_id':parent,
    **({'private_speech_target':meta['target_ref']} if meta.get('public_physical_envelope') else {})}
@@ -191,7 +202,7 @@ class Recorder:
   if state['source']['prepared_fingerprint']!=self.prepared.fingerprint:raise ValueError('visible effect has no sealed parent')
   actual=[];keys=set()
   for row in value['items']:
-   extras={'gaze_result','movement_result','meal_result'} if value['version']=='petlab-visible-effect-v3-object' else {'gaze_result','movement_result'} if value['version']=='petlab-visible-effect-v2-spatial' else set()
+   extras={'gaze_result','movement_result','meal_result','contact_result'} if value['version']=='petlab-visible-effect-v3-object' else {'gaze_result','movement_result'} if value['version']=='petlab-visible-effect-v2-spatial' else set()
    if set(row)!=({'content','phase','started_at_ms','at_ms','reason','cause_ref'}|(set(row)&extras)):raise ValueError('visible effect fields differ')
    c=Content.from_record(row['content']);identity=c.content_id;child=state['children'].get(identity,{})
    if c.private or c.kind not in KINDS:raise ValueError('private or invisible child cannot be published')
@@ -230,6 +241,10 @@ class Recorder:
     from model_packages.desktop_pet_v1.shared_meal import result_content
     visible=replace(result_content(c,row.get('meal_result'),status=row['phase']),parameters={})
    elif 'meal_result' in row:raise ValueError('meal result has no completed body action')
+   if 'social_contact' in c.parameters and row['phase']!='started':
+    from model_packages.desktop_pet_v1.social_contact import realized
+    visible=replace(realized(c,row.get('contact_result'),row['phase']),parameters={})
+   elif 'contact_result' in row:raise ValueError('contact result has no completed body action')
    from .visible_delivery import action_description
    visible=replace(visible,description=action_description(c,visible.description))
    plan=self.prepared.composite_plan()
@@ -237,7 +252,7 @@ class Recorder:
     from model_packages.desktop_pet_v1.action_sequence import describe_stage,body_order
     bodies=body_order(plan.children)
     visible=describe_stage(visible,bodies.index(c.content_id))
-   actual.append({**{k:v for k,v in row.items() if k not in {'gaze_result','movement_result','meal_result'}},'content':visible.to_record()})
+   actual.append({**{k:v for k,v in row.items() if k not in {'gaze_result','movement_result','meal_result','contact_result'}},'content':visible.to_record()})
   self.publisher.save(self.meta,actual)
 
 

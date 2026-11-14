@@ -142,6 +142,7 @@ def current_projection(package,payload,context):
 def evaluate(package,*,identity,row,current,context):
     view=view_for(context);source=source_for(view,identity);cue=context.metadata[KEY]['cue']
     sem,match=association(cue,source)
+    sem*=cue.get("semantic_strength",1.)
     historical=row['recall_input']['projection']['vector']
     h=math.hypot(*historical.values());q=math.hypot(*current.values())
     signed=max(-1.,min(1.,sum(current[k]*historical[k] for k in PROJECTION_AXES)/h/q)) if h and q else None

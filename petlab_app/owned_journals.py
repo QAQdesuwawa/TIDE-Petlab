@@ -39,6 +39,15 @@ def _owned(value,previous=None):
         return previous
     return ImmutableModelRecord(value) if isinstance(value,Mapping) else value
 
+def seal_progress_rows(profile):
+    """Own restored rows before the native validator first sees them."""
+    key = 'runtime_progress_transactions'
+    rows = profile.get(key)
+    if not isinstance(rows, (list, tuple)):
+        return profile  # The native reader reports invalid journals.
+    return {**profile, key: [_owned(row) for row in rows]}
+
+
 def seal_session(session,*,previous_profile=None):
     profile=dict(session.profile)
     previous_profile={} if previous_profile is None else previous_profile

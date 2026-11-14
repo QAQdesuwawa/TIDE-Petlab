@@ -28,28 +28,44 @@ def remember(app,action_id,event_id):
     publish_session(app,replace(app.runtime.session,profile={**app.runtime.session.profile,KEY:{**rows,event_id:row}}))
 
 
-def follows_completed_execution(app,event_id):
+def completed_effect(app,event_id):
+    """Resolve the immediate actual effect linked to the original peer grant."""
     row=app.runtime.session.profile.get(KEY,{}).get(event_id)
-    if row is None:return False
+    if row is None:return None
     _verify(row)
-    from .intent_history import FACTS_KEY
-    chain=app.runtime.session.profile.get(FACTS_KEY,{}).get(event_id,())
     grant=app.runtime.session.profile.get(PEER,{}).get('assessments',{}).get(event_id)
-    if grant is None:return False
+    if grant is None:return None
     _verify(grant)
     product=app._product();entry=product['executions'].get(row['action_id'],{})
-    fact=app.runtime.memory_instance(event_id).fact
+    fact_memory=app.runtime.memory_instance(event_id)
+    fact=fact_memory.fact
     if (row['version']!=KEY or row['event_id']!=event_id or row['input_fact']!=fact.fingerprint
         or row['grant']!=grant['fingerprint'] or grant['version']!=PEER or not grant['eligible']
         or row['prepared_fingerprint']!=entry.get('prepared_fingerprint')):
         raise ValueError('live input source binding differs')
-    if (not chain or chain[-1]['phase']!='formed' or entry.get('status')!='executed'
-        or 'intention:'+chain[0]['intention_id'] in product['sources']
-        or event_id in app.runtime.session.profile.get(PEER,{}).get('outcomes',{})):
-        return False
+    if entry.get('status')!='executed':return None
+    from product_adapters.desktop_pet_v1 import EVENT_JOURNAL_KEY
+    if row['action_id'] not in app.runtime.session.profile.get(EVENT_JOURNAL_KEY,{}):return None
     effect=app.runtime.memory_instance(row['action_id'])
     app._verify_source(effect.event)
-    if effect.fact.accepted_runtime_ordinal!=fact.accepted_runtime_ordinal+1:return False
+    if effect.fact.accepted_runtime_ordinal!=fact.accepted_runtime_ordinal+1:return None
+    if not any(ref['event_id']==event_id and ref['source_binding']==fact_memory.event.source_binding_ref
+               for ref in entry.get('live_input_sources',())):
+        raise ValueError('completed playback lacks the bound input')
+    return effect
+
+
+def follows_completed_execution(app,event_id):
+    from .intent_history import FACTS_KEY
+    chain=app.runtime.session.profile.get(FACTS_KEY,{}).get(event_id,())
+    product=app._product()
+    if (not chain or chain[-1]['phase']!='formed'
+            or 'intention:'+chain[0]['intention_id'] in product['sources']
+            or event_id in app.runtime.session.profile.get(PEER,{}).get('outcomes',{})):
+        return False
+    effect=completed_effect(app,event_id)
+    if not effect:return False
+    row=app.runtime.session.profile[KEY][event_id]
     position=app.runtime.session.position
     if effect.fact.accepted_runtime_ordinal==position.runtime_ordinal:
         return effect.fact.temporal_position_fingerprint==position.position.fingerprint

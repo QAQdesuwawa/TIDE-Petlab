@@ -3,6 +3,15 @@ from pathlib import Path
 import argparse,hashlib,json,os,shutil,urllib.request,zipfile
 RESOURCE=Path(__file__).resolve().parents[1]/'model_packages/desktop_pet_v1/resources/local-models'
 
+def model_root():
+    configured=os.environ.get('TIDE_PET_LOCAL_MODELS')
+    if configured:return Path(configured)
+    bundled=Path(__file__).resolve().parents[1]/'local_models'
+    shared=bundled.parent.parent/'local_models'
+    if not (bundled/'MODEL_MANIFEST.json').is_file() and (shared/'MODEL_MANIFEST.json').is_file():
+        return shared
+    return bundled
+
 def digest(path):
     h=hashlib.sha256()
     with Path(path).open('rb') as f:
@@ -70,6 +79,6 @@ def ensure(root,*,verify=False):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--verify',action='store_true');p.add_argument('--root',type=Path)
-    a=p.parse_args();root=a.root or Path(os.environ.get('TIDE_PET_LOCAL_MODELS',str(Path(__file__).resolve().parents[1]/'local_models')))
+    a=p.parse_args();root=a.root or model_root()
     print(json.dumps(ensure(root,verify=a.verify),ensure_ascii=False))
 if __name__=='__main__':main()

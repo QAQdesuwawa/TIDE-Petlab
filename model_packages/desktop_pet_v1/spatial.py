@@ -5,6 +5,7 @@ from framework.model_api import model_data_fingerprint as fp,thaw_model_data
 VERSION='desktop-pet-scene-v1'
 MULTI_VERSION='desktop-pet-scene-v2'
 WORLD_VERSION='desktop-pet-scene-v3-world'
+SCREEN_PREFIX='world:screen:'
 MAX_WORLD_OBJECTS=16
 PUBLIC_OBJECT_ROLES={'author_ref':'作者','addressee_ref':'收件人'}
 MAX_PARTICIPANTS=16  # Bounded objective context; only four-pet deployment is tested.
@@ -24,7 +25,7 @@ def _bounds(v):
 
 
 def world_object(value):
- if not isinstance(value,Mapping) or set(value)-{'roles','bounds'}!={'ref','label','point'}:raise ValueError('invalid world object fields')
+ if not isinstance(value,Mapping) or set(value)-{'roles','bounds','fact'}!={'ref','label','point'}:raise ValueError('invalid world object fields')
  ref=_ref(value['ref'])
  if not ref.startswith('world:') or len(ref)==len('world:') or '@' in ref:raise ValueError('invalid world object reference')
  label=value['label'];point=value['point']
@@ -35,6 +36,11 @@ def world_object(value):
   x,y,w,h=_bounds(value['bounds'])
   if not (x<=point[0]<x+w and y<=point[1]<y+h):raise ValueError('world object point outside bounds')
   row['bounds']=[x,y,w,h]
+ if 'fact' in value:
+  fact=value['fact']
+  if ref.startswith(SCREEN_PREFIX) or not isinstance(fact,str) or not fact.strip() or len(fact)>120:
+   raise ValueError('invalid public object fact')
+  row['fact']=fact
  if 'roles' in value:
   roles=value['roles']
   if not isinstance(roles,Mapping) or not roles or not set(roles).issubset(PUBLIC_OBJECT_ROLES):
@@ -81,7 +87,8 @@ def validate(value):
 
 def targets(scene):
  scene=validate(scene)
- return ('front',)+tuple(r['ref'] for r in scene['participants'] if r['ref']!=scene['owner_ref'])
+ return (('front',)+tuple(r['ref'] for r in scene['participants'] if r['ref']!=scene['owner_ref'])
+         +tuple(r['ref'] for r in scene.get('objects',()) if r['ref'].startswith(SCREEN_PREFIX)))
 
 
 def direction(scene,target):
@@ -104,7 +111,7 @@ def direction(scene,target):
 def separation(scene,target):
  """Measured window geometry, not intimacy, audibility or permission."""
  s=validate(scene)
- if target=='front' or target not in targets(s):raise ValueError('distance target is not visible')
+ if target=='front' or target.startswith(SCREEN_PREFIX) or target not in targets(s):raise ValueError('distance target is not visible')
  a=next(r['bounds'] for r in s['participants'] if r['ref']==s['owner_ref'])
  b=next(r['bounds'] for r in s['participants'] if r['ref']==target)
  dx=b[0]+b[2]/2-a[0]-a[2]/2;dy=b[1]+b[3]/2-a[1]-a[3]/2
@@ -126,11 +133,12 @@ def card(scene,*,include_distances=False):
    if include_distances:
     row['距离']={k:v for k,v in separation(scene,r['ref']).items() if k not in {'scene_fingerprint','sampled_at_ms'}}
   rows.append(row)
- objects=scene.get('objects',())
+ objects=[obj for obj in scene.get('objects',()) if not obj['ref'].startswith(SCREEN_PREFIX)]
  return json.dumps({'现场':'桌面窗口当前采样，单位像素，横轴向右/纵轴向下','自己':scene['owner_ref'],
   '采样毫秒':scene['sampled_at_ms'],'可见对象':rows,'视线可选目标':list(targets(scene)),
   'front含义':'朝向屏幕前方',
   **({'公共物件':[{'对象':obj['ref'],'名称':obj['label'],'坐标':obj['point'],
+      **({'现场状态':obj['fact']} if 'fact' in obj else {}),
       **({'公开角色':{PUBLIC_OBJECT_ROLES[key]:value for key,value in obj['roles'].items()}} if 'roles' in obj else {})}
      for obj in objects]} if objects else {})},
   ensure_ascii=False,separators=(',',':'))

@@ -7,7 +7,7 @@ from model_packages.desktop_pet_v1.semantic import evidence_source
 VERSION='desktop-pet-committed-relation-annotation-v1'
 FIELD='内容归属注解'
 
-def for_memory(profile,memory,reader_ref):
+def for_memory(profile,memory,reader_ref,*,allow_unresolved_alias=False):
     event=memory.event
     if (event.visible_contents(reader_ref)!=event.contents or not event.contents
         or any(c.kind!='speech' or c.private for c in event.contents)):return None
@@ -17,15 +17,24 @@ def for_memory(profile,memory,reader_ref):
     claims=frame.get('relation_claims',())
     if not isinstance(claims,(list,tuple)):raise ValueError('relation annotation claims invalid')
     names={'user':profile['desktop_pet_product_v1'].get('user_ref'),'current_npc':event.owner_ref,'third_party':'原话中的第三方','unresolved':'未确定'}
+    for participant in (names['user'], event.owner_ref):
+        if participant:
+            names.setdefault(participant, participant)
     text=evidence_source(event);rows=[]
     for claim in claims:
         if not isinstance(claim,Mapping):raise ValueError('relation annotation claim invalid')
         a,b,relation=claim.get('subject'),claim.get('target'),claim.get('relation');span=claim.get('evidence_span')
-        if (a not in names or b not in names or not names[a] or not names[b]
+        if (not isinstance(a,str) or not isinstance(b,str)
             or not isinstance(relation,str) or not relation
             or not isinstance(span,(list,tuple)) or len(span)!=2
             or any(type(n)is not int for n in span) or not 0<=span[0]<span[1]<=len(text)):
             raise ValueError('relation annotation lacks located source evidence')
+        # A grounded quotation can still have unresolved participant aliases.
+        # Keep the source memory and omit that optional relation annotation.
+        unresolved = [name for name in (a, b) if not names.get(name)]
+        if not allow_unresolved_alias and any(':' in name for name in unresolved):
+            raise ValueError('relation annotation lacks located source evidence')
+        if unresolved:continue
         rows.append({'主体':names[a],'涉及对象':names[b],'关系理解':relation,'原文依据':text[span[0]:span[1]]})
     return {'性质':'这段原话的关系理解','关系':rows} if rows else None
 
@@ -50,8 +59,14 @@ def _measurement(profile,memory):
     if (previous is not None and previous[0] is source and previous[1] is entry
             and previous[2]==event and entry.get('fact_fingerprint')==memory.fact.fingerprint):
         return measurement
+    from petlab_app.checkpoint_journal import _same
+    event_record = event.to_record() if owned else None
+    def matches(row):
+        # Exact owned bytes can be compared to the already validated event.
+        # Legacy representations and unowned values still use the full parser.
+        return (owned and _same(row, event_record)) or PetEvent.from_record(row) == event
     if (entry.get('fact_fingerprint')!=memory.fact.fingerprint
-        or PetEvent.from_record(entry['event'])!=event or PetEvent.from_record(source['event'])!=event
+        or not matches(entry['event']) or not matches(source['event'])
         or not isinstance(measurement,Mapping)
         or model_data_fingerprint(measurement)!=entry.get('measurement_fingerprint')):
         raise ValueError('relation annotation differs from committed measurement')

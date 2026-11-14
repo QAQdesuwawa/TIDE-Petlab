@@ -15,11 +15,11 @@ def head(app,root):
     return app.runtime.session.profile.get(KEY,{}).get('heads',{}).get(root)
 
 
-def validate(app,root,planning):
+def verified_inputs(app,root,planning):
     from .peer_reaction import KEY as PEER,_verify,is_peer
     from .intention_continuation import validate_planning
     nodes=app.runtime.session.profile.get(KEY,{}).get('nodes',{})
-    original=planning;seen=set()
+    inputs=[];seen=set()
     while _id(root,planning) in nodes:
         if planning in seen:raise ValueError('retained planning cycle')
         seen.add(planning)
@@ -36,10 +36,16 @@ def validate(app,root,planning):
             or not is_peer(app,planning)
             or memory.fact.accepted_runtime_ordinal!=previous.fact.accepted_runtime_ordinal+1):
             raise ValueError('retained planning differs from adjacent ineligible source')
+        inputs.append(memory)
         planning=row['previous']
     # Terminates at the original formation or a verified inherited planning source.
     validate_planning(app,root,planning,_formation_only=True)
-    return app.runtime.memory_instance(original)
+    return tuple(inputs)
+
+
+def validate(app,root,planning):
+    inputs=verified_inputs(app,root,planning)
+    return inputs[0] if inputs else app.runtime.memory_instance(planning)
 
 
 def retain(app,root,after):

@@ -68,6 +68,12 @@ def verify_recovery(app,prepared,entry,*,allow_pending=False):
     if settled!=ids[:len(settled)]:raise ValueError('recovery input order differs')
     later=[event.event_id for event in app.runtime.events
         if app.runtime.memory_instance(event.event_id).fact.accepted_runtime_ordinal>prepared.position.runtime_ordinal]
+    preceding=entry.get('preceding_effect')
+    if preceding is not None:
+        source=app._product()['sources'].get(preceding,{})
+        if (settled or source.get('origin')!='execution' or preceding not in accepted):
+            raise ValueError('recovery lacks the preceding sealed effect')
+        settled=[preceding]
     if later!=settled:raise ValueError('recovery crosses unrelated formal history')
     expected=(app.runtime.memory_instance(settled[-1]).fact.temporal_position_fingerprint
         if settled else prepared.position.position.fingerprint)

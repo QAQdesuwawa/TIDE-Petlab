@@ -61,8 +61,13 @@ class MultiPetPackage(DesktopPetPackage):
   if not isinstance(peer,str) or not peer or peer==self.owner_ref:raise ValueError('directed peer invalid')
   DirectedRelationshipKey(self.owner_ref,peer)
   if peer not in meta['roots_by_peer']:
-   if (context.metadata.get('committed_event_kind')!='peer_input'
-       or not context.metadata.get('desktop_pet_relation_source')):raise ValueError('new relation needs a received committed source')
+   source=context.metadata.get('desktop_pet_relation_source')
+   imported=context.metadata.get('desktop_pet_imported_pair_source')
+   performed=context.metadata.get('desktop_pet_performed_pair_source')
+   kind=context.metadata.get('committed_event_kind')
+   own_effect=kind=='npc_output' and performed==source
+   if not source or (kind!='peer_input' and imported!=source and not own_effect):
+    raise ValueError('new relation needs a committed participant effect or paired transcript source')
    roots=thaw_model_data(self.manifest.parameter_package['initial_state_default'])
   else:roots=thaw_model_data(meta['roots_by_peer'][peer])
   return peer,roots

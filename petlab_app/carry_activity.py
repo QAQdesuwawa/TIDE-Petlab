@@ -7,6 +7,20 @@ def build(frames,activities):
     from .whole_frame_renderer import animate_tail
     result=dict(frames);clips={};mapping={}
     base=activities['play_tail'];count=48
+    if base.get('expression_slots'):
+        count=len(base['frames'])-1
+        for pose,key,index in [('hold_bowl','eat_rice',0),('offer_bowl','offer_bowl',-1)]:
+            offset=max(map(len,result.values()))
+            for code,old in result.items():
+                source=frames[code][activities[key]['frames'][index]]
+                config={'frame_count':count,'region':[.75,.60,.94,.91],
+                        'amplitude_px':min(source.width,source.height)*.045,'tail_origin':'left'}
+                samples=animate_tail(source,config)+(source,)
+                result[code]=old+(old[0],)*(offset-len(old))+samples
+            indices=list(range(offset,offset+count+1))
+            clips[pose]={'frames':indices,'durations_ms':list(base['durations_ms'])}
+            mapping.update({i:0 for i in indices})
+        return result,clips,mapping
     for pose,key,index in [('hold_bowl','eat_rice',0),('offer_bowl','offer_bowl',-1)]:
         source=frames['normal'][activities[key]['frames'][index]]
         config={'frame_count':count,'region':[.025,.64,.30,.93],'amplitude_px':16.15,

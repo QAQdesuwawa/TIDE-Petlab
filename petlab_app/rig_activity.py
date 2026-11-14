@@ -122,7 +122,8 @@ def load_rig(root, binding_name, size, *, allow_views=True, _sources=None):
         if set(idle)!={'channels','blink_code'} or not isinstance(idle['blink_code'],str):raise ValueError('invalid rig idle')
         _channels(idle['channels'],known)
         if not any(idle['blink_code'] in p.get('expressions',{}) for p in parts):raise ValueError('missing rig blink expression')
-    rig={'parts':parts,'textures':textures,'base':base,'idle':idle,'scale':scale,'roots':{p['id'] for p in parts if p.get('parent') is None}}
+    rig={'parts':parts,'textures':textures,'base':base,'idle':idle,'scale':scale,'roots':{p['id'] for p in parts if p.get('parent') is None},
+         '_binding_key':(str(path),tuple(size))}
     basis=binding.get('pose_basis',{'reflection':1,'pairs':[]})
     if (not isinstance(basis,dict) or set(basis)!={'reflection','pairs'}
         or type(basis['reflection']) is not int or basis['reflection'] not in (-1,1)
@@ -217,7 +218,11 @@ def load_rig(root, binding_name, size, *, allow_views=True, _sources=None):
 def append(frames, root, binding_name, declarations):
     if not declarations:return frames,{},{}
     first=next(iter(frames.values()))[0];size=(first.width,first.height)
-    rig=load_rig(root,binding_name,size)
+    existing=first.rig if isinstance(first,RigFrame) else None
+    key=(str((Path(root)/binding_name).resolve()),tuple(size))
+    # Appending another action family must not replace the standing rig while
+    # leaving existing action frames attached to a different orientation family.
+    rig=existing if existing is not None and existing.get('_binding_key')==key else load_rig(root,binding_name,size)
     base=rig['base'];idle=rig['idle']
     known={p['id']:{'x','y','angle','opacity',*p.get('deformers',{})} for p in rig['parts']}
     result=dict(frames);clips={};mapping={}

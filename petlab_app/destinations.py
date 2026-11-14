@@ -57,6 +57,21 @@ def _read_input(app,event_id):
  from .participant_input import VERSIONS,validate as validate_input
  receipt=source['evidence'].get('input_source',{})
  from .obstruction_input import VERSION as OBSTRUCTION
+ from .scene_encounter import DESKTOP_VERSION
+ from .screen_perception import VERSIONS as SCENE_FACTS
+ if receipt.get('version') in {DESKTOP_VERSION,*SCENE_FACTS} and hasattr(app,'multi_workspace'):
+  w=app.multi_workspace
+  if receipt['version'] in SCENE_FACTS:
+   readers=sorted((set(receipt['material']['viewers']) & set(w.participants))-{app.owner_ref})
+   if not readers:readers=[app.user_ref]
+  else:readers=[receipt['actor_ref']]
+  conversation=w.audience_scope({app.owner_ref,*readers},local=True)
+  audience=[ref for ref in conversation.active_member_ids if ref!=app.owner_ref]
+  row={'version':VERSION,'owner_ref':app.owner_ref,'session_binding':app.runtime.session.session_binding.fingerprint,
+       'source_event_id':event_id,'source_binding_ref':event.source_binding_ref,
+       'conversation':conversation.as_record(),'participants':[w.participants[x].as_record() for x in conversation.active_member_ids],
+       'primary':audience[0],'audience':audience,'addressed':audience}
+  return validate(app,{**row,'fingerprint':fp(row)})
  if receipt.get('version')==OBSTRUCTION and hasattr(app,'multi_workspace'):
   from .idle_targets import make_destination
   row=make_destination(app,receipt['actor_ref'])

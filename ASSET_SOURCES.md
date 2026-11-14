@@ -18,3 +18,7 @@ DeepSeek 社区拟人化鲸鱼女仆的最初两张参考图来自 Pixiv，具�
 ## 本地模型与运行时
 
 Qwen3 embedding 和 reranker 为 Apache-2.0；llama.cpp 为 MIT，并保留 LLVM OpenMP 许可。完整下载包中保留相应许可文本、模型卡与文件清单，详见 [LOCAL_MODELS.md](LOCAL_MODELS.md)。
+
+### 四角色运行素材
+
+三套侧视分层和四角色背视图属于运行时图像。背视图由项目根据既有角色形象生成，未附带原始参考图、制作记录或预览缓存。角色名称和形象用于说明社区拟人素材，软件许可证范围沿用上文。

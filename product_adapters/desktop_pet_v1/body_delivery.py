@@ -21,10 +21,12 @@ def plan_fields(context, *, owner_ref):
         '计划含义':'同一父反应中已选中的身体子项；实际完成和对方是否承接以各自执行记录为准。'}
 
 
-def augment(delivery,context,*,budget_chars,include_scene=True):
+def augment(delivery,context,*,budget_chars,include_scene=True,concise=False):
     c=thaw_model_data(context);s=m.validate(c['scene'])
     if c['key'] not in m.available(s,c['actor_ref'],c['target_ref']):raise ValueError('body context identity differs')
-    text='\n\n【本轮身体行动与共同道具】\n'+(m.card(s)+'\n' if include_scene else '')+c['actor_ref']+'本轮已由符号层选择：'+c['description']+'；对象：'+c['target_ref']+'。话语可与行动配合。实际完成和对方是否接过由各自执行回执确认。'
+    plan=(c['actor_ref']+'计划'+c['description']+'；对象：'+c['target_ref']+'。' if concise else
+          c['actor_ref']+'本轮已由符号层选择：'+c['description']+'；对象：'+c['target_ref']+'。话语可与行动配合。实际完成和对方是否接过由各自执行回执确认。')
+    text='\n\n【本轮身体行动与共同道具】\n'+(m.card(s)+'\n' if include_scene else '')+plan
     if len(text)>600:raise ValueError('body context exceeds bounded description')
     out=thaw_model_data(delivery);out['user']+=text
     if len(out['system'])+len(out['user'])>budget_chars:raise ValueError('selected body context exceeds Writer budget')

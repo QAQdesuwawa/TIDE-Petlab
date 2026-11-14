@@ -7,6 +7,8 @@ source frontier. Cache hits never return a previous live vector.
 """
 from collections import OrderedDict
 import math
+from time import perf_counter
+from types import SimpleNamespace
 from .memory_time_window import profile_for_node
 from framework.model_api import model_data_fingerprint
 from model_packages.cx_six_seven_v1.memory_projection import CanonicalMemoryProjection
@@ -19,6 +21,7 @@ from model_packages.cx_six_seven_v1.continuous_root_projection import project_co
 from model_packages.cx_six_seven_v1.root_dynamics import LEVER_AXES,HOUR_MS
 from model_packages.cx_six_seven_v1.memory_forward_readout import _INTRINSIC_BOUND_RADIUS
 VERSION='validated-source-fresh-phi-v1'
+_CERTIFICATE_CAPACITY = 4096
 
 class Lineage:
     __slots__=('parents','edges')
@@ -35,6 +38,27 @@ class Lineage:
 def lineage_values(value):return value.values() if isinstance(value,Lineage) else value
 
 
+def prevalidate_committed_sources(package, view, position, *, check_resources=None):
+    """Warm static certificates at session opening, before any query deadline."""
+    if not view.count:
+        return
+    context = SimpleNamespace(
+        temporal_position=position.position, runtime_ordinal=position.runtime_ordinal)
+    start = max(0, view.count - _CERTIFICATE_CAPACITY)
+    # Keep scratch numeric evaluations scoped to a batch. Only static
+    # certificates survive on the source index across batches and queries.
+    for batch_start in range(start, view.count, 32):
+        if check_resources is not None:
+            check_resources()
+        reader = DirectReader(package, view, context)
+        for index in range(batch_start, min(batch_start + 32, view.count)):
+            if not reader.ensure(view.identity_at(index), math.inf, perf_counter):
+                raise RuntimeError("committed memory source certificate was not retained")
+        del reader
+    if check_resources is not None:
+        check_resources()
+
+
 class DirectReader:
     def __init__(self,package,view,context):
         self.package=package;self.view=view;self.context=context
@@ -48,8 +72,16 @@ class DirectReader:
         self._numeric_cache={}
         self._flow_cache={}
         self._checked_propagation=set()
+        self._source_keys={}
+
     def key(self,identity):
-        return (identity,id(self.view.node(identity)),tuple(e.fingerprint for e in self.view.incoming(identity)),self.parameter_key)
+        # The reader is bound to one immutable source view and parameter set.
+        key=self._source_keys.get(identity)
+        if key is None:
+            key=(identity,id(self.view.node(identity)),
+                 tuple(e.fingerprint for e in self.view.incoming(identity)),self.parameter_key)
+            self._source_keys[identity]=key
+        return key
     def remember(self,raw,prepared):
         from .memory_index_query import _edge_record
         rows={r['event_id']:r for r in prepared['memory_inputs']['candidates']}
@@ -73,7 +105,7 @@ class DirectReader:
             self.cache[key]={'projection':projection,'edges':tuple(edges),'times':times,'bindings':bindings,
                 'lineage':tuple(receipt['lineage_edge_ids']),'validated_at':self.at,'validated_ordinal':self.ordinal,
                 'node_ordinal':node['accepted_runtime_ordinal']}
-            while len(self.cache)>4096:self.cache.popitem(last=False)
+            while len(self.cache)>_CERTIFICATE_CAPACITY:self.cache.popitem(last=False)
     def compile_node(self,identity):
         from .memory_index_query import _edge_record
         node=self.view.node(identity)
@@ -190,7 +222,7 @@ class DirectReader:
                 parents.append(parent['lineage'])
             source['lineage']=Lineage(parents,[e.edge_id for e in source['edges']])
             local[key]=source;self.cache[key]=source
-            while len(self.cache)>4096:self.cache.popitem(last=False)
+            while len(self.cache)>_CERTIFICATE_CAPACITY:self.cache.popitem(last=False)
             visiting.remove(node_id)
         return self.key(identity) in self.cache
     def get(self,identity):

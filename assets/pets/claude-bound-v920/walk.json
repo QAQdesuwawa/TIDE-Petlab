@@ -1,0 +1,35 @@
+{
+  "version": "petlab-whole-walk-v1",
+  "whole_manifest_sha256": "f9f2bdaba0325a576dc0b4ffb58c8c006053c5fe6b0cea56797784cca95ea653",
+  "source_size": [
+    512,
+    512
+  ],
+  "frame_count": 24,
+  "feet": [
+    [
+      0.382,
+      0.82,
+      0.5,
+      0.97
+    ],
+    [
+      0.5,
+      0.82,
+      0.62,
+      0.97
+    ]
+  ],
+  "tail": [
+    0.7,
+    0.73,
+    0.925,
+    0.9
+  ],
+  "foot_sway_px": 22,
+  "foot_lift_px": 21,
+  "tail_sway_px": 10,
+  "body_bob_px": 6,
+  "lean_px": 4,
+  "stride_widths": 0.34
+}

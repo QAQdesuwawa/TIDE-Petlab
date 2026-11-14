@@ -1,7 +1,7 @@
 """Exact-ID, content-only local RAG beside the already-settled numeric lane."""
 from pathlib import Path
 from types import SimpleNamespace
-import hashlib,json,time
+import hashlib,json,re,time
 from functools import lru_cache
 from framework.model_api import model_data_fingerprint,thaw_model_data
 from model_packages.desktop_pet_v1.events import PetEvent,MemoryInstance
@@ -15,7 +15,12 @@ from .relation_annotations import for_memory,FIELD
 
 CONTEXT_VERSION='desktop-pet-local-rag-exchange-content-context-v2'
 RETRIEVAL_TEXT_VERSION='desktop-pet-literal-query-address-filter-v1'
-
+INDEPENDENT_RETRIEVAL_VERSION='desktop-pet-literal-query-independent-candidates-v2'
+LITERAL_ADDRESS_VERSION='desktop-pet-quoted-value-address-v1'
+_QUOTE_PAIRS=(('"','"'), ("'","'"), ('“','”'), ('‘','’'),
+              ('「','」'), ('『','』'), ('《','》'))
+_QUOTE_CHARS=''.join(left+right for left,right in _QUOTE_PAIRS)
+_CLAUSE_BREAK=re.compile(r'[\r\n.!?;。！？；]+')
 
 def _literal_query(event):
     return '\n'.join(c.description for c in event.visible_contents(event.owner_ref) if c.kind=='speech')
@@ -37,6 +42,7 @@ def _snapshot(documents):
     return h.hexdigest()
 
 ASSEMBLY_VERSION='desktop-pet-authorized-memory-order-v3'
+GRADED_ADDRESS_REPORT_VERSION='desktop-pet-shared-address-candidates-v2'
 from .rag_passages import VERSION as DOCUMENT_VERSION,project as passage_documents
 
 @lru_cache(maxsize=4096)
@@ -51,7 +57,7 @@ def _address_projection(properties):
 class RagMemoryService:
     def __init__(self,*,application,provider,trace_dir,reply_source_key=None):
         self.application=application;self.provider=provider;self.trace_dir=Path(trace_dir)
-        self._sources={};self._exchanges={};self._reply_keys={};self._prefetch=None;self.reply_source_key=reply_source_key;self._address_cache={};self._passages={}
+        self._sources={};self._exchanges={};self._reply_keys={};self._prefetch=None;self.reply_source_key=reply_source_key;self._address_cache={};self._passages={};self._literal_values={}
     def _source(self,event_id):return self.application.runtime.memory_instance(event_id)
     def _documents(self,source,history,*,document_version=DOCUMENT_VERSION):
         return self._documents_for(event=source.event,before_ordinal=source.fact.accepted_runtime_ordinal,history=history,document_version=document_version)
@@ -136,7 +142,7 @@ class RagMemoryService:
                 ('desktop-pet-hierarchical-property-recall-v7','desktop-pet-property-address-recall-v8') else [])
         return self._address_cache[key]
 
-    def _address_documents(self,documents,memories,basis):
+    def _address_documents(self,documents,memories,basis,*,require_topic=False):
         """Apply the shared source address projection before vector inference.
 
         Old unannotated records remain available to text RAG. Unknown owners
@@ -154,14 +160,65 @@ class RagMemoryService:
             if unresolved:unlocated.append(doc['event_id'])
             candidates.append({'event_id':doc['event_id'],'indexes':indexes})
         selected,decisions=match_addresses(basis['addresses'],candidates)
+        if require_topic:
+            # Numeric grading gives an empty path zero semantic strength.
+            for decision in decisions:
+                if decision['level']==len(levels(decision['query']))-1:
+                    decision.update(level=None,fingerprint=None,matches=[])
+            selected={identity for decision in decisions for identity in decision['matches']}
         resolved=any(levels(a) for a in basis['addresses'])
         allowed=set(selected)|set(unlocated) if resolved else {d['event_id'] for d in documents}
         qualified=[d for d in documents if d['event_id'] in allowed]
         return qualified,{
-            'version':'desktop-pet-shared-address-candidates-v1',
+            'version':GRADED_ADDRESS_REPORT_VERSION if require_topic else 'desktop-pet-shared-address-candidates-v1',
             'decisions':[{k:v for k,v in d.items() if k!='matches'}|{'match_count':len(d['matches'])} for d in decisions],
             'unlocated_source_count':len(unlocated),'unresolved_query':not resolved,
             'selected_document_count':len(qualified),'selected_document_fingerprint':_snapshot(qualified)}
+
+    def _rag_candidates(self,docs,memories,basis,*,independent,legacy_owner_only=False):
+        filtered,selection=self._address_documents(docs,memories,basis,require_topic=independent and not legacy_owner_only)
+        if independent and selection is not None:
+            selection={**selection,'candidate_filter_applied':False,'rag_candidate_count':len(docs)}
+            return docs,selection
+        return filtered,selection
+
+    def _literal_address(self,event,memories):
+        # Match complete clauses against verified values. A quoted occurrence
+        # anchors the designation; other matching assertions can carry its context.
+        clauses={text.strip().strip(_QUOTE_CHARS).strip()
+                 for text in _CLAUSE_BREAK.split(_literal_query(event))}
+        clauses.discard('')
+        if not clauses:return None
+        from model_packages.desktop_pet_v1.semantic import evidence_source
+
+        sources=[];anchored=set()
+        for identity,memory in memories.items():
+            key=memory.fact.fingerprint
+            if key in self._address_cache and not self._address_cache[key]:
+                continue
+            prior=memory.event
+            if prior.visible_contents(event.owner_ref)!=prior.contents or any(
+                    content.kind!='speech' or content.private for content in prior.contents):
+                continue
+            if key not in self._literal_values:
+                text=evidence_source(prior)
+                matches=[]
+                for prop in self._address_properties(memory):
+                    value=prop['value']
+                    if prop['kind']!='assertion' or prop['certainty']!='stated' or not isinstance(value,str) or not value.strip():
+                        continue
+                    start,end=prop['span']
+                    evidence=text[start:end]
+                    if value not in evidence:continue
+                    quoted=any(left+value+right in evidence for left,right in _QUOTE_PAIRS)
+                    matches.append({'value':value,'span':[start,end],'quoted':quoted})
+                self._literal_values[key]=matches
+            for match in self._literal_values[key]:
+                if match['value'] not in clauses:continue
+                sources.append({'event_id':identity,**match})
+                if match['quoted']:anchored.add(match['value'])
+        sources=[row for row in sources if row['value'] in anchored]
+        return {'version':LITERAL_ADDRESS_VERSION,'sources':sources} if sources else None
 
     def _basis(self,source):
         from .relation_annotations import _measurement
@@ -180,10 +237,13 @@ class RagMemoryService:
         history=app.runtime._history();facts=history.facts()
         boundary=max((f.accepted_runtime_ordinal for f in facts),default=-1)+1
         docs,memories=self._documents_for(event=event,before_ordinal=boundary,history=history)
-        docs,_=self._address_documents(docs,memories,basis)
+        independent=bool(basis.get('cue') and basis['cue'].get('address_strength_version'))
+        if not independent:
+            docs,_=self._address_documents(docs,memories,basis)
         if not docs:return
         namespace=model_data_fingerprint({'binding':app.runtime.session.session_binding.fingerprint,'owner':app.owner_ref,'scope':event.scope_ref})
-        snapshot=_snapshot(docs);query_fingerprint=hashlib.sha256(text.encode('utf8')).hexdigest()
+        snapshot=_snapshot(docs)
+        query_fingerprint=hashlib.sha256(text.encode('utf8')).hexdigest()
         pending=self._prefetch
         if pending and pending[0]==event.fingerprint and pending[1]==snapshot and pending[4]==query_fingerprint:return
         submit=getattr(self.provider,'submit_latest',self.provider.submit)
@@ -204,7 +264,9 @@ class RagMemoryService:
         if path.exists():
             record=json.loads(path.read_text(encoding='utf8'));self.validate(record,event_id,history=history);return record
         docs,memories=self._documents(source,history)
-        docs,address_selection=self._address_documents(docs,memories,basis)
+        literal=self._literal_address(source.event,memories)
+        independent=bool(basis.get('cue') and basis['cue'].get('address_strength_version'))
+        docs,address_selection=self._rag_candidates(docs,memories,basis,independent=independent)
         snapshot=_snapshot(docs)
         namespace=model_data_fingerprint({'binding':source.fact.session_binding_fingerprint,'owner':app.owner_ref,'scope':source.event.scope_ref})
         start=time.perf_counter()
@@ -216,15 +278,16 @@ class RagMemoryService:
 
         selected=result.get('selected',{});by_id={r['event_id']:r for r in docs}
         if not isinstance(selected,dict) or not set(selected)<=set(by_id):raise ValueError('local RAG escaped the closed exact-ID set')
-        record=_signed({'version':CONTEXT_VERSION,'document_version':DOCUMENT_VERSION,'retrieval_text_version':RETRIEVAL_TEXT_VERSION,'assembly_version':ASSEMBLY_VERSION,'source_event_id':event_id,'source_fact_fingerprint':source.fact.fingerprint,
+        record=_signed({'version':CONTEXT_VERSION,'document_version':DOCUMENT_VERSION,'retrieval_text_version':INDEPENDENT_RETRIEVAL_VERSION if independent else RETRIEVAL_TEXT_VERSION,'assembly_version':ASSEMBLY_VERSION,'source_event_id':event_id,'source_fact_fingerprint':source.fact.fingerprint,
             'session_binding_fingerprint':source.fact.session_binding_fingerprint,'scope_ref':source.event.scope_ref,
             'query_fingerprint':hashlib.sha256(text.encode('utf8')).hexdigest(),'query_basis':basis,'candidate_snapshot':snapshot,
             **({'address_selection':address_selection} if address_selection is not None else {}),
+            **({'literal_address':literal} if literal is not None else {}),
             'numeric_recall_fingerprint':recall.fingerprint,'result':result,
             'selected_sources':[{'event_id':i,'content_fingerprint':by_id[i]['content_fingerprint'],'member_event_ids':by_id[i]['member_event_ids'],**({'source_slice':by_id[i]['source_slice']} if 'source_slice' in by_id[i] else {})} for i in selected],
             'elapsed_ms':round((time.perf_counter()-start)*1000),'parallel_with_measurement':parallel,'state_commit_authority':False,'send_authority':False})
         self._validate(record,event_id,history=history,
-            prepared=(source,recall,docs,memories,basis,address_selection,snapshot))
+            prepared=(source,recall,docs,memories,basis,address_selection,literal,snapshot))
         self.trace_dir.mkdir(parents=True,exist_ok=True)
         with path.open('x',encoding='utf8') as f:json.dump(record,f,ensure_ascii=False,separators=(',',':'),allow_nan=False)
         return record
@@ -246,13 +309,18 @@ class RagMemoryService:
             history=history or app.runtime._history();recall=self._recall(event_id,history)
             docs,memories=self._documents(source,history,document_version=c.get('document_version'))
             basis=self._basis(source) if 'query_basis' in c or 'address_selection' in c else None
+            literal=self._literal_address(source.event,memories) if 'literal_address' in c else None
             selection=None
             if 'address_selection' in c:
-                docs,selection=self._address_documents(docs,memories,basis)
+                independent=c.get('retrieval_text_version')==INDEPENDENT_RETRIEVAL_VERSION
+                docs,selection=self._rag_candidates(docs,memories,basis,independent=independent,
+                    legacy_owner_only=c['address_selection'].get('version')=='desktop-pet-shared-address-candidates-v1')
             snapshot=_snapshot(docs)
         else:
             # Only context() supplies this, within the same synchronous build.
-            source,recall,docs,memories,basis,selection,snapshot=prepared
+            source,recall,docs,memories,basis,selection,literal,snapshot=prepared
+        if 'literal_address' in c and (literal is None or c['literal_address']!=literal):
+            raise ValueError('RAG literal address differs from committed sources')
         if 'address_selection' in c and c['address_selection']!=selection:
             raise ValueError('RAG address selection differs from committed sources')
         by_id={r['event_id']:r for r in docs}
@@ -265,7 +333,10 @@ class RagMemoryService:
             if c['query_basis']!=basis:raise ValueError('RAG query basis differs from committed source')
             text=basis['text']
         if 'retrieval_text_version' in c:
-            if c['retrieval_text_version']!=RETRIEVAL_TEXT_VERSION:raise ValueError('unsupported retrieval text version')
+            if c['retrieval_text_version'] not in (RETRIEVAL_TEXT_VERSION,INDEPENDENT_RETRIEVAL_VERSION):
+                raise ValueError('unsupported retrieval text version')
+            if c['retrieval_text_version']==INDEPENDENT_RETRIEVAL_VERSION and (not basis or not (basis.get('cue') or {}).get('address_strength_version')):
+                raise ValueError('independent RAG context lacks graded address contract')
             text=_literal_query(source.event)
         if (c['source_event_id']!=event_id or c['source_fact_fingerprint']!=source.fact.fingerprint
             or c['session_binding_fingerprint']!=source.fact.session_binding_fingerprint or c['scope_ref']!=source.event.scope_ref
@@ -320,7 +391,12 @@ class RagMemoryService:
         canonical=[ActualRecallCanonicalItem(event_id=i,actual_recalled=i in recall.recalled_fact_ids,
             address_receipt=addresses.get(i),content_eligible=True,state_eligible=i in recall.recalled_fact_ids)
             for i in set(recall.recalled_fact_ids)|set(addresses)]
-        ids=sorted((x.event_id for x in canonical if not x.actual_recalled),key=lambda i:memories[i].fact.accepted_runtime_ordinal)
+        literal={}
+        for row in c.get('literal_address',{}).get('sources',()):
+            literal.setdefault(row['event_id'],[]).append(row)
+        # Literal addresses authorize the same content read without a vector score.
+        ids=sorted(({x.event_id for x in canonical}|set(literal))-set(recall.recalled_fact_ids),
+                   key=lambda i:memories[i].fact.accepted_runtime_ordinal)
         history=app.runtime._history()
         read=history.authorize_read(reader_ref=app.owner_ref,trigger_fact_id=event_id,
             before_runtime_ordinal=source.fact.accepted_runtime_ordinal,requested_fact_ids=tuple(ids),
@@ -337,7 +413,7 @@ class RagMemoryService:
             from .intention_delivery import annotation as intention_annotation,FIELD as INTENTION_FIELD
             intention,intention_refs=intention_annotation(app,memory,reader_ref=app.owner_ref,snapshot=intention_snapshot)
             if intention is not None:fields[INTENTION_FIELD]=intention
-            annotation=for_memory(app.runtime.session.profile,memory,app.owner_ref)
+            annotation=for_memory(app.runtime.session.profile,memory,app.owner_ref,allow_unresolved_alias=True)
             if annotation is not None:fields[FIELD]=annotation
             if 'address_selection' in c:
                 from .relation_annotations import _measurement
@@ -345,10 +421,12 @@ class RagMemoryService:
                 if parsed.get('version') in ('desktop-pet-hierarchical-property-recall-v7','desktop-pet-property-address-recall-v8'):
                     from model_packages.desktop_pet_v1.hierarchy_semantics import validate
                     fields['语义属性']=[{k:thaw_model_data(v) for k,v in p.items() if k!='span'} for p in validate(event,parsed)]
+            provenance={'selected_memory_ids':[i],'rag_context_fingerprint':c['fingerprint'],'state_eligible':False}
+            if i in addresses:provenance['address_receipt']=addresses[i].to_record()
+            if i in literal:provenance['literal_address_evidence']=literal[i]
             rows.append(WriterCard(card_id='memory:local-rag:'+i,lane='memory',kind='addressed_pet_event',source_id=i,fields=fields,
                 source_receipt_refs=(memory.fact.fingerprint,c['fingerprint'],read.fingerprint,*intention_refs),
-                provenance={'selected_memory_ids':[i],'rag_context_fingerprint':c['fingerprint'],'state_eligible':False,
-                            'address_receipt':addresses[i].to_record()},budget_policy='preserve_selection'))
+                provenance=provenance,budget_policy='preserve_selection'))
         return tuple(rows)
     def compose_cards(self,context,event_id,numeric_cards,*,content_view_version=None,links=False,visibility=None,intention_snapshot=None):
         c=thaw_model_data(context)

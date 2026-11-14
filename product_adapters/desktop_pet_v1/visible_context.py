@@ -24,13 +24,15 @@ def _artifact(app,source):
  return json.loads(raw)
 
 
-def build(app,event,*,limit_chars=2048,max_events=16):
+def build(app,event,*,limit_chars=2048,max_events=16,public_human=False):
  if type(limit_chars)is not int or limit_chars<=0 or type(max_events)is not int or not 1<=max_events<=16:raise ValueError('conversation context budget invalid')
  if event.event_kind!='peer_input':return None
  sources=app.runtime.session.profile['desktop_pet_product_v1']['sources']
  current=sources.get(event.event_id,{})
- from petlab_app.participant_input import VISIBLE_VERSION
- if current.get('evidence',{}).get('input_source',{}).get('version')!=VISIBLE_VERSION:return None
+ from petlab_app.participant_input import VISIBLE_VERSION,SPEECH_VERSIONS
+ source_version=current.get('evidence',{}).get('input_source',{}).get('version')
+ human_group=public_human and event.actor_ref==app.user_ref and source_version in SPEECH_VERSIONS
+ if source_version!=VISIBLE_VERSION and not human_group:return None
  app._verify_source(event)
  artifact=_artifact(app,current);conversation=artifact['conversation']
  if conversation['kind']!='group':return None

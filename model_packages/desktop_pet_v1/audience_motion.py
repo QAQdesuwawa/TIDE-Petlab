@@ -7,8 +7,33 @@ from .composite import CompositePlan
 
 PREFIX='audience:approach:'
 VERSION='desktop-pet-audience-motion-v1'
+SERIAL_PRIVATE='physical-audience-policy-v5'
+CURRENT_PRIVATE='physical-audience-policy-v6'
+SERIAL_POLICIES=(SERIAL_PRIVATE,CURRENT_PRIVATE)
+REUSE_POLICIES=('physical-audience-policy-v3','physical-audience-policy-v4',*SERIAL_POLICIES)
+SINGLE_POLICIES=('physical-audience-policy-v4',*SERIAL_POLICIES)
 
-def compile(contents,children,*,choice,bound,scene,reuse_selected=False,single_target_only=False):
+
+def finish_private_speech(contents,rows,approach):
+ speech=[c.content_id for c in contents if c.kind=='speech']
+ departures={c.content_id for c in contents if 'movement' in c.parameters and c.content_id!=approach}
+ if not speech or not departures:return
+ # A Writer anchor may put a line at the end of a departure. Keep that
+ # movement in the body sequence and retain only pre-departure voice anchors.
+ blocked=set(departures)
+ while True:
+  expanded=blocked|{key for key,row in rows.items() if set(row['after'])&blocked}
+  if expanded==blocked:break
+  blocked=expanded
+ previous=approach
+ for key in speech:
+  deps=[d for d in rows[key]['after'] if d not in blocked]
+  rows[key]['after']=list(dict.fromkeys((*deps,previous)))
+  previous=key
+ for key in departures:
+  rows[key]['after']=list(dict.fromkeys((*rows[key]['after'],speech[-1])))
+
+def compile(contents,children,*,choice,bound,scene,reuse_selected=False,single_target_only=False,finish_speech_before_departure=False):
  b=audience.validate(bound);refs=audience.select(choice,b)
  contents=audience.apply(tuple(contents),choice,b)
  if set(refs)==set(b['physical_observers']) or not refs:return contents,children
@@ -34,6 +59,7 @@ def compile(contents,children,*,choice,bound,scene,reuse_selected=False,single_t
    for c in contents:
     if c.kind=='speech' and first.content_id not in rows[c.content_id]['after']:
      rows[c.content_id]['after'].append(first.content_id)
+   if finish_speech_before_departure:finish_private_speech(result,rows,first.content_id)
    plan=CompositePlan.create(rows);plan.validate_contents(result)
    return result,thaw_model_data(plan.children)
  preps=[];previous=None;contexts=[]
@@ -49,6 +75,7 @@ def compile(contents,children,*,choice,bound,scene,reuse_selected=False,single_t
  for c in contents:
   if c.kind in {'speech','action'} and not rows[c.content_id]['after']:rows[c.content_id]['after']=[previous]
   result.append(c)
+ if finish_speech_before_departure:finish_private_speech(result,rows,previous)
  plan=CompositePlan.create(rows);plan.validate_contents((*preps,*result))
  return (*preps,*result),thaw_model_data(plan.children)
 
@@ -63,8 +90,9 @@ def wrap(payload,control,bound,scene):
  base=thaw_model_data(payload)
  rows=base.get('action_sequence',{}).get('children',control.get('composite',{}).get('children',{}))
  items,rows=compile(tuple(Content.from_record(c) for c in base['contents']),rows,
-  choice=base['audience'],bound=bound,scene=scene,reuse_selected=control.get('audience_motion_policy') in ('physical-audience-policy-v3','physical-audience-policy-v4'),
-  single_target_only=control.get('audience_motion_policy')=='physical-audience-policy-v4')
+  choice=base['audience'],bound=bound,scene=scene,reuse_selected=control.get('audience_motion_policy') in REUSE_POLICIES,
+  single_target_only=control.get('audience_motion_policy') in SINGLE_POLICIES,
+  finish_speech_before_departure=control.get('audience_motion_policy') in SERIAL_POLICIES)
  return {**base,'contents':[c.to_record() for c in items],'audience_plan':rows}
 
 
@@ -73,7 +101,7 @@ def unwrap_verified(request,payload):
  raw=thaw_model_data(payload)
  base={k:v for k,v in raw.items() if k!='audience_plan'}
  base['contents']=deepcopy([c for c in raw['contents'] if not c['content_id'].startswith(PREFIX)])
- if request.control.get('audience_motion_policy') in ('physical-audience-policy-v3','physical-audience-policy-v4'):
+ if request.control.get('audience_motion_policy') in REUSE_POLICIES:
   for c in base['contents']:
    c.get('parameters',{}).pop('audience_context',None)
  if not request.control.get('action_sequence_contract'):

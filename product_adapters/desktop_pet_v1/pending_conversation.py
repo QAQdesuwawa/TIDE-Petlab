@@ -9,7 +9,10 @@ LEGACY_VERSION='petlab-pending-public-speech-v1'
 OCCURRENCE_VERSION='petlab-pending-public-speech-v2-occurrence'
 PARTICIPANTS_VERSION='petlab-pending-public-speech-v3-participants'
 SIBLING_VERSION='petlab-pending-public-speech-v4-sibling-speech'
-VERSION='petlab-pending-public-speech-v5-interaction-target'
+TARGET_VERSION='petlab-pending-public-speech-v5-interaction-target'
+VERSION='petlab-pending-public-speech-v6-visible-words'
+MAX_ROWS=16
+MAX_BODY_CHARS=2048
 
 def _body(app,row,readers):
     w=app.multi_workspace;alias=w.aliases[app.owner_ref]
@@ -31,14 +34,14 @@ def _body(app,row,readers):
 
 def _versioned_body(app,row,readers,version):
     body=_body(app,row,readers)
-    if body is None or version not in (PARTICIPANTS_VERSION,SIBLING_VERSION,VERSION):return body
+    if body is None or version not in (PARTICIPANTS_VERSION,SIBLING_VERSION,TARGET_VERSION,VERSION):return body
     from datetime import datetime,timezone
     projection=row['projection']
     targets=row['visible']['target_refs'] if 'visible' in row else projection['addressed_participant_ids']
-    target_label='父级互动对象' if version==VERSION and 'visible' in row else '交谈对象'
+    target_label='父级互动对象' if version in (TARGET_VERSION,VERSION) and 'visible' in row else '交谈对象'
     return {**body,target_label:list(targets),'本次读者':app.owner_ref,
             '原发生时间':datetime.fromtimestamp(projection['committed_at_ms']/1000,tz=timezone.utc).isoformat(),
-            '记录种类':'已发生的公开话语' if version in (SIBLING_VERSION,VERSION) else '另一次已发生的公开话语'}
+            '记录种类':'已发生的公开话语' if version in (SIBLING_VERSION,TARGET_VERSION,VERSION) else '另一次已发生的公开话语'}
 
 def build(app,event_id,readers):
     capture=getattr(app,'pending_visible_inputs',None)
@@ -48,19 +51,43 @@ def build(app,event_id,readers):
     after=source['event']['position']['coordinate'];rows=[];bodies=[]
     from .visible_context import _artifact
     artifact=_artifact(app,source)
-    conversation=None;parent=None
+    conversation=None;parent=None;current_delivery=None
     if artifact is not None:
         after=artifact['source']['event']['committed_at_ms']
         conversation=artifact['source']['event']['conversation_id']
         parent=artifact['source'].get('visible_manifest',{}).get('parent_event_id')
-    for row in reversed(capture()):
+        current_delivery=artifact.get('delivery',{}).get('delivery_id')
+    from petlab_app.retained_intention import head, verified_inputs
+    retained=head(app,event_id) if hasattr(app,'runtime') else None
+    retained_rows=[]
+    if retained is not None:
+        workspace=app.multi_workspace
+        alias=workspace.aliases[app.owner_ref]
+        for memory in verified_inputs(app,event_id,retained)[:MAX_ROWS]:
+            app._verify_source(memory.event)
+            retained_artifact=_artifact(app,app._product()['sources'][memory.event.event_id])
+            if retained_artifact is not None:
+                identity=retained_artifact['delivery']['delivery_id']
+                retained_rows.append(workspace.read_delivery(alias,workspace.inbox_path(alias,identity)))
+    candidates=(*capture(),*retained_rows)
+    seen={}
+    from petlab_app.visible_delivery import delivery_order
+    # The same fragment order applies before and after formal intake.
+    for row in sorted(candidates,key=delivery_order,reverse=True):
+        identity=row['delivery']['delivery_id']
+        if identity==current_delivery:continue
         sibling=parent is not None and row.get('visible',{}).get('parent_event_id')==parent
         if row['projection']['committed_at_ms']<=after and not sibling:continue
         if conversation is not None and row['projection']['conversation_id']!=conversation:continue
+        if identity in seen:
+            if seen[identity]!=row:raise ValueError('pending conversation delivery identity changed')
+            continue
+        seen[identity]=row
         body=_versioned_body(app,row,readers,VERSION)
-        if body is None or body in bodies:continue
-        if len(json.dumps([body,*bodies],ensure_ascii=False))>2048:break
+        if body is None:continue
+        if len(json.dumps([body,*bodies],ensure_ascii=False))>MAX_BODY_CHARS:break
         rows.insert(0,row);bodies.insert(0,body)
+        if len(rows)==MAX_ROWS:break
     if not rows:return None
     value={'version':VERSION,'owner':app.owner_ref,'event_id':event_id,'readers':list(readers),
         'rows':rows,'bodies':bodies,'formal_recall':False,'state_commit_authority':False}
@@ -68,15 +95,17 @@ def build(app,event_id,readers):
 
 def validate(app,context,event_id,readers):
     value=thaw_model_data(context)
-    if (value['version'] not in (LEGACY_VERSION,OCCURRENCE_VERSION,PARTICIPANTS_VERSION,SIBLING_VERSION,VERSION) or value['owner']!=app.owner_ref or value['event_id']!=event_id
+    if (value['version'] not in (LEGACY_VERSION,OCCURRENCE_VERSION,PARTICIPANTS_VERSION,SIBLING_VERSION,TARGET_VERSION,VERSION) or value['owner']!=app.owner_ref or value['event_id']!=event_id
         or value['readers']!=list(readers) or value['fingerprint']!=fp({k:v for k,v in value.items() if k!='fingerprint'})
-        or len(value['rows'])>16 or len(json.dumps(value['bodies'],ensure_ascii=False))>2048):
+        or len(value['rows'])>MAX_ROWS or len(json.dumps(value['bodies'],ensure_ascii=False))>MAX_BODY_CHARS):
         raise ValueError('pending conversation snapshot differs')
     if [_versioned_body(app,row,readers,value['version']) for row in value['rows']]!=value['bodies']:raise ValueError('pending conversation sources differ')
     return value
 
 def text(context):
     if context['version']==VERSION:
+        return '\n\n【另外听到的公开话语】\n按原文、说话者和原发生时间理解。父级互动对象表示该回应承接的关系。\n'+json.dumps(context['bodies'],ensure_ascii=False)
+    if context['version']==TARGET_VERSION:
         return '\n\n【同一回应及其后已收到的公开话语】\n以下是已收到、尚待单独结算的现场话语。父级互动对象记录这轮回应承接的互动关系；具体话语指向结合原文理解。本次读者表示谁收到这份材料。\n'+json.dumps(context['bodies'],ensure_ascii=False)
     if context['version']==SIBLING_VERSION:
         return '\n\n【同一回应及其后已收到的公开话语】\n以下为本角色已经收到、尚待单独结算的话语，包括同一回应中已说出的台词与之后的现场发言；说话者、交谈对象和原发生时间分别标注：\n'+json.dumps(context['bodies'],ensure_ascii=False)

@@ -1,11 +1,25 @@
 """Six-seven grant continuity across its own private formation settlement."""
 from .intention_source import ORIGIN, verify
 
+PLAYBACK_VERSION='petlab-qualified-playback-continuation-v1'
+INTENTION_VERSION='cx67-intention-continuation-v1'
+
 
 def carried_grant(app,event_id):
     from .peer_reaction import KEY,CARRY,_verify_carried
     grant=app.runtime.session.profile.get(KEY,{}).get('assessments',{}).get(event_id)
     if grant is None or grant.get('version')!=CARRY:return None
+    _verify_carried(app,grant)
+    return grant
+
+
+def _original_peer_grant(app,event_id):
+    from .peer_reaction import KEY,_verify_carried
+    grant=app.runtime.session.profile.get(KEY,{}).get('assessments',{}).get(event_id)
+    if grant is None or grant.get('version')!=KEY or not grant.get('eligible'):
+        return None
+    if grant['event_id']!=event_id:
+        raise ValueError('original peer grant belongs to another input')
     _verify_carried(app,grant)
     return grant
 
@@ -16,6 +30,12 @@ def base_planning_id(app,event_id):
     if marker(app,event_id) is not None:return event_id
     from .intent_history import FACTS_KEY
     rows=app.runtime.session.profile.get(FACTS_KEY,{}).get(event_id)
+    from .intention_source import enabled
+    if rows and enabled(app):return 'intention:'+rows[0]['intention_id']
+    from .execution_inputs import completed_effect
+    effect=completed_effect(app,event_id)
+    if effect is not None:return effect.event.event_id
+    if rows and _original_peer_grant(app,event_id) is not None:return event_id
     return 'intention:'+rows[0]['intention_id'] if rows else None
 
 
@@ -26,11 +46,17 @@ def validate_planning(app, event_id, planning_event_id, *, _formation_only=False
         memory=app.runtime.memory_instance(event_id)
         app._verify_source(memory.event)
         return memory
-    if planning_event_id==event_id and carried_grant(app,event_id) is not None:
+    if planning_event_id==event_id and (carried_grant(app,event_id) is not None
+            or _original_peer_grant(app,event_id) is not None):
         memory=app.runtime.memory_instance(event_id)
         app._verify_source(memory.event)
         return memory
     source = app._product()['sources'].get(planning_event_id)
+    if source is not None and source['origin']=='execution':
+        from .execution_inputs import completed_effect
+        effect=completed_effect(app,event_id)
+        if effect is not None and effect.event.event_id==planning_event_id:
+            return effect
     if not _formation_only and source is not None and source['origin']!='cx67_private_intention':
         from .retained_intention import validate
         return validate(app,event_id,planning_event_id)
@@ -88,13 +114,17 @@ def authorize(app, event_id):
         raise ValueError('intention planning state is stale')
     base_id=base_planning_id(app,event_id)
     formation=validate_planning(app,event_id,base_id,_formation_only=True)
-    # A carried source references the existing grant lineage; it is not a new
-    # private formation and must not be presented as one in authorization.
+    # Record which accepted fact backs the original grant.
     from .deferred_intention import marker
     deferred=marker(app,event_id)
-    provenance=({'formation_evidence_fingerprint':deferred['fingerprint'],
+    playback=app._product()['sources'][base_id]['origin']=='execution'
+    version=PLAYBACK_VERSION if playback else INTENTION_VERSION
+    input_fact_key=('carried_fact_fingerprint' if carried_grant(app,event_id) is not None
+                    else 'input_fact_fingerprint')
+    provenance=({'playback_fact_fingerprint':formation.fact.fingerprint} if playback else
+        {'formation_evidence_fingerprint':deferred['fingerprint'],
                  'input_fact_fingerprint':formation.fact.fingerprint} if deferred else
-        {'carried_fact_fingerprint' if base_id==event_id else 'intention_fact_fingerprint':formation.fact.fingerprint})
+        {input_fact_key if base_id==event_id else 'intention_fact_fingerprint':formation.fact.fingerprint})
     from framework.action_protocol import ActionAuthorization
     from product_adapters.desktop_pet_v1.settlement_view import KEY, current_projection
     from .destinations import primary
@@ -105,11 +135,11 @@ def authorize(app, event_id):
         current_position=app.runtime.session.position, action_kind='direct_reply',
         subject_ref=app.owner_ref, target_ref=primary(app,event_id), source_fact_ref=event_id,
         source_settlement_fingerprint=parent.fact.settlement_ref['acceptance_fingerprint'],
-        package_eligibility_evidence={'version':'cx67-intention-continuation-v1',
+        package_eligibility_evidence={'version':version,
             'eligible':True, 'grant_fingerprint':grant['fingerprint'],
             **provenance},
         host_authorization_evidence={'origin':'deferred_direct_reply_v1',
-            'intention_continuation_version':'cx67-intention-continuation-v1',
+            'intention_continuation_version':version,
             'planning_view_fingerprint':view['fingerprint'],
             'planning_acceptance_fingerprint':view['acceptance']['fingerprint'],
             'planning_event_ref':projection.context.event_ref})

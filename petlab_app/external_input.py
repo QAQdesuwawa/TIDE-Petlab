@@ -12,6 +12,10 @@ def archive_root(app):return app.store.path.with_suffix('.resources')
 
 
 def validate(app,receipt,contents,*,event_id=None):
+ from .screen_perception import VERSIONS as SCENE_FACTS,validate as validate_screen
+ if receipt.get('version') in SCENE_FACTS:return validate_screen(app,receipt,contents,event_id=event_id)
+ from .scene_encounter import VERSIONS as SCENE,validate as validate_scene
+ if receipt.get('version') in SCENE:return validate_scene(app,receipt,contents,event_id=event_id)
  from .obstruction_input import VERSION as OBSTRUCTION,validate as validate_obstruction
  if receipt.get('version')==OBSTRUCTION:return validate_obstruction(app,receipt,contents,event_id=event_id)
  from .participant_input import VERSIONS as PARTICIPANT_VERSIONS,validate as validate_participant
@@ -61,9 +65,11 @@ def validate(app,receipt,contents,*,event_id=None):
 
 
 def allowed_policies(receipt):
+ from .screen_perception import VERSIONS as SCENE_FACTS
  from .obstruction_input import VERSION as OBSTRUCTION
- if receipt.get('version')==OBSTRUCTION:return {'eligible'}
- from .participant_input import NPC_VERSIONS,OBSERVED_VERSIONS
+ from .scene_encounter import VERSIONS as SCENE
+ if receipt.get('version') in {*SCENE_FACTS,OBSTRUCTION,*SCENE}:return {'eligible'}
+ from .participant_input import NPC_VERSIONS,OBSERVED_VERSIONS,OPEN_INVITATION_VERSION
  from .human_interaction import VERSION as HUMAN_VERSION
  if receipt.get('version')==HUMAN_VERSION:return {'required','eligible'}
- return {'eligible'} if receipt.get('version') in {READING_SOURCE_VERSION,*OBSERVED_VERSIONS,*NPC_VERSIONS} else {'required'}
+ return {'eligible'} if receipt.get('version') in {READING_SOURCE_VERSION,OPEN_INVITATION_VERSION,*OBSERVED_VERSIONS,*NPC_VERSIONS} else {'required'}

@@ -2,6 +2,10 @@
 from threading import get_ident
 
 
+class StaleWriterPosition(ValueError):
+    """The request snapshot no longer matches formal state."""
+
+
 class PreparedWriter:
     def __init__(self,writer,event_id,steps):
         self._writer=writer;self._event_id=event_id;self._steps=steps
@@ -30,19 +34,25 @@ class PreparedWriter:
         """Seal the original result even when stale; never rebind its position."""
         return self._finish(archive_only=True)
 
+    def replay_source(self):
+        """Offer only the original provider response and its interpretation contract."""
+        if self._done and self._call is not None and hasattr(self._value,'request'):
+            return self._value.request,self._call
+        return None
+
     def _finish(self,*,archive_only):
         if get_ident()!=self._owner:raise RuntimeError('Writer finish requires owner thread')
         if self._error is not None:raise self._error
         app=self._writer.application
         if not archive_only and app.runtime.session.position.to_record()!=self._position:
-            raise ValueError('Writer prepared position is stale')
+            raise StaleWriterPosition('Writer prepared position is stale')
         if self._done:return self._value
         # Persist the actual response even if newer state prevents using it.
         result=self._call.finish()
         app=self._writer.application
         with app._lock:
             if not archive_only and app.runtime.session.position.to_record()!=self._position:
-                raise ValueError('Writer prepared position is stale')
+                raise StaleWriterPosition('Writer prepared position is stale')
             try:self._advance(result)
             except BaseException as error:
                 self._error=error

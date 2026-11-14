@@ -60,7 +60,7 @@ class PreparedExecution:
     attempt: object
     candidate: object
 
-    @property
+    @cached_property
     def fingerprint(self):
         return model_data_fingerprint({"position": self.position.to_record(), "scope_ref": self.scope_ref,
             "authorization": self.authorization.to_record(), "request": self.request.to_record(),
@@ -101,13 +101,16 @@ class PreparedExecution:
         return plan
 
     def validate(self, *, binding, owner_ref, user_ref):
+        if self.authorization.subject_ref != owner_ref or self.authorization.target_ref != user_ref:
+            raise ValueError("execution owner or destination differs from its authorization")
+        cached = getattr(self, "_validated_execution", None)
+        if cached is not None and cached[0] is binding:
+            return cached[1]
         self.authorization.verify_integrity(session_binding=binding, current_position=self.position)
         self.request.verify_integrity(session_binding=binding, current_position=self.position,
                                       authorization=self.authorization)
         self.attempt.verify_integrity(request=self.request)
         self.candidate.verify_integrity(request=self.request, attempt=self.attempt)
-        if self.authorization.subject_ref != owner_ref or self.authorization.target_ref != user_ref:
-            raise ValueError("execution owner or destination differs from its authorization")
         direct=(self.authorization.action_kind=="direct_reply" and self.authorization.host_authorization_evidence.get("origin") in {"direct_reply","deferred_direct_reply_v1"})
         observed=(self.authorization.action_kind=="autonomous_opening" and self.authorization.host_authorization_evidence.get("origin") in {"dynamic_interaction_tick","dynamic_idle_tick"} and bool(self.authorization.host_authorization_evidence.get("tick_receipt_fingerprint")))
         peer=(self.authorization.action_kind=="direct_reply" and self.authorization.host_authorization_evidence.get("origin")=="eligible_peer_reply_v1" and bool(self.authorization.host_authorization_evidence.get("peer_assessment_fingerprint")))
@@ -181,4 +184,8 @@ class PreparedExecution:
             source_fact_ref=self.authorization.source_fact_ref, target_ref=self.authorization.target_ref,
             realizer_attempt_ref=self.attempt.attempt_ref, candidate_ref=self.candidate.candidate_ref,
         )
-        return plan, contents
+        result = plan, contents
+        # The sealed contents and plan are immutable. Session execution still
+        # checks the live source, position, and cancellation before dispatch.
+        object.__setattr__(self, "_validated_execution", (binding, result))
+        return result

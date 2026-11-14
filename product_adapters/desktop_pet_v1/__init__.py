@@ -144,10 +144,15 @@ class SinglePetRuntime:
             relation_context={}
             from model_packages.desktop_pet_v1.relation_package import META
             if META in self.session.state.state:
-                from .public_disclosure import counterparty,context as disclosure_context
+                from .public_disclosure import counterparty,performed_pair_source,context as disclosure_context
                 peer=counterparty(self,event)
-                relation_context={'desktop_pet_counterparty_ref':peer,
+                from petlab_app.imported_source import PAIR_VERSION
+                imported=self.session.profile.get('desktop_pet_product_v1',{}).get('sources',{}).get(event.event_id,{})
+                paired=imported.get('origin')=='transcript' and imported['evidence']['version']==PAIR_VERSION
+                relation_context={**({'desktop_pet_imported_pair_source':event.source_binding_ref} if paired else {}),
+                    'desktop_pet_counterparty_ref':peer,
                     'desktop_pet_relation_source':event.source_binding_ref,
+                    **performed_pair_source(self,event,peer),
                     **disclosure_context(self,event,measurement_payload,peer)}
             transaction = execute_runtime_full_memory_committed_fact_transaction(
                 session=self.session, model_runtime=self.model_runtime, temporal_runtime=self.temporal_runtime,

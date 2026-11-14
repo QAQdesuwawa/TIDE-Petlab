@@ -1,0 +1,247 @@
+{
+  "version": "petlab-local-activities-v4-atlas",
+  "rig_binding": "rig.json",
+  "clips": {
+    "head_bow": {
+      "source": "bound_rig",
+      "duration_ms": 1000,
+      "channels": [
+        {
+          "part": "head",
+          "parameter": "y",
+          "amplitude": 12,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              1
+            ],
+            [
+              0.7,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "head_tilt": {
+      "source": "bound_rig",
+      "duration_ms": 1200,
+      "channels": [
+        {
+          "part": "head",
+          "parameter": "angle",
+          "amplitude": 8,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              1
+            ],
+            [
+              0.7,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "nod": {
+      "source": "bound_rig",
+      "duration_ms": 1000,
+      "channels": [
+        {
+          "part": "head",
+          "parameter": "y",
+          "amplitude": 10,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.15,
+              1
+            ],
+            [
+              0.3,
+              0
+            ],
+            [
+              0.45,
+              1
+            ],
+            [
+              0.6,
+              0
+            ],
+            [
+              0.75,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "shake_head": {
+      "source": "bound_rig",
+      "duration_ms": 1100,
+      "channels": [
+        {
+          "part": "head",
+          "parameter": "angle",
+          "amplitude": 8,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.2,
+              1
+            ],
+            [
+              0.4,
+              -1
+            ],
+            [
+              0.6,
+              1
+            ],
+            [
+              0.8,
+              -1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "wave_hand": {
+      "source": "bound_rig",
+      "duration_ms": 1800,
+      "channels": [
+        {
+          "part": "left_arm",
+          "parameter": "angle",
+          "amplitude": 65,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.15,
+              1
+            ],
+            [
+              0.3,
+              0
+            ],
+            [
+              0.45,
+              1
+            ],
+            [
+              0.6,
+              0
+            ],
+            [
+              0.75,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "beckon": {
+      "source": "bound_rig",
+      "duration_ms": 1800,
+      "channels": [
+        {
+          "part": "right_arm",
+          "parameter": "angle",
+          "amplitude": -65,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.15,
+              1
+            ],
+            [
+              0.3,
+              0
+            ],
+            [
+              0.45,
+              1
+            ],
+            [
+              0.6,
+              0
+            ],
+            [
+              0.75,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        },
+        {
+          "part": "head",
+          "parameter": "angle",
+          "amplitude": -4,
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              1
+            ],
+            [
+              0.7,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ]
+        }
+      ]
+    }
+  }
+}

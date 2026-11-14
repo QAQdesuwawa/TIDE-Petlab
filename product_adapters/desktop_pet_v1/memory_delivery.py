@@ -65,7 +65,7 @@ def memory_cards(memories, *, recall, read, history, owner_ref, numbered=False, 
         from model_packages.desktop_pet_v1.content_view import RELATION_MEMORY_VERSION,QUERY_MEMORY_VERSION
         if content_view_version in (RELATION_MEMORY_VERSION,QUERY_MEMORY_VERSION):
             from .relation_annotations import for_memory,FIELD
-            annotation=for_memory(annotation_profile,memory,owner_ref)
+            annotation=for_memory(annotation_profile,memory,owner_ref,allow_unresolved_alias=True)
             if annotation is not None:rows[-1][FIELD]=annotation
         refs.extend((memory.fact.fingerprint,recall_ref,read_ref))
     observed=bounded and any(has_observations(m.event.visible_contents(owner_ref)) for m in ordered)
@@ -129,3 +129,23 @@ def ordered_memory_union(cards, *, memories, source_refs, assembly_version):
         fields={'相关记忆（按发生顺序）':body},provenance=provenance,
         source_receipt_refs=tuple(dict.fromkeys(ref for c in cards for ref in c.source_receipt_refs))+tuple(source_refs),
         budget_policy='preserve_selection'),)
+
+def connect_predecessor_reply(app, event_id, delivery, *, budget_chars):
+    """Point to an already delivered reference without copying its contents."""
+    import hashlib
+    from framework.model_api import model_data_fingerprint
+    source=app._product()['sources'].get(event_id, {})
+    recall=source.get('measurement', {}).get('pet_memory_recall', {})
+    referenced={ref['source']['event_id'] for ref in recall.get('predecessor_refs', ())}
+    labels=[label for label, identity in delivery['memory_aliases'].items() if identity in referenced]
+    if not labels:
+        return delivery
+    guidance=('\n本轮原话所指的已交付前文对应记忆标记：' + '、'.join(labels)
+              + '。先用前文中的具体事实接住当前问题，再用角色自己的措辞继续。'
+                '台词实际用到该事实时才申报对应标记。')
+    if len(delivery['system'])+len(delivery['user'])+len(guidance)>budget_chars:
+        return delivery
+    result={**delivery, 'system':delivery['system']+guidance}
+    result['prompt_fingerprint']=hashlib.sha256((result['system']+'\0'+result['user']).encode('utf8')).hexdigest()
+    result['fingerprint']=model_data_fingerprint({key:value for key,value in result.items() if key!='fingerprint'})
+    return result

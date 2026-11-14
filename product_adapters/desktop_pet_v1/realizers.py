@@ -6,17 +6,18 @@ from model_packages.desktop_pet_v1.behavior import VERSION
 class PetRealizers:
     def __init__(self,product):self.product=product
 
-    def prepare(self,event_id,*,on_language_ready=lambda:None,is_cancelled=lambda:False):
+    def prepare(self,event_id,*,on_language_ready=lambda:None,is_cancelled=lambda:False,executable_keys=None,replay=None):
         from petlab_app.idle_opening import KEY
         product=self.product
         def writer_prepare(**kwargs):
+            if replay is not None:kwargs['replay']=replay
             waiter=getattr(product,'prepare_waiting_writer',None)
             return (product.writer.prepare(event_id,**kwargs) if waiter is None else
                     waiter(event_id,is_cancelled=is_cancelled,**kwargs))
         selection=product.application.runtime.session.profile.get(KEY,{}).get('ticks',{}).get(event_id,{}).get('behavior_selection')
         if selection is None:
             from petlab_app.reaction_action import ensure
-            selection=ensure(product,event_id)
+            selection=ensure(product,event_id,executable_keys=executable_keys)
         if product.writer is not None:
             from .sequence_delivery import context_for
             context=context_for(product.application,event_id,selection)

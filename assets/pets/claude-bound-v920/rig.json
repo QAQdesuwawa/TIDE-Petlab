@@ -1,0 +1,1176 @@
+{
+  "version": "petlab-cutout-binding-v1",
+  "canvas": [
+    380,
+    440
+  ],
+  "textures": {
+    "body": {
+      "asset": {
+        "image": "parts.png",
+        "image_sha256": "e2f650278f448ee908c49b337b6be6c52c89161997c0842574ea0036ad82fcdc",
+        "grid": {
+          "columns": 1,
+          "rows": 1,
+          "cell_width": 1254,
+          "cell_height": 1254
+        }
+      },
+      "index": 0,
+      "registration": {
+        "source_rect": [
+          418,
+          0,
+          418,
+          418
+        ],
+        "size": [
+          184,
+          176
+        ],
+        "source_to_local": [
+          [
+            0.4534005037783375,
+            0,
+            2.0
+          ],
+          [
+            0,
+            0.4534005037783375,
+            -12.055415617128464
+          ]
+        ]
+      }
+    },
+    "head": {
+      "asset": {
+        "image": "parts.png",
+        "image_sha256": "e2f650278f448ee908c49b337b6be6c52c89161997c0842574ea0036ad82fcdc",
+        "grid": {
+          "columns": 1,
+          "rows": 1,
+          "cell_width": 1254,
+          "cell_height": 1254
+        }
+      },
+      "index": 0,
+      "registration": {
+        "source_rect": [
+          0,
+          0,
+          418,
+          418
+        ],
+        "size": [
+          229,
+          205
+        ],
+        "source_to_local": [
+          [
+            0.5681818181818182,
+            0,
+            -10.500000000000002
+          ],
+          [
+            0,
+            0.5681818181818182,
+            -23.56818181818182
+          ]
+        ]
+      }
+    },
+    "rear_hair": {
+      "asset": {
+        "image": "parts.png",
+        "image_sha256": "e2f650278f448ee908c49b337b6be6c52c89161997c0842574ea0036ad82fcdc",
+        "grid": {
+          "columns": 1,
+          "rows": 1,
+          "cell_width": 1254,
+          "cell_height": 1254
+        }
+      },
+      "index": 0,
+      "registration": {
+        "source_rect": [
+          836,
+          0,
+          418,
+          418
+        ],
+        "size": [
+          249,
+          249
+        ],
+        "source_to_local": [
+          [
+            0.620253164556962,
+            0,
+            -2.3417721518987342
+          ],
+          [
+            0,
+            0.620253164556962,
+            -6.6835443037974684
+          ]
+        ]
+      }
+    },
+    "left_arm": {
+      "asset": {
+        "image": "parts.png",
+        "image_sha256": "e2f650278f448ee908c49b337b6be6c52c89161997c0842574ea0036ad82fcdc",
+        "grid": {
+          "columns": 1,
+          "rows": 1,
+          "cell_width": 1254,
+          "cell_height": 1254
+        }
+      },
+      "index": 0,
+      "registration": {
+        "source_rect": [
+          0,
+          418,
+          418,
+          418
+        ],
+        "size": [
+          74,
+          83
+        ],
+        "source_to_local": [
+          [
+            0.24054982817869416,
+            0,
+            -6.659793814432989
+          ],
+          [
+            0,
+            0.24054982817869416,
+            -6.178694158075601
+          ]
+        ]
+      }
+    },
+    "right_arm": {
+      "asset": {
+        "image": "parts.png",
+        "image_sha256": "e2f650278f448ee908c49b337b6be6c52c89161997c0842574ea0036ad82fcdc",
+        "grid": {
+          "columns": 1,
+          "rows": 1,
+          "cell_width": 1254,
+          "cell_height": 1254
+        }
+      },
+      "index": 0,
+      "registration": {
+        "source_rect": [
+          418,
+          418,
+          418,
+          418
+        ],
+        "size": [
+          74,
+          84
+        ],
+        "source_to_local": [
+          [
+            0.24390243902439024,
+            0,
+            -21.65853658536585
+          ],
+          [
+            0,
+            0.24390243902439024,
+            -6.536585365853659
+          ]
+        ]
+      }
+    },
+    "leg_l": {
+      "asset": {
+        "image": "parts.png",
+        "image_sha256": "e2f650278f448ee908c49b337b6be6c52c89161997c0842574ea0036ad82fcdc",
+        "grid": {
+          "columns": 1,
+          "rows": 1,
+          "cell_width": 1254,
+          "cell_height": 1254
+        }
+      },
+      "index": 0,
+      "registration": {
+        "source_rect": [
+          836,
+          418,
+          418,
+          418
+        ],
+        "size": [
+          35,
+          102
+        ],
+        "source_to_local": [
+          [
+            0.25203252032520324,
+            0,
+            -35.048780487804876
+          ],
+          [
+            0,
+            0.25203252032520324,
+            -2.284552845528455
+          ]
+        ]
+      }
+    },
+    "leg_r": {
+      "asset": {
+        "image": "parts.png",
+        "image_sha256": "e2f650278f448ee908c49b337b6be6c52c89161997c0842574ea0036ad82fcdc",
+        "grid": {
+          "columns": 1,
+          "rows": 1,
+          "cell_width": 1254,
+          "cell_height": 1254
+        }
+      },
+      "index": 0,
+      "registration": {
+        "source_rect": [
+          0,
+          836,
+          418,
+          418
+        ],
+        "size": [
+          35,
+          103
+        ],
+        "source_to_local": [
+          [
+            0.2605042016806723,
+            0,
+            -37.33613445378152
+          ],
+          [
+            0,
+            0.2605042016806723,
+            -3.2100840336134455
+          ]
+        ]
+      }
+    },
+    "head_normal": {
+      "asset": {
+        "image": "heads.png",
+        "image_sha256": "6648283995738996ea4eab2fd97b26e3e1d1214cf861b228fdf0fb6293f3e4a5",
+        "grid": {
+          "columns": 1,
+          "rows": 1,
+          "cell_width": 1536,
+          "cell_height": 1024
+        }
+      },
+      "index": 0,
+      "registration": {
+        "source_rect": [
+          0,
+          0,
+          512,
+          512
+        ],
+        "size": [
+          229,
+          205
+        ],
+        "source_to_local": [
+          [
+            0.4787234042553192,
+            0,
+            -13.319148936170214
+          ],
+          [
+            0,
+            0.4787234042553192,
+            -5.244680851063833
+          ]
+        ]
+      }
+    },
+    "head_happy": {
+      "asset": {
+        "image": "heads.png",
+        "image_sha256": "6648283995738996ea4eab2fd97b26e3e1d1214cf861b228fdf0fb6293f3e4a5",
+        "grid": {
+          "columns": 1,
+          "rows": 1,
+          "cell_width": 1536,
+          "cell_height": 1024
+        }
+      },
+      "index": 0,
+      "registration": {
+        "source_rect": [
+          512,
+          0,
+          512,
+          512
+        ],
+        "size": [
+          229,
+          205
+        ],
+        "source_to_local": [
+          [
+            0.4787234042553192,
+            0,
+            -7.095744680851064
+          ],
+          [
+            0,
+            0.4787234042553192,
+            -4.765957446808528
+          ]
+        ]
+      }
+    },
+    "head_sad": {
+      "asset": {
+        "image": "heads.png",
+        "image_sha256": "6648283995738996ea4eab2fd97b26e3e1d1214cf861b228fdf0fb6293f3e4a5",
+        "grid": {
+          "columns": 1,
+          "rows": 1,
+          "cell_width": 1536,
+          "cell_height": 1024
+        }
+      },
+      "index": 0,
+      "registration": {
+        "source_rect": [
+          1024,
+          0,
+          512,
+          512
+        ],
+        "size": [
+          229,
+          205
+        ],
+        "source_to_local": [
+          [
+            0.4766949152542373,
+            0,
+            -1.336864406779661
+          ],
+          [
+            0,
+            0.4766949152542373,
+            -4.362288135593218
+          ]
+        ]
+      }
+    },
+    "head_aggrieved": {
+      "asset": {
+        "image": "heads.png",
+        "image_sha256": "6648283995738996ea4eab2fd97b26e3e1d1214cf861b228fdf0fb6293f3e4a5",
+        "grid": {
+          "columns": 1,
+          "rows": 1,
+          "cell_width": 1536,
+          "cell_height": 1024
+        }
+      },
+      "index": 0,
+      "registration": {
+        "source_rect": [
+          0,
+          512,
+          512,
+          512
+        ],
+        "size": [
+          229,
+          205
+        ],
+        "source_to_local": [
+          [
+            0.4787234042553192,
+            0,
+            -13.319148936170214
+          ],
+          [
+            0,
+            0.4787234042553192,
+            -4.765957446808528
+          ]
+        ]
+      }
+    },
+    "head_angry": {
+      "asset": {
+        "image": "heads.png",
+        "image_sha256": "6648283995738996ea4eab2fd97b26e3e1d1214cf861b228fdf0fb6293f3e4a5",
+        "grid": {
+          "columns": 1,
+          "rows": 1,
+          "cell_width": 1536,
+          "cell_height": 1024
+        }
+      },
+      "index": 0,
+      "registration": {
+        "source_rect": [
+          512,
+          512,
+          512,
+          512
+        ],
+        "size": [
+          229,
+          205
+        ],
+        "source_to_local": [
+          [
+            0.47974413646055436,
+            0,
+            -7.594882729211086
+          ],
+          [
+            0,
+            0.47974413646055436,
+            -5.688699360341133
+          ]
+        ]
+      }
+    },
+    "head_blink": {
+      "asset": {
+        "image": "heads.png",
+        "image_sha256": "6648283995738996ea4eab2fd97b26e3e1d1214cf861b228fdf0fb6293f3e4a5",
+        "grid": {
+          "columns": 1,
+          "rows": 1,
+          "cell_width": 1536,
+          "cell_height": 1024
+        }
+      },
+      "index": 0,
+      "registration": {
+        "source_rect": [
+          1024,
+          512,
+          512,
+          512
+        ],
+        "size": [
+          229,
+          205
+        ],
+        "source_to_local": [
+          [
+            0.4766949152542373,
+            0,
+            -1.8135593220338984
+          ],
+          [
+            0,
+            0.4766949152542373,
+            -3.88559322033899
+          ]
+        ]
+      }
+    }
+  },
+  "parts": [
+    {
+      "id": "body",
+      "joint": [
+        190,
+        165.8069498069498
+      ],
+      "anchor": [
+        92.0,
+        10.6
+      ],
+      "texture": "body",
+      "order": 0,
+      "minification": "area"
+    },
+    {
+      "id": "head",
+      "joint": [
+        0,
+        0
+      ],
+      "anchor": [
+        114.5,
+        172.85
+      ],
+      "texture": "head_normal",
+      "order": 5,
+      "minification": "area",
+      "parent": "body",
+      "expressions": {
+        "normal": "head_normal",
+        "happy": "head_happy",
+        "sad": "head_sad",
+        "aggrieved": "head_aggrieved",
+        "angry": "head_angry",
+        "blink": "head_blink"
+      }
+    },
+    {
+      "id": "rear_hair",
+      "joint": [
+        0,
+        -115
+      ],
+      "anchor": [
+        124.5,
+        14.25
+      ],
+      "texture": "rear_hair",
+      "order": -4,
+      "minification": "area",
+      "parent": "head"
+    },
+    {
+      "id": "left_arm",
+      "joint": [
+        -38,
+        25
+      ],
+      "anchor": [
+        58.0,
+        9.9
+      ],
+      "texture": "left_arm",
+      "order": 1,
+      "minification": "area",
+      "parent": "body"
+    },
+    {
+      "id": "right_arm",
+      "joint": [
+        38,
+        25
+      ],
+      "anchor": [
+        16.0,
+        10.0
+      ],
+      "texture": "right_arm",
+      "order": 1,
+      "minification": "area",
+      "parent": "body"
+    },
+    {
+      "id": "leg_l",
+      "joint": [
+        -24,
+        115
+      ],
+      "anchor": [
+        17.5,
+        6.9
+      ],
+      "texture": "leg_l",
+      "order": -1,
+      "minification": "area",
+      "parent": "body"
+    },
+    {
+      "id": "leg_r",
+      "joint": [
+        24,
+        115
+      ],
+      "anchor": [
+        17.5,
+        6.95
+      ],
+      "texture": "leg_r",
+      "order": -1,
+      "minification": "area",
+      "parent": "body"
+    }
+  ],
+  "base_pose": {
+    "body": {
+      "scale_x": 1.2213827086755262,
+      "scale_y": 1.2213827086755262
+    },
+    "head": {
+      "scale_x": 0.6442397736043222,
+      "scale_y": 0.6442397736043222
+    },
+    "rear_hair": {},
+    "left_arm": {},
+    "right_arm": {},
+    "leg_l": {},
+    "leg_r": {}
+  },
+  "gait": [
+    {
+      "part": "leg_l",
+      "parameter": "angle",
+      "amplitude": 13,
+      "curve": [
+        [
+          0,
+          0
+        ],
+        [
+          0.25,
+          1
+        ],
+        [
+          0.5,
+          0
+        ],
+        [
+          0.75,
+          -1
+        ],
+        [
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "part": "leg_r",
+      "parameter": "angle",
+      "amplitude": -13,
+      "curve": [
+        [
+          0,
+          0
+        ],
+        [
+          0.25,
+          1
+        ],
+        [
+          0.5,
+          0
+        ],
+        [
+          0.75,
+          -1
+        ],
+        [
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "part": "left_arm",
+      "parameter": "angle",
+      "amplitude": -5.6,
+      "curve": [
+        [
+          0,
+          0
+        ],
+        [
+          0.25,
+          1
+        ],
+        [
+          0.5,
+          0
+        ],
+        [
+          0.75,
+          -1
+        ],
+        [
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "part": "right_arm",
+      "parameter": "angle",
+      "amplitude": 5.6,
+      "curve": [
+        [
+          0,
+          0
+        ],
+        [
+          0.25,
+          1
+        ],
+        [
+          0.5,
+          0
+        ],
+        [
+          0.75,
+          -1
+        ],
+        [
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "part": "body",
+      "parameter": "y",
+      "amplitude": -2,
+      "curve": [
+        [
+          0,
+          0
+        ],
+        [
+          0.25,
+          1
+        ],
+        [
+          0.5,
+          0
+        ],
+        [
+          0.75,
+          1
+        ],
+        [
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "part": "leg_l",
+      "parameter": "y",
+      "amplitude": -18,
+      "curve": [
+        [
+          0,
+          0
+        ],
+        [
+          0.25,
+          1
+        ],
+        [
+          0.5,
+          0
+        ],
+        [
+          0.75,
+          0
+        ],
+        [
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "part": "leg_r",
+      "parameter": "y",
+      "amplitude": -18,
+      "curve": [
+        [
+          0,
+          0
+        ],
+        [
+          0.25,
+          0
+        ],
+        [
+          0.5,
+          0
+        ],
+        [
+          0.75,
+          1
+        ],
+        [
+          1,
+          0
+        ]
+      ]
+    }
+  ],
+  "input_feedback": {
+    "drag": [
+      {
+        "part": "body",
+        "parameter": "angle",
+        "amplitude": 4,
+        "curve": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            1
+          ],
+          [
+            0.5,
+            0
+          ],
+          [
+            0.75,
+            -1
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      },
+      {
+        "part": "left_arm",
+        "parameter": "angle",
+        "amplitude": 55,
+        "curve": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            1
+          ],
+          [
+            0.5,
+            0
+          ],
+          [
+            0.75,
+            -1
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      },
+      {
+        "part": "right_arm",
+        "parameter": "angle",
+        "amplitude": -55,
+        "curve": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            1
+          ],
+          [
+            0.5,
+            0
+          ],
+          [
+            0.75,
+            -1
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      },
+      {
+        "part": "leg_l",
+        "parameter": "angle",
+        "amplitude": 22,
+        "curve": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            1
+          ],
+          [
+            0.5,
+            0
+          ],
+          [
+            0.75,
+            -1
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      },
+      {
+        "part": "leg_r",
+        "parameter": "angle",
+        "amplitude": -22,
+        "curve": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            1
+          ],
+          [
+            0.5,
+            0
+          ],
+          [
+            0.75,
+            -1
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      }
+    ],
+    "contact": [
+      {
+        "part": "left_arm",
+        "parameter": "angle",
+        "amplitude": 22,
+        "curve": [
+          [
+            0,
+            0
+          ],
+          [
+            0.125,
+            1
+          ],
+          [
+            0.25,
+            0
+          ],
+          [
+            0.375,
+            -1
+          ],
+          [
+            0.5,
+            0
+          ],
+          [
+            0.625,
+            1
+          ],
+          [
+            0.75,
+            0
+          ],
+          [
+            0.875,
+            -1
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      },
+      {
+        "part": "right_arm",
+        "parameter": "angle",
+        "amplitude": -22,
+        "curve": [
+          [
+            0,
+            0
+          ],
+          [
+            0.125,
+            1
+          ],
+          [
+            0.25,
+            0
+          ],
+          [
+            0.375,
+            -1
+          ],
+          [
+            0.5,
+            0
+          ],
+          [
+            0.625,
+            1
+          ],
+          [
+            0.75,
+            0
+          ],
+          [
+            0.875,
+            -1
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      },
+      {
+        "part": "leg_l",
+        "parameter": "angle",
+        "amplitude": 10,
+        "curve": [
+          [
+            0,
+            0
+          ],
+          [
+            0.125,
+            1
+          ],
+          [
+            0.25,
+            0
+          ],
+          [
+            0.375,
+            -1
+          ],
+          [
+            0.5,
+            0
+          ],
+          [
+            0.625,
+            1
+          ],
+          [
+            0.75,
+            0
+          ],
+          [
+            0.875,
+            -1
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      },
+      {
+        "part": "leg_r",
+        "parameter": "angle",
+        "amplitude": -10,
+        "curve": [
+          [
+            0,
+            0
+          ],
+          [
+            0.125,
+            1
+          ],
+          [
+            0.25,
+            0
+          ],
+          [
+            0.375,
+            -1
+          ],
+          [
+            0.5,
+            0
+          ],
+          [
+            0.625,
+            1
+          ],
+          [
+            0.75,
+            0
+          ],
+          [
+            0.875,
+            -1
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      }
+    ]
+  },
+  "expression_regions": {
+    "head": {
+      "rect": [
+        41,
+        102,
+        148,
+        82
+      ],
+      "feather": 3,
+      "duration_ms": 160
+    }
+  },
+  "idle": {
+    "blink_code": "blink",
+    "channels": [
+      {
+        "part": "head",
+        "parameter": "angle",
+        "amplitude": 0.5,
+        "curve": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            1
+          ],
+          [
+            0.5,
+            0
+          ],
+          [
+            0.75,
+            -1
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      }
+    ]
+  },
+  "facing": {
+    "left": {},
+    "right": {}
+  },
+  "views": {
+    "left": "rig-left.json",
+    "right": "rig-right.json"
+  },
+  "view_registration": "view-registration.json"
+}

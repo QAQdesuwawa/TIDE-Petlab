@@ -7,6 +7,15 @@ import sys
 import tkinter as tk
 import weakref
 
+ACTION_ICONS={
+    'move_near':'👣','stroll':'👣','move_away':'↩','relocate':'📍',
+    'head_bow':'↓','head_tilt':'❔','nod':'✓','shake_head':'×',
+    'turn_left':'↶','turn_right':'↷','wave_hand':'👋','wave':'👋','beckon':'✋','hop':'↑',
+    'lie_down':'💤','stand_up':'↑','play_tail':'♪','read_web':'📱','eat_rice':'🍚',
+    'request_bowl':'🥣','offer_bowl':'🍚','accept_bowl':'🤲','keep_bowl':'🥣','decline_bowl':'×',
+}
+
+
 def reading_duration_ms(text,*,minimum_ms=8000,maximum_ms=30000,per_char_ms=180):
     """Presentation time only: retain short speech and allow longer text to be read."""
     count=sum(not ch.isspace() for ch in text)
@@ -112,7 +121,7 @@ class PetSpeechBubble:
             widget.bind("<Enter>",lambda event:self._pause_dismiss(),add="+")
             widget.bind("<Leave>",self._leave,add="+")
         self._width=88;self._body_height=44
-        self._placement=None;self._tail_x=None
+        self._placement=None;self._tail_x=None;self._activity_icon=None
         self._instances.add(self)
 
     def place(self,x,y,*,anchor_x):
@@ -162,7 +171,7 @@ class PetSpeechBubble:
             self._tail_on_top=on_top;self._draw()
 
     def _draw(self):
-        self.canvas.delete('bubble-shell','bubble-tail','bubble-tail-edge','typing-dot')
+        self.canvas.delete('bubble-shell','bubble-tail','bubble-tail-edge','typing-dot','activity-icon')
         width,height=self._width,self._body_height
         offset=10 if self._tail_on_top else 0
         self.canvas.configure(width=width,height=height+10)
@@ -181,6 +190,10 @@ class PetSpeechBubble:
         self.canvas.create_line(center-6,edge,center+6,edge,fill=self.FILL,width=3,tags='bubble-tail-edge')
         if self.mode=="speech":
             self._place_text_window('speech-text',self.label,18,offset+13)
+        elif self.mode=='activity':
+            self.canvas.itemconfigure('speech-text',state='hidden')
+            self.canvas.create_text(width//2,offset+height//2,text=self._activity_icon,
+                font=('Segoe UI Emoji',16),fill='#365578',tags='activity-icon')
         elif self.mode in {"typing","contact"}:
             self.canvas.itemconfigure('speech-text',state='hidden')
             color="#6f9dd0" if self.mode=="typing" else "#a0bfd9"
@@ -222,6 +235,16 @@ class PetSpeechBubble:
             self._phase+=.65;self._draw_dots()
             self.animation_job=self.root.after(80,animate)
         self.animation_job=self.root.after(80,animate)
+
+    def set_activity(self,icon):
+        if self._closed or icon==self._activity_icon:return
+        self._activity_icon=icon
+        if self.mode=='activity' and icon is None:self.hide()
+        elif icon is not None and self.mode in {'hidden','activity'}:self._present_activity()
+
+    def _present_activity(self):
+        self._cancel_jobs();self.mode='activity';self._width=46;self._body_height=34
+        self._draw();self._present()
 
     def accepts_speech(self):
         # Existing execution/source guards still decide whether an output may show.
@@ -304,13 +327,16 @@ class PetSpeechBubble:
         if self.mode=="typing":self.hide()
 
     def hide(self):
+        previous=self.mode
         self._cancel_jobs();self.mode="hidden"
         if not self._closed:self.window.withdraw()
         self._reflow()
         callback=getattr(self,'on_hide',None)
-        if callback is not None:callback()
+        if callback is not None and previous!='activity':callback()
+        if previous in {'speech','typing','contact'} and self._activity_icon and not self._closed:self._present_activity()
 
     def close(self):
         if self._closed:return
+        self._activity_icon=None
         self.hide();self._closed=True
         if self.history_window is not None:self.history_window.destroy()

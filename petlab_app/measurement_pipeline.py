@@ -10,6 +10,7 @@ from framework.model_api import model_data_fingerprint as fp,thaw_model_data
 KEY='desktop-pet-measurement-prefetch-v1'
 OUTPUT_KEY='desktop-pet-measurement-prefetch-v2-output'
 REBASE='desktop-pet-measurement-rebase-v1'
+PLAYBACK_OUTPUT='desktop-pet-playback-output-prefetch-v1'
 
 
 def reply_scope(method):
@@ -68,12 +69,56 @@ def stash(app,event_id,payload):
     app._publish_product(product)
 
 
+def follows_playback_input(app,event,prepared_position):
+    source=app._product()['sources'][event.event_id]
+    if source['origin']!='execution':return False
+    receipt=source['evidence']['fact']['model_payload']['execution_receipt']
+    refs=receipt['realization_evidence'].get('live_input_sources',())
+    if len(refs)!=1:return False
+    from product_adapters.desktop_pet_v1 import EVENT_JOURNAL_KEY
+    ref=refs[0]
+    if ref['event_id'] not in app.runtime.session.profile.get(EVENT_JOURNAL_KEY,{}):return False
+    memory=app.runtime.memory_instance(ref['event_id']);position=app.runtime.session.position
+    return (memory.event.source_binding_ref==ref['source_binding']
+        and memory.fact.accepted_runtime_ordinal==prepared_position['runtime_ordinal']+1==position.runtime_ordinal
+        and memory.fact.temporal_position_fingerprint==position.position.fingerprint)
+
+
+def stash_playback_output(app,action_id,peer,payload,*,prepared_position=None):
+    product=app._product(source_id=action_id)
+    source=product['sources'][action_id]
+    receipt=source['evidence']['fact']['model_payload']['execution_receipt']
+    expected={'event_id':peer.event_id,'source_binding':peer.source_binding_ref}
+    if source['origin']!='execution' or tuple(receipt['realization_evidence'].get('live_input_sources',()))!=(expected,):
+        raise ValueError('parallel output measurement lacks its actual playback input')
+    binding={'version':PLAYBACK_OUTPUT,'input':expected,'position':prepared_position or app.runtime.session.position.to_record(),
+             'output':action_id,'execution_receipt':receipt['fingerprint'],'payload':fp(payload)}
+    binding['fingerprint']=fp(binding)
+    if 'playback_output_prefetch' in source and source['playback_output_prefetch']!=binding:
+        raise ValueError('parallel output measurement binding changed')
+    source['playback_output_prefetch']=binding
+    source['prefetched_payload']=thaw_model_data(payload)
+    source['prefetched_payload_fingerprint']=fp(payload)
+    app._publish_product(product)
+
+
 @contextmanager
 def admission(app,parent):
     if getattr(app,'_measurement_admission',None) is not None:raise RuntimeError('nested measurement admission')
     app._measurement_admission=(parent,get_ident())
     try:yield
     finally:app._measurement_admission=None
+
+
+def admitted_parent(app):
+    active=getattr(app,'_measurement_admission',None)
+    if active is None or active[1]!=get_ident():return None
+    parent=active[0]
+    source=app._product()['sources'].get(parent,{})
+    from product_adapters.desktop_pet_v1 import EVENT_JOURNAL_KEY
+    if source.get('origin')=='execution' and parent not in app.runtime.session.profile.get(EVENT_JOURNAL_KEY,{}):
+        return parent
+    return None
 
 
 def permits(app,pending):
@@ -141,6 +186,26 @@ def after_parent(app,event,prepared_position=None):
 
 def rebase(service,event,payload):
     app=service.application
+    source=app._product()['sources'][event.event_id]
+    binding=source.get('playback_output_prefetch')
+    if binding is not None:
+        receipt=source['evidence']['fact']['model_payload']['execution_receipt']
+        input_fact=app.runtime.memory_instance(binding['input']['event_id'])
+        position=app.runtime.session.position
+        if (binding['version']!=PLAYBACK_OUTPUT or binding['output']!=event.event_id
+                or binding['fingerprint']!=fp({k:v for k,v in binding.items() if k!='fingerprint'})
+                or binding['payload']!=fp(payload) or binding['execution_receipt']!=receipt['fingerprint']
+                or tuple(receipt['realization_evidence'].get('live_input_sources',()))!=(binding['input'],)
+                or input_fact.event.source_binding_ref!=binding['input']['source_binding']
+                or input_fact.fact.accepted_runtime_ordinal!=binding['position']['runtime_ordinal']+1
+                or input_fact.fact.accepted_runtime_ordinal!=position.runtime_ordinal
+                or input_fact.fact.temporal_position_fingerprint!=position.position.fingerprint):
+            raise ValueError('parallel output measurement no longer follows its bound input')
+        from product_adapters.desktop_pet_v1.calibration import KEY as CAL,reference
+        value=thaw_model_data(payload)
+        if CAL in value:
+            value[CAL]=reference(app.runtime,event,calibration_version=value[CAL]['calibration_version'])
+        return value
     if provenance(app,event) is None:return payload
     if not after_parent(app,event):raise ValueError('prefetched measurement requires its immediate settled parent')
     tail=_tail(app,provenance(app,event))
@@ -179,7 +244,9 @@ def verify_payload(app,event,original,cached):
 def pending(app):
     from product_adapters.desktop_pet_v1 import EVENT_JOURNAL_KEY
     journal=app.runtime.session.profile.get(EVENT_JOURNAL_KEY,{})
-    return any(k not in journal and 'prefetch' in v for k,v in app._product()['sources'].items())
+    from .session import PRODUCT_KEY
+    sources = app.runtime.session.profile.get(PRODUCT_KEY, {}).get('sources', {})
+    return any(k not in journal and 'prefetch' in v for k, v in sources.items())
 
 
 def measure(service,event,work):
@@ -200,12 +267,16 @@ def measure(service,event,work):
             while not parent.done():
                 if child is None:
                     previous=getattr(app,'_measurement_preparing_source',None)
+                    previous_origin=getattr(app,'_measurement_preparing_origin',None)
                     source=app._product()['sources'][event.event_id]
+                    app._measurement_preparing_origin=source['origin']
                     app._measurement_preparing_source=(source['evidence']['source_ref']
                         if source['origin']=='cx67_private_intention'
                         else getattr(app,'_prefetch_reply_source',None))
                     try:args=supplier()
-                    finally:app._measurement_preparing_source=previous
+                    finally:
+                        app._measurement_preparing_source=previous
+                        app._measurement_preparing_origin=previous_origin
                     if args is not None:
                         with admission(app,event.event_id):new=app.accept_input(**args)
                         next_work=service.prepare(new)

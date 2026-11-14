@@ -20,7 +20,7 @@ def validate(ctx):
  if c['movement']!=movement.arrival_definition():raise ValueError('whisper movement differs')
  return c
 
-def compose(contents,children,ctx):
+def compose(contents,children,ctx,*,finish_speech_before_departure=False):
  c=validate(ctx);contents=tuple(contents)
  if not any(x.kind=='speech' for x in contents):
   return contents,CompositePlan.create(children) if children else None
@@ -35,6 +35,9 @@ def compose(contents,children,ctx):
   row=rows.setdefault(item.content_id,{'kind':item.kind,'key':item.semantic_key if item.kind=='action' else 'selected_presentation' if item.kind=='expression' else 'reply' if item.kind=='speech' else 'inner_monologue','after':[]})
   if item.kind in {'speech','action'} and not row['after']:row['after']=[APPROACH]
  rows[APPROACH]={'kind':'action','key':'move_near','after':[]}
+ if finish_speech_before_departure:
+  from .audience_motion import finish_private_speech
+  finish_private_speech(contents,rows,APPROACH)
  return (prep,*contents),CompositePlan.create(rows)
 
 def check_arrival(scene,ctx):
@@ -43,7 +46,11 @@ def check_arrival(scene,ctx):
  # Two-pixel raster rounding tolerance, not psychological distance or audibility.
  plan=movement.plan(s,{**c['movement'],'target_ref':c['target_ref']})
  distance=spatial.separation(s,c['target_ref'])
- if plan['distance_px']>2 or distance['window_gap_px']>c['movement']['gap_px']+2 or distance['floor_difference_px']>2:
+ own=next(row['bounds'] for row in s['participants'] if row['ref']==s['owner_ref'])
+ peer=next(row['bounds'] for row in s['participants'] if row['ref']==c['target_ref'])
+ _,top,_,height=s['viewport']
+ reachable_y=max(top,min(top+max(0,height-own[3]),peer[1]+peer[3]-own[3]))
+ if plan['distance_px']>2 or distance['window_gap_px']>c['movement']['gap_px']+2 or abs(own[1]-reachable_y)>2:
   raise ValueError('whisper target is not alongside')
  return {'scene_fingerprint':s['fingerprint'],'remaining_px':plan['distance_px']}
 
@@ -51,7 +58,9 @@ def wrap(payload,control,ctx):
  from .events import Content
  base=thaw_model_data(payload)
  children=base.get('action_sequence',{}).get('children',control.get('composite',{}).get('children',{}))
- items,plan=compose(tuple(Content.from_record(r) for r in base['contents']),children,ctx)
+ from .audience_motion import CURRENT_PRIVATE
+ items,plan=compose(tuple(Content.from_record(r) for r in base['contents']),children,ctx,
+  finish_speech_before_departure=control.get('audience_motion_policy')==CURRENT_PRIVATE)
  return {**base,'contents':[r.to_record() for r in items],
          'whisper_plan':None if plan is None else thaw_model_data(plan.children)}
 

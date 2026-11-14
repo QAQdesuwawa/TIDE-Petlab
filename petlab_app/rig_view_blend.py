@@ -16,8 +16,10 @@ def validate(data,views):
     for direction,rows in data.items():
         if set(rows)!=known:raise ValueError('incomplete turn parts')
         for row in rows.values():
-            if set(row)!={'target','source','destination','triangles','handoff'} or row['target'] not in known:
+            if set(row)-{'blend_half_span'}!={'target','source','destination','triangles','handoff'} or row['target'] not in known:
                 raise ValueError('invalid turn registration part')
+            span=row.get('blend_half_span',.14)
+            if type(span) not in (int,float) or not 0<span<=.14:raise ValueError('invalid turn material blend span')
             a=np.asarray(row['source']);b=np.asarray(row['destination']);tri=np.asarray(row['triangles'])
             if a.shape!=b.shape or a.ndim!=2 or a.shape[1]!=2 or not 3<=len(a)<=64 or not np.isfinite(a).all() or not np.isfinite(b).all():
                 raise ValueError('invalid turn landmarks')
@@ -57,8 +59,8 @@ class ViewBlendFrame(RigFrame):
 
     def layer_selection(self):
         a,b=self.endpoints;data=a.rig['_view_registration'][str(b.rig['_view_direction'])]
-        return ({name for name,row in data.items() if self.phase<row['handoff']+.14},
-                {row['target'] for row in data.values() if self.phase>row['handoff']-.14})
+        return ({name for name,row in data.items() if self.phase<row['handoff']+row.get('blend_half_span',.14)},
+                {row['target'] for row in data.values() if self.phase>row['handoff']-row.get('blend_half_span',.14)})
 
     @property
     def bgra(self):
@@ -74,7 +76,7 @@ class ViewBlendFrame(RigFrame):
         a,b=self.endpoints;t=self.phase;w,h=self.width,self.height
         data=a.rig['_view_registration'][str(b.rig['_view_direction'])]
         ma=matrices(a.rig['parts'],poses[0]);mb=matrices(b.rig['parts'],poses[1])
-        out=np.zeros((h,w,4),np.float32);geometry=[]
+        out=np.zeros((h,w,4),np.float32);geometry=[];part_layers={}
         for part in sorted(a.rig['parts'],key=lambda p:p['order']):
             name=part['id'];row=data[name];other=row['target']
             x=layers[0].get(name);y=layers[1].get(other)
@@ -82,7 +84,8 @@ class ViewBlendFrame(RigFrame):
             pa=_world(row['source'],ma[name]);pb=_world(row['destination'],mb[other]);p=pa*(1-t)+pb*t
             # A short, staggered handoff avoids both a whole-character cut and
             # a long translucent double silhouette. Geometry is already aligned.
-            center=row['handoff'];u=np.clip((t-center+.14)/.28,0,1);u=u*u*(3-2*u)
+            center=row['handoff'];span=row.get('blend_half_span',.14)
+            u=np.clip((t-center+span)/(2*span),0,1);u=u*u*(3-2*u)
             mapped=[]
             for index,(pixels,points) in enumerate(((x,pa),(y,pb))):
                 if pixels is None or (index==0 and u==1) or (index==1 and u==0):
@@ -98,7 +101,17 @@ class ViewBlendFrame(RigFrame):
                 mapped.append(warped.astype(np.float32))
             layer=mapped[0]*(1-u)+mapped[1]*u
             out=layer+out*(1-layer[:,:,3:4]/255)
+            part_layers[other]=layer
             geometry.append((name,other,p,pa,pb,row['triangles'],float(u),layer[:,:,3]))
+        # The side artwork can move a shoulder behind the torso. Interpolate
+        # occlusion on the same warped layers instead of switching their order
+        # abruptly at the exact endpoint. This adds no second pose or face.
+        side_order=np.zeros_like(out)
+        for part in sorted(b.rig['parts'],key=lambda p:p['order']):
+            layer=part_layers.get(part['id'])
+            if layer is not None:side_order=layer+side_order*(1-layer[:,:,3:4]/255)
+        occlusion=t*t*(3-2*t)
+        out=out*(1-occlusion)+side_order*occlusion
         self.geometry=geometry
         return AlphaFrame(w,h,np.clip(np.round(out),0,255).astype(np.uint8).tobytes())
 

@@ -11,7 +11,7 @@ def parse_response(raw,event):
  return result
 
 
-def parse_query_response(raw,event):
+def parse_query_response(raw,event,*,unknown_certainty=False):
  """A question's offered value is not a known answer; retain its wire audit."""
  import json
  from model_packages.cx_six_seven_v1.semantic_measurement import _strip_fences
@@ -26,6 +26,7 @@ def parse_query_response(raw,event):
    if len(value)>256:raise ValueError('property value exceeds budget')
    repairs.append({'property_index':index,'reason':'question_candidate_is_not_an_asserted_answer','original_value':row['value']})
    row={**row,'value':None}
+   if unknown_certainty:row['certainty']='unknown'
   normalized.append(row)
  result=parse_response(json.dumps({**data,'semantic_properties':normalized},ensure_ascii=False),event)
  if repairs:result['property_normalizations']=repairs
@@ -48,8 +49,14 @@ def parse_available_response(raw,event):
  from .hierarchy_semantics import OWNERS
  data=json.loads(_strip_fences(raw));rows=data.get('semantic_properties')
  if not isinstance(rows,list) or len(rows)>16:raise ValueError('semantic properties missing or over budget')
- normalized=[];fallbacks=[];unlocated=[];text=evidence_source(event)
+ normalized=[];fallbacks=[];unlocated=[];formats=[];text=evidence_source(event)
  for i,row in enumerate(rows):
+  if isinstance(row,dict) and isinstance(row.get('evidence_text'),str):
+   quote=row['evidence_text'];trimmed=quote.strip()
+   if (len(quote)<=256 and trimmed and trimmed!=quote
+       and text.count(quote)!=1 and text.count(trimmed)==1):
+    formats.append({'property_index':i,'reason':'outer_evidence_whitespace','original_evidence_text':quote})
+    row={**row,'evidence_text':trimmed}
   try:
    parse_query_response(json.dumps({'semantic_properties':[row]},ensure_ascii=False),event)
   except ValueError as error:
@@ -59,8 +66,7 @@ def parse_available_response(raw,event):
    quote=row.get('evidence_text');path=row.get('path')
    if len(json.dumps(row,ensure_ascii=False,allow_nan=False))>1024:raise
    if not isinstance(path,list) or not 1<=len(path)<=8:raise
-   if not isinstance(quote,str) or not 0<len(quote)<=256:raise
-   if text.count(quote)!=1:
+   if not isinstance(quote,str) or not 0<len(quote)<=256 or text.count(quote)!=1:
     # An unlocated sibling is retained as interpretation evidence, never as
     # a grounded property. It must not discard independently valid siblings.
     unlocated.append({'property_index':i,'reason':str(error),'original_property':row})
@@ -75,10 +81,14 @@ def parse_available_response(raw,event):
         'path':prefix,'value':None,'kind':'query' if row.get('kind')=='query' else 'assertion',
         'certainty':'unknown','evidence_text':quote}
   normalized.append(row)
- if unlocated and not normalized:raise ValueError('no source-located property remains')
+ # The committed execution is the source of an actual NPC output. Optional
+ # retrieval labels need their own anchors and can all be unavailable.
+ if unlocated and not normalized and event.event_kind!='npc_output':
+  raise ValueError('no source-located property remains')
  result=parse_query_response(json.dumps({**data,'semantic_properties':normalized},ensure_ascii=False),event)
  if fallbacks:result['property_fallbacks']=fallbacks
  if unlocated:result['unlocated_properties']=unlocated
+ if formats:result['property_format_normalizations']=formats
  return result
 
 

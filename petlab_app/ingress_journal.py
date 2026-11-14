@@ -265,16 +265,27 @@ def complete_accepted_jobs(journal,product,*,current_sequence):
         if event is not None:app._verify_source(event);journal.complete(row['sequence'])
 
 
-def retained_reply_ids(product,*,requested_jobs,prior_source_ids):
+def retained_reply_ids(product,*,requested_jobs,prior_source_ids,pending_deliveries=()):
     """Reply work for this recovery operation, not every unanswered old input."""
+    app=product.application
+    latest_peer_speech=max((row['projection']['committed_at_ms'] for row in pending_deliveries
+        if row['sender_kind']=='npc'
+        and any(content['kind']=='speech' for content in row.get('visible',{}).get('contents',()))),
+        default=None)
     direct={job.get('event_id') for job in requested_jobs if job.get('kind') in ('input','web_read')}
     gestures={job.get('gesture_id') for job in requested_jobs if job.get('kind')=='gesture_end'}
     selected=[]
     for identity in product.pending_reply_ids():
-        event=product.application.runtime.memory_instance(identity).event
+        event=app.runtime.memory_instance(identity).event
         ended=any(content.kind=='interaction' and content.parameters.get('phase')=='ended'
             and content.parameters.get('gesture_id') in gestures for content in event.contents)
-        if identity not in prior_source_ids or identity in direct or ended:selected.append(identity)
+        if identity not in prior_source_ids or identity in direct or ended:
+            # Recovery may settle a newer peer's prefetched speech before
+            # its inbox entry is consumed. Let that entry assess its own
+            # opening before emitting a retained reply to an older input.
+            if latest_peer_speech is not None and latest_peer_speech>capture_position(app,event).coordinate:
+                continue
+            selected.append(identity)
     return tuple(selected)
 
 

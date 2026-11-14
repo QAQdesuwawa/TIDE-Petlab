@@ -112,17 +112,23 @@ def read_settlement(application,*,record=None,historical=False):
 def current_projection(application,*,record=None,historical=False,committed_remainders=None):
     app=application
     with app._lock:
-        session,previous_state,previous_position,context,execution,acceptance=read_settlement(app,record=record,historical=historical)
-        binding=session.session_binding
-        state=restore_runtime_expression_state(session.profile,session_binding=binding)
-        from .projection_cache import reuse
-        remainders=state.committed_remainders if committed_remainders is None else committed_remainders
-        return reuse(app,previous_state=previous_state,previous_position=previous_position,
-            parameters=session.parameters,context=context,
-            execution={'payload':execution.payload,'receipt':execution.receipt.to_record()},
-            acceptance=acceptance,remainders=remainders,
-            factory=lambda:produce_expression_projection_shadow(runtime=app.runtime.model_runtime,session_binding=binding,
-                previous_state=previous_state,previous_position=previous_position,model_parameters=session.parameters,
-                settlement_context=context,settlement_execution=execution,settlement_acceptance=acceptance,
-                committed_remainders=remainders,
-                expression_scope_ref=app.definition.scope_ref if context.scope_ref is None else None))
+        settled=read_settlement(app,record=record,historical=historical)
+        return _projection_from_verified(app,settled,committed_remainders=committed_remainders)
+
+
+def _projection_from_verified(app,settled,*,committed_remainders=None):
+    # Caller holds the application lock across verification and projection.
+    session,previous_state,previous_position,context,execution,acceptance=settled
+    binding=session.session_binding
+    state=restore_runtime_expression_state(session.profile,session_binding=binding)
+    from .projection_cache import reuse
+    remainders=state.committed_remainders if committed_remainders is None else committed_remainders
+    return reuse(app,previous_state=previous_state,previous_position=previous_position,
+        parameters=session.parameters,context=context,
+        execution={'payload':execution.payload,'receipt':execution.receipt.to_record()},
+        acceptance=acceptance,remainders=remainders,
+        factory=lambda:produce_expression_projection_shadow(runtime=app.runtime.model_runtime,session_binding=binding,
+            previous_state=previous_state,previous_position=previous_position,model_parameters=session.parameters,
+            settlement_context=context,settlement_execution=execution,settlement_acceptance=acceptance,
+            committed_remainders=remainders,
+            expression_scope_ref=app.definition.scope_ref if context.scope_ref is None else None))

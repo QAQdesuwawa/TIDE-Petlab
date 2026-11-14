@@ -1,0 +1,113 @@
+{
+  "version": "petlab-whole-expression-assets-v1",
+  "idle": {
+    "image": "idle.png",
+    "image_sha256": "4ff51803462d5cc5cc3deb51dbab07673c264f05d2c4993267b798c416500719",
+    "grid": {
+      "columns": 6,
+      "rows": 1,
+      "cell_width": 362,
+      "cell_height": 362
+    },
+    "codes": {
+      "normal": 0,
+      "happy": 1,
+      "sad": 2,
+      "aggrieved": 3,
+      "angry": 4
+    },
+    "neutral_blink_frame": 5
+  },
+  "drag": {
+    "normal": {
+      "image": "idle.png",
+      "image_sha256": "4ff51803462d5cc5cc3deb51dbab07673c264f05d2c4993267b798c416500719",
+      "grid": {
+        "columns": 6,
+        "rows": 1,
+        "cell_width": 362,
+        "cell_height": 362
+      },
+      "frame_indices": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "happy": {
+      "image": "idle.png",
+      "image_sha256": "4ff51803462d5cc5cc3deb51dbab07673c264f05d2c4993267b798c416500719",
+      "grid": {
+        "columns": 6,
+        "rows": 1,
+        "cell_width": 362,
+        "cell_height": 362
+      },
+      "frame_indices": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "sad": {
+      "image": "idle.png",
+      "image_sha256": "4ff51803462d5cc5cc3deb51dbab07673c264f05d2c4993267b798c416500719",
+      "grid": {
+        "columns": 6,
+        "rows": 1,
+        "cell_width": 362,
+        "cell_height": 362
+      },
+      "frame_indices": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ]
+    },
+    "aggrieved": {
+      "image": "idle.png",
+      "image_sha256": "4ff51803462d5cc5cc3deb51dbab07673c264f05d2c4993267b798c416500719",
+      "grid": {
+        "columns": 6,
+        "rows": 1,
+        "cell_width": 362,
+        "cell_height": 362
+      },
+      "frame_indices": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ]
+    },
+    "angry": {
+      "image": "idle.png",
+      "image_sha256": "4ff51803462d5cc5cc3deb51dbab07673c264f05d2c4993267b798c416500719",
+      "grid": {
+        "columns": 6,
+        "rows": 1,
+        "cell_width": 362,
+        "cell_height": 362
+      },
+      "frame_indices": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ]
+    }
+  }
+}

@@ -89,35 +89,76 @@ class CheckpointJournal:
     @classmethod
     def create(cls,path,base):
         result=cls(path,base)
-        header={'version':VERSION,'base':result.base,'session_id':base['session_id'],'session_binding_fingerprint':base['session_binding_fingerprint']}
-        _atomic(result.path,(json.dumps(header,separators=(',',':'))+'\n').encode())
+        result.start()
         return result
 
+    def start(self):
+        header={'version':VERSION,'base':self.base,'session_id':self.material['session_id'],
+                'session_binding_fingerprint':self.material['session_binding_fingerprint']}
+        _atomic(self.path,(json.dumps(header,separators=(',',':'))+'\n').encode())
+
     @classmethod
-    def load(cls,path,base):
-        result=cls(path,base);raw=result.path.read_bytes();lines=raw.splitlines(keepends=True)
-        if not lines:raise ValueError('empty checkpoint delta journal')
-        header=json.loads(lines[0])
-        if header!={'version':VERSION,'base':result.base,'session_id':base['session_id'],'session_binding_fingerprint':base['session_binding_fingerprint']}:raise ValueError('checkpoint delta base differs')
-        valid_size=len(lines[0])
-        for index,line in enumerate(lines[1:],1):
-            try:row=json.loads(line)
-            except (ValueError,UnicodeError):
-                if index!=len(lines)-1 or line.endswith(b'\n'):raise ValueError('checkpoint delta is corrupt')
-                # Preserve a torn, uncommitted tail before repairing appendability.
-                backup=Path(str(result.path)+'.incomplete')
-                if backup.exists():backup=Path(str(backup)+'.'+uuid.uuid4().hex)
-                _atomic(backup,line);_atomic(result.path,raw[:valid_size]);break
-            if set(row)!={'version','base','sequence','previous','patches','fingerprint'} or row['version']!=VERSION or row['base']!=result.base or type(row['sequence']) is not int or row['sequence']!=result.sequence+1 or row['previous']!=result.previous:raise ValueError('checkpoint delta lineage differs')
-            material={k:v for k,v in row.items() if k!='fingerprint'}
-            # json.loads has already produced only plain JSON keys/containers.
-            # The original canonical encoder still checks every value (including
-            # rejecting NaN/Infinity) and verifies the exact original row hash.
-            # Avoid allocating a second complete copy of the decoded patch graph.
-            if _fingerprint_canonical_model_data(material)!=row['fingerprint']:raise ValueError('checkpoint delta fingerprint differs')
-            for patch in row['patches']:_apply(result.material,patch)
-            result.previous=row['fingerprint'];result.sequence=row['sequence'];valid_size+=len(line)
-        result._sync_history();return result
+    def load(cls, path, base):
+        result = cls(path, base)
+        torn = None
+        with result.path.open('rb') as journal:
+            first = journal.readline()
+            if not first:
+                raise ValueError('empty checkpoint delta journal')
+            header = json.loads(first)
+            expected = {'version': VERSION, 'base': result.base, 'session_id': base['session_id'],
+                        'session_binding_fingerprint': base['session_binding_fingerprint']}
+            if header != expected:
+                raise ValueError('checkpoint delta base differs')
+            valid_size = len(first)
+            for line in journal:
+                try:
+                    row = json.loads(line)
+                except (ValueError, UnicodeError):
+                    # A line without a newline is necessarily the file's tail.
+                    if line.endswith(b'\n'):
+                        raise ValueError('checkpoint delta is corrupt') from None
+                    torn = line
+                    break
+                if (set(row) != {'version', 'base', 'sequence', 'previous', 'patches', 'fingerprint'}
+                        or row['version'] != VERSION or row['base'] != result.base
+                        or type(row['sequence']) is not int or row['sequence'] != result.sequence + 1
+                        or row['previous'] != result.previous):
+                    raise ValueError('checkpoint delta lineage differs')
+                material = {k: v for k, v in row.items() if k != 'fingerprint'}
+                if _fingerprint_canonical_model_data(material) != row['fingerprint']:
+                    raise ValueError('checkpoint delta fingerprint differs')
+                for patch in row['patches']:
+                    _apply(result.material, patch)
+                result.previous = row['fingerprint']
+                result.sequence = row['sequence']
+                valid_size += len(line)
+        if torn is not None:
+            result._recover_torn_tail(torn, valid_size)
+        result._sync_history()
+        return result
+
+    def _recover_torn_tail(self, tail, valid_size):
+        backup = Path(str(self.path) + '.incomplete')
+        if backup.exists():
+            backup = Path(str(backup) + '.' + uuid.uuid4().hex)
+        _atomic(backup, tail)
+        fd, temporary = tempfile.mkstemp(prefix=self.path.name + '.', suffix='.tmp', dir=self.path.parent)
+        try:
+            with os.fdopen(fd, 'wb') as target, self.path.open('rb') as source:
+                remaining = valid_size
+                while remaining:
+                    chunk = source.read(min(remaining, 1024 * 1024))
+                    if not chunk:
+                        raise ValueError('checkpoint delta valid prefix disappeared')
+                    target.write(chunk)
+                    remaining -= len(chunk)
+                target.flush()
+                os.fsync(target.fileno())
+            os.replace(temporary, self.path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
 
     def _sync_history(self):
         history=self.material['profile'].get(FRAMEWORK_HISTORY_PROFILE_KEY)

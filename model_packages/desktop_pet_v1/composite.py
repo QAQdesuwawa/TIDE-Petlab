@@ -124,10 +124,10 @@ class ChildResult:
             raise ValueError('actual effect requires start evidence')
         if self.status in {'cancelled','failed'} and self.started_at_ms is not None:
             raise ValueError('partial actual effects require interrupted result')
-        if self.reason not in {None,'user_contact','source_expired','technical_failure','window_closed','physical_contact','destination_occupied','unknown','no_speech_selected','no_content_selected'}:
+        if self.reason not in {None,'user_contact','source_expired','technical_failure','window_closed','physical_contact','destination_occupied','target_unavailable','unknown','no_speech_selected','no_content_selected'}:
             raise ValueError('unknown interruption reason')
         if self.status!='completed' and self.reason is None:raise ValueError('termination reason required')
-        if self.reason in {'user_contact','source_expired','physical_contact','destination_occupied'} and not self.cause_ref:
+        if self.reason in {'user_contact','source_expired','physical_contact','destination_occupied','target_unavailable'} and not self.cause_ref:
             raise ValueError('causal source required')
         if self.cause_ref is not None and (not isinstance(self.cause_ref,str) or not self.cause_ref.strip()):
             raise ValueError('invalid causal source')

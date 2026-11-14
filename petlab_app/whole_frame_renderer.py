@@ -152,7 +152,7 @@ def build_activity_frames(frames,manifest,asset_dir,declaration,tail_clip):
 
 def _atlas_activity_frames(frames,manifest,asset_dir,declaration,tail_clip):
     """Complete authored poses; a sprite sequence remains one actual action."""
-    old={k:v for k,v in declaration['clips'].items() if v.get('source') not in ('whole_atlas','expression_motion','facing_turn','bound_rig')}
+    old={k:v for k,v in declaration['clips'].items() if v.get('source') not in ('whole_atlas','expression_motion','facing_turn','bound_rig','expression_slots')}
     result,clips,mapping=build_activity_frames(frames,manifest,asset_dir,{'version':'petlab-local-activities-v3','clips':old},tail_clip)
     from .expression_motion import append as append_expression_motion
     binding=None
@@ -175,6 +175,16 @@ def _atlas_activity_frames(frames,manifest,asset_dir,declaration,tail_clip):
         for code,old_frames in result.items():result[code]=old_frames+(old_frames[0],)*(start-len(old_frames)+count)
         clips[key]={'frames':list(range(start,start+count)),'durations_ms':[row['duration_ms']//count+(i<row['duration_ms']%count) for i in range(count)],'facing_turn':row['direction'],'continuous_expression_motion':True}
         mapping.update({i:0 for i in range(start,start+count)})
+    for key,row in declaration['clips'].items():
+        if row.get('source')!='expression_slots':continue
+        indices,timing=row.get('frames'),row.get('durations_ms')
+        if (set(row)!={'source','frames','durations_ms'} or not isinstance(indices,list)
+                or not isinstance(timing,list) or not 2<=len(indices)==len(timing)<=240
+                or any(type(i) is not int or not 0<=i<min(map(len,result.values())) for i in indices)
+                or any(type(t) is not int or not 0<t<=1000 for t in timing) or sum(timing)>30000):
+            raise ValueError('expression-aligned action frames differ')
+        clips[key]={'frames':indices,'durations_ms':timing,'authored_transition':True,'expression_slots':True}
+        mapping.update({i:0 for i in indices})
     first=next(iter(result.values()))[0];sources={}
     for key,row in declaration['clips'].items():
         if row.get('source')!='whole_atlas':continue

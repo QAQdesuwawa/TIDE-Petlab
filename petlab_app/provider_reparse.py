@@ -10,13 +10,15 @@ from framework.receipt_dag import LifecycleArtifactEvidence,LifecycleFailureEvid
 REVISION='petlab-source-bound-local-reparse-v1'
 def reparse_failed(gateway,*,session_binding,current_position,operation_kind,source_fact_ref,codec_contract,messages,temperature,require_json,parse,source_receipt_refs=(),invocation_id=None):
  body=gateway.transport_for(operation_kind).payload(messages=messages,temperature=temperature,require_json=require_json)
+ failure_kinds=({'invalid_import_estimate'} if operation_kind=='import_estimate'
+                else {'invalid_memory_query_nodes','invalid_hierarchical_properties'})
  rows=[]
  for path in gateway.trace_dir.glob('*.json'):
   if invocation_id is not None and path.name!=invocation_id+'.json':continue
   record=json.loads(path.read_text(encoding='utf8'))
   if (record.get('version')=='petlab-provider-trace-v1' and record.get('source_fact_ref')==source_fact_ref
       and record.get('operation_kind')==operation_kind and record.get('status')=='failed'
-      and (record.get('codec_parse') or {}).get('failure_kind') in {'invalid_memory_query_nodes','invalid_hierarchical_properties'}):
+      and (record.get('codec_parse') or {}).get('failure_kind') in failure_kinds):
    rows.append((path,record))
  if not rows:return None
  # Oldest received attempt is authoritative for recovery, not a lucky later draw.

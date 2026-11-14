@@ -38,8 +38,9 @@ def move_sprite(root,widget,point,hwnd=None):
   root.geometry(f'{left:+d}{top:+d}')
 
 class DesktopScene:
- def __init__(self,windows,*,objects=()):
+ def __init__(self,windows,*,objects=(),screen=None):
   self.windows=windows;self.objects=spatial.world_objects(objects);self.source_ref='desktop:'+uuid.uuid4().hex
+  self.screen=screen
  def approach_landings(self,owner_ref):
   landings=[]
   for window in self.windows.values():
@@ -58,5 +59,9 @@ class DesktopScene:
    rows.append({'ref':ref,'label':window.configuration.definition.name,'bounds':[*sprite_screen_position(window.root,widget),widget.winfo_width(),widget.winfo_height()]})
    if ref==owner_ref:owner=window.root
   if owner is None:return None
+  own=next(r for r in rows if r['ref']==owner_ref)
+  objects=self.objects
+  if self.screen is not None and self.screen.visible(own['bounds']):
+   objects=[*objects,self.screen.object]
   return spatial.create(owner_ref=owner_ref,source_ref=self.source_ref,sampled_at_ms=time.time_ns()//1_000_000,
-   viewport=[owner.winfo_vrootx(),owner.winfo_vrooty(),owner.winfo_vrootwidth(),owner.winfo_vrootheight()],participants=rows,objects=self.objects)
+   viewport=[owner.winfo_vrootx(),owner.winfo_vrooty(),owner.winfo_vrootwidth(),owner.winfo_vrootheight()],participants=rows,objects=objects)

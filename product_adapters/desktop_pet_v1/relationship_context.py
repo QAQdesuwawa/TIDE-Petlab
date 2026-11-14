@@ -71,9 +71,12 @@ def validate(app,value,destination):
         or v['destination_fingerprint']!=destination['fingerprint']):raise ValueError('relationship context source differs')
     return v
 
-def text(value):
+def text(value,*,concise=False):
     if value is None:return ''
     rows=[{'主体':r['owner_ref'],'关系对象':r['target_ref'],'心理状态词元':r['tokens']} for r in value['relations']]
+    if concise:
+        return ('\n【本角色各条关系的当前心理状态】\n本轮表达资源对应：'+value['active_peer']+'。\n'
+                +json.dumps(rows,ensure_ascii=False,separators=(',',':'))) if rows else ''
     return ('\n【本角色各条关系的当前心理状态】\n这些词元来自各条关系的正式数值，经原包投影和词元映射得到，是理解角色当前心理状态的主要依据。'
         '每组只属于所标注的主体→关系对象；结合人设与已交付记忆形成关注和表达。'
         '前面的本轮表达资源对应关系对象：'+value['active_peer']+'。\n'

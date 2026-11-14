@@ -33,7 +33,7 @@ def preserve_required(packet,*,cap,core_text):
 def preserves_required_selection(version):
     """Shared policy for compilation and supplemental-card budget accounting."""
     from . import prompt_delivery as versions
-    return version.removesuffix('-persona-v1').removesuffix('-stationary-v1') in {
+    return version.removesuffix('-persona-v1').removesuffix('-stationary-v1').removesuffix(versions.OCCURRENCE_SUFFIX).removesuffix(versions.COMPACT_ACTIONS_SUFFIX).removesuffix(versions.DIALOGUE_AUTHOR_SUFFIX).removesuffix(versions.AUDIENCE_SCHEMA_SUFFIX).removesuffix(versions.CONCISE_SUFFIX).removesuffix(versions.SCENE_FACTS_SUFFIX) in {
         versions.REQUIRED_VERSION, versions.REQUIRED_MARKER_VERSION,
         versions.ACTUAL_VERSION, versions.ACTUAL_MARKER_VERSION,
         versions.SITUATED_VERSION, versions.SITUATED_MARKER_VERSION,
@@ -43,7 +43,7 @@ def preserves_required_selection(version):
 
 def supplementary_budget(delivery, configured):
     """Carry only the base renderer's explicit retained-selection overflow."""
-    if not preserves_required_selection(delivery['version']):
+    if not (preserves_required_selection(delivery['version']) or delivery.get('required_base_reserved')):
         return configured
     excess=max(0,len(delivery['system'])+len(delivery['user'])-delivery['budget_chars'])
     if excess and (delivery['core_over_budget'] or not delivery['budget_overflow_materials']):

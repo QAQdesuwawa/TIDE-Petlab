@@ -68,7 +68,7 @@ class ProcessDesktopActor:
     is_isolated=True
     startup_timeout_seconds=120
 
-    def __init__(self,*,configuration,session_path,trace_dir,checkpoint_storage_mode="snapshot-v1",visual_capabilities=None,defer_startup=False,multi_workspace=None):
+    def __init__(self,*,configuration,session_path,trace_dir,checkpoint_storage_mode="snapshot-v1",visual_capabilities=None,defer_startup=False,multi_workspace=None,executable_action_keys=None):
         if checkpoint_storage_mode not in {"snapshot-v1","delta-v1"}:raise ValueError("unknown checkpoint storage mode")
         if type(defer_startup) is not bool:raise ValueError("startup deferral must be boolean")
         self._deferred_startup=defer_startup;self._ready_received=False;self._activated=not defer_startup
@@ -81,7 +81,7 @@ class ProcessDesktopActor:
         self.recovering=False
         self.opening_mode=configuration.opening_mode
         context=mp.get_context('spawn');self.incoming=context.Queue();self.outgoing=context.Queue()
-        spec={'multi_workspace':multi_workspace,'defer_startup':defer_startup,'writer_model':configuration.writer_model,'idle_behavior':configuration.idle_behavior,'visual_capabilities':thaw_model_data(visual_capabilities),'batch_quiet_ms':configuration.mouse_batch_quiet_ms,'checkpoint_storage_mode':checkpoint_storage_mode,'definition':configuration.definition.to_record(),'transport':asdict(configuration.transport),
+        spec={'multi_workspace':multi_workspace,'executable_action_keys':None if executable_action_keys is None else tuple(executable_action_keys),'defer_startup':defer_startup,'writer_model':configuration.writer_model,'idle_behavior':configuration.idle_behavior,'visual_capabilities':thaw_model_data(visual_capabilities),'batch_quiet_ms':configuration.mouse_batch_quiet_ms,'checkpoint_storage_mode':checkpoint_storage_mode,'definition':configuration.definition.to_record(),'transport':asdict(configuration.transport),
             'session_path':str(Path(session_path).resolve()),'trace_dir':str(Path(trace_dir).resolve()),
             'private_thought':configuration.private_thought,'temperature':configuration.writer_temperature,'numbered':configuration.numbered_memory,
             'links':configuration.memory_links,'budget':configuration.writer_budget_chars,
@@ -231,9 +231,13 @@ class ProcessDesktopActor:
                     executor.set_execution_context(value['action_id'],value['execution_context'],observer=observer)
                 if 'composite' in value:
                     plan=CompositePlan.create(value['composite'])
+                    options={'semantic_takeover':slot['takeover']} if slot['takeover'] is not None else {}
+                    from .desktop_view import DesktopExecutor
+                    if isinstance(executor,DesktopExecutor) and slot['takeover'] is not None:
+                        options['speech_hold']=slot['speech_hold']
                     if late is not None:
-                        outcome=executor.execute_staged(value['action_id'],contents,plan=plan,late_speech=late,is_cancelled=cancelled)
-                    else:outcome=executor.execute_composite(value['action_id'],contents,plan=plan,is_cancelled=cancelled)
+                        outcome=executor.execute_staged(value['action_id'],contents,plan=plan,late_speech=late,is_cancelled=cancelled,**options)
+                    else:outcome=executor.execute_composite(value['action_id'],contents,plan=plan,is_cancelled=cancelled,**options)
                 else:outcome=executor.execute_guarded(value['action_id'],contents,is_cancelled=cancelled)
                 response={'outcome':outcome.to_record()}
             except ExecutionCancelled as error:
@@ -242,12 +246,12 @@ class ProcessDesktopActor:
             except BaseException:response={'error':'uncertain'}
             finally:
                 late_slots.pop(value['id'],None)
-                playback_slots.pop(value['id'],None)
                 if value.get('execution_context') is not None:executor.clear_execution_context(value['action_id'])
-            self.incoming.put(('response',{'id':value['id'],**response}))
+                self.incoming.put(('response',{'id':value['id'],**response}))
+                playback_slots.pop(value['id'],None)
         try:
             while True:
-                if is_closed():self.request_stop()
+                if is_closed() and not playback_slots:self.request_stop()
                 try:kind,value=self.outgoing.get(timeout=.03)
                 except queue.Empty:
                     if not self.process.is_alive():
@@ -271,7 +275,9 @@ class ProcessDesktopActor:
                     late=None
                     if value.get('staged'):
                         late=Future();late_slots[value['id']]=late
-                    playback_slots[value['id']]={'action_id':value['action_id'],'cancelled':threading.Event()}
+                    playback_slots[value['id']]={'action_id':value['action_id'],'cancelled':threading.Event(),
+                        'takeover':Future() if value.get('accept_speech_takeover') else None,
+                        'speech_hold':threading.Event()}
                     playback_workers[:]=[worker for worker in playback_workers if worker.is_alive()]
                     worker=threading.Thread(target=execute_message,args=(value,late),name='pet-bridge-playback',daemon=True)
                     playback_workers.append(worker);worker.start()
@@ -279,6 +285,17 @@ class ProcessDesktopActor:
                     slot=playback_slots.get(value['id'])
                     if slot is not None and slot['action_id']==value['action_id']:
                         slot['cancelled'].set()
+                elif kind=='hold_speech':
+                    slot=playback_slots.get(value['id'])
+                    if slot is not None and slot['action_id']==value['action_id']:
+                        hold=slot['speech_hold']
+                        if value['hold']:hold.set()
+                        else:hold.clear()
+                elif kind=='takeover_speech':
+                    slot=playback_slots.get(value['id'])
+                    if slot is not None and slot['action_id']==value['action_id']:
+                        pending=slot['takeover']
+                        if pending is not None and not pending.done():pending.set_result(value['proof'])
                 elif kind=='late_speech':
                     late=late_slots.get(value['id'])
                     # A terminated parent must never be recreated by a late result.
@@ -338,6 +355,14 @@ class _Bridge(ExecutionContexts):
         return self._rpc(kind,_late_speech=_late_speech,**fields)
 
     def _rpc(self,kind,*,_late_speech=None,_intake=None,**fields):
+        accepts_takeover=(_intake is not None and
+                          any(child['kind']=='speech' for child in fields.get('composite',{}).values()))
+        if _intake is not None:
+            # A moving owner changes the Writer's scene card before this
+            # executor returns. Prepare once from the resulting position.
+            _intake.prefetch_writer=not any('movement' in item.get('parameters',{})
+                for item in fields.get('contents',()))
+        if accepts_takeover:fields['accept_speech_takeover']=True
         identity=uuid.uuid4().hex;self.outgoing.put((kind,{'id':identity,**fields}))
         if _late_speech is not None:
             def deliver(future):
@@ -350,6 +375,13 @@ class _Bridge(ExecutionContexts):
                 self.outgoing.put(('late_speech',{'id':identity,**value}))
             _late_speech.add_done_callback(deliver)
         sent_takeover=None
+        holding=False
+        if accepts_takeover and hasattr(_intake,'on_speech_hold'):
+            def hold_speech():
+                nonlocal holding
+                holding=True
+                self.outgoing.put(('hold_speech',{'id':identity,'action_id':fields['action_id'],'hold':True}))
+            _intake.on_speech_hold=hold_speech
         while True:
             # Consume actual playback progress before admitting more work.
             # A queued completion must not create a fresh measurement whose
@@ -358,9 +390,12 @@ class _Bridge(ExecutionContexts):
             except queue.Empty:
                 if _intake is not None and sent_takeover is None:
                     proof=_intake.poll()
-                    if proof is not None and not self.is_cancelled():
+                    if proof is not None and accepts_takeover and not self.is_cancelled():
                         sent_takeover=proof
-                        self.outgoing.put(('cancel_execution',{'id':identity,'action_id':fields['action_id']}))
+                        self.outgoing.put(('takeover_speech',{'id':identity,'action_id':fields['action_id'],'proof':proof}))
+                    if holding and (_intake.closed or self.is_cancelled()):
+                        holding=False
+                        self.outgoing.put(('hold_speech',{'id':identity,'action_id':fields['action_id'],'hold':False}))
                 try:response=self.responses.get(timeout=.03 if _intake is not None else .1)
                 except queue.Empty:
                     if self.closed.is_set():
@@ -372,12 +407,16 @@ class _Bridge(ExecutionContexts):
                 observer=self.execution_observer(fields.get('action_id'))
                 if observer is None:raise ExecutionUncertain('unexpected visible effect')
                 observer(response['visible_effect']);continue
-            if _intake is not None:
-                _intake.finish()
-                if sent_takeover is not None and 'outcome' in response:
-                    outcome=response['outcome']
-                    response={**response,'outcome':{**outcome,'details':{**outcome.get('details',{}),
-                        'qualification_takeover':sent_takeover}}}
+            if _intake is not None:_intake.finish()
+            details=response.get('outcome',{}).get('details',{})
+            applied=details.get('qualification_takeover')
+            if applied is not None:
+                ids=applied.get('child_ids',())
+                cancelled={key for key,row in details.get('child_results',{}).items()
+                           if row['status']=='cancelled' and row.get('cause_ref')==applied['event_id']}
+                if (sent_takeover is None or {k:v for k,v in applied.items() if k!='child_ids'}!=sent_takeover
+                        or not cancelled or set(ids)!=cancelled or len(ids)!=len(cancelled)):
+                    raise ExecutionUncertain('playback takeover acknowledgement differs from its request')
             return response
 
     def __call__(self,action_id,contents):return self.execute_guarded(action_id,contents)
@@ -439,6 +478,18 @@ def _actor_main(spec,incoming,outgoing):
     bridge.contact_is_active=lambda gesture:mouse.is_active(gesture)
     try:
         transport=ChatTransport(**spec['transport'])
+
+        def warm_provider_pool():
+            try:
+                from .pooled_transport import warm
+                warm(transport.endpoint)
+            except Exception:
+                # A best-effort warmup has no request to fail. The actual
+                # dispatch retains its normal transport checks and errors.
+                import logging
+                logging.getLogger(__name__).debug('provider_pool_warmup_failed',exc_info=True)
+
+        threading.Thread(target=warm_provider_pool,name='pet-provider-pool',daemon=True).start()
         routes={'writer':replace(transport,model=spec['writer_model'])} if spec.get('writer_model') else {}
         model_package=None
         if spec.get('multi_workspace'):
@@ -451,12 +502,19 @@ def _actor_main(spec,incoming,outgoing):
         product.application.scene_snapshot=lambda:bridge.current_scene
         product.application.meal_snapshot=lambda:bridge.current_meal
         product.idle_behavior=spec.get('idle_behavior','speech')
+        if spec.get('executable_action_keys') is not None:
+            bridge.executable_action_keys=product.executable_action_keys=frozenset(spec['executable_action_keys'])
         if spec.get('multi_workspace'):
             from .multi_actor import MultiPetActorLink
             multi=MultiPetActorLink(product,spec['multi_workspace']['root'],spec['multi_workspace']['alias'])
+            from .social_contact_host import ContactHost
+            contact_host=ContactHost(Path(spec['multi_workspace']['root'])/'social-contact.sqlite3',
+                [d.owner_ref for d in multi.workspace.definitions.values()])
+            product.application.contact_snapshot=contact_host.snapshot
             from .playback_intake import PlaybackIntake
             multi.playback_intake=lambda action_id:PlaybackIntake(multi,action_id,bridge.is_cancelled)
             bridge.playback_intake=multi.playback_intake
+            multi._acknowledge_peer_input=bridge.acknowledge_input
         if spec.get('checkpoint_storage_mode')=='delta-v1':
             product.application.store.enable_incremental(product.application.runtime.session)
         from .ingress_journal import IngressJournal,apply_capture,recover_ingress,complete_accepted_jobs
@@ -484,6 +542,7 @@ def _actor_main(spec,incoming,outgoing):
         pending_input_ids={row['value'].get('event_id') for row in journal.pending_jobs() if row['value']['kind']=='input'}
         pending_reply_count=len(set(recovery_replies)-pending_input_ids)
         ingress_recovery_pending=bool(journal.pending_jobs() or journal.pending_batches())
+        if multi is not None:multi.reconcile_writer_failures()
         participant_recovery_pending=multi is not None and multi.requires_recovery()
         from .startup_recovery import pending_settlement
         settlement_recovery_pending=pending_settlement(product.application)
@@ -675,14 +734,11 @@ def _actor_main(spec,incoming,outgoing):
             from .retired_transport import drain
             drain(product)
             if multi is not None and getattr(multi,'_pending_playback_intake',None) is not None:
-                from .playback_intake import waiting,finish_pending
-                if waiting(multi):
-                    # UI/ingress remain responsive; only this Actor's ordered
-                    # settlement is suspended. No new event is accepted here.
-                    time.sleep(.01)
-                    continue
-                try:_continue_playback_settlement(multi,publish_presentation,idle,
-                    lambda:_finish_host_playback(multi,observer,journal,outgoing))
+                try:
+                    if not _continue_playback_settlement(multi,publish_presentation,idle,
+                            lambda:_finish_host_playback(multi,observer,journal,outgoing)):
+                        time.sleep(.01)
+                        continue
                 except Exception as error:
                     multi._pending_playback_intake=None
                     recovery_pending=True
@@ -758,6 +814,10 @@ def _actor_main(spec,incoming,outgoing):
             try:
                 if idle is not None and job['kind']!='idle_tick' and idle.target_coordinate is not None:
                     idle.cancel('external_activity')
+                if job['kind'] in {'gesture_begin','gesture_end','interaction_tick'}:
+                    from .measurement_pipeline import pending as has_prefetch
+                    if has_prefetch(product.application):
+                        product.resume(executor=None,is_cancelled=lambda:True)
                 if job['kind']=='gesture_begin':observer.start(job['gesture_id']);kind='armed'
                 elif job['kind']=='idle_tick':
                     from .idle_opening import journal as idle_journal
@@ -829,7 +889,8 @@ def _actor_main(spec,incoming,outgoing):
                             buffered_captures.clear();buffered_batch_parts.clear();buffering_capture=False;recovery_pending=False
                         outgoing.put(('ingress_recovered',True))
                         # This branch exists only for the user's explicit resume job.
-                        retained=retained_reply_ids(product,requested_jobs=recovery_jobs,prior_source_ids=recovery_prior_sources)
+                        retained=retained_reply_ids(product,requested_jobs=recovery_jobs,prior_source_ids=recovery_prior_sources,
+                            pending_deliveries=() if multi is None else multi.pending_visible_inputs())
                         if retained and not bridge.is_cancelled():
                             outgoing.put(('typing',{'input_generation':bridge.input_generation}))
                             product._reply(retained[0],executor=bridge,completion_coordinate=wall_clock_ms,

@@ -1,4 +1,6 @@
 """Durable dispatch wrapper; UI playback never performs filesystem writes here."""
+import hashlib
+import json
 import time
 from .composite_journal import ParentJournal
 from .execution import ExecutionOutcome,ExecutionCancelled,ExecutionUncertain
@@ -83,11 +85,56 @@ def _finish_journal(journal,outcome):
     journal.append_many(completed+[('close',{})])
 
 
+def restore_desktop_outcome(playback_dir,journal,state,prepared):
+    """Read a terminal UI receipt bound to this exact dispatch and authorization."""
+    from petlab_app.execution_context import VERSION
+
+    path=playback_dir/(hashlib.sha256(journal.parent_id.encode()).hexdigest()+'.json')
+    if path.resolve().parent!=playback_dir.resolve() or not path.is_file():
+        raise ExecutionUncertain('pending execution has no sealed outcome')
+    row=json.loads(path.read_bytes())
+    plan=state['plan']
+    authorization=prepared.authorization
+    context={'version':VERSION,'target_ref':authorization.target_ref,
+        'session_binding':prepared.request.session_binding_fingerprint,'authorization_ref':authorization.fingerprint}
+    if (row.get('version')!='petlab-desktop-playback-v1' or row.get('action_id')!=journal.parent_id
+            or row.get('execution_context')!=context or row.get('composite_plan_fingerprint')!=plan.fingerprint
+            or row.get('termination')!={'reason':'window_closed','cause_ref':None} or row.get('interrupted') is not True
+            or row.get('renderer') not in {'win32-premultiplied-alpha-v1','tk-color-key-v1'}
+            or 'qualification_takeover' in row or 'obstruction' in row):
+        raise ExecutionUncertain('desktop playback receipt differs from dispatched execution')
+    start,end=row['started_at_wall_ms'],row['finished_at_wall_ms']
+    children=row['child_results']
+    details={'adapter':'tk-sprite-v1','interrupted':True,'renderer':row['renderer'],
+        'child_results':children,'occurred_at_wall_ms':end}
+    for key in ('action_results','gaze_results','presentation_sources'):
+        if row.get(key):details[key]=row[key]
+    from model_packages.desktop_pet_v1.composite import SEQUENCE_VERSION
+    if plan.version==SEQUENCE_VERSION:details['composite_version']=plan.version
+    outcome=ExecutionOutcome(row['completed_content_ids'],str(path),details)
+    validate_outcome(plan,outcome)
+    rendered={item['content_id']:item['at_unix_ms'] for item in row['speech_rendered']}
+    if (type(start) is not int or type(end) is not int or not prepared.position.position.coordinate<=start<=end
+            or not outcome.completed_content_ids or len(rendered)!=len(row['speech_rendered'])
+            or rendered!={key:children[key]['started_at_ms'] for key in outcome.completed_content_ids
+                         if plan.children[key]['kind']=='speech'}):
+        raise ExecutionUncertain('desktop playback timing or rendered speech differs')
+    for key,child in children.items():
+        began=child['started_at_ms']
+        if (child['ended_at_ms']>end or (began is not None and
+                (began<start or state['children'][key]['phase']!='dispatched'))):
+            raise ExecutionUncertain('desktop child differs from dispatch or playback interval')
+    return outcome
+
+
 def reconcile(product,parent_id):
-    """Reconcile only a sealed outcome, never invoke an external executor."""
+    """Recover a bound terminal outcome without invoking an external executor."""
     journal=ParentJournal(product.gateway.trace_dir/'parents',parent_id)
     state=journal.state()
-    if 'outcome' not in state:raise ExecutionUncertain('pending execution has no sealed outcome')
+    app=product.application
+    recover_desktop='outcome' not in state
+    if recover_desktop and ('plan' not in state or state['closed'] or not hasattr(app,'multi_workspace')):
+        raise ExecutionUncertain('pending execution has no sealed outcome')
     source=state['source']
     event_id=source.get('source_event_id')
     if not event_id:raise ExecutionUncertain('parent has no reconstructible source')
@@ -95,8 +142,9 @@ def reconcile(product,parent_id):
     # sealed candidate; normal verifier checks Tick and settled snapshot again.
     from model_packages.desktop_pet_v1.behavior import VERSION as LOCAL_VERSION
     frozen_control=source.get('request',{}).get('control',{})
-    app=product.application
     entry=app._product()['executions'].get(parent_id,{})
+    if recover_desktop and 'admitted_position' not in entry:
+        raise ExecutionUncertain('desktop recovery requires an admitted execution')
     if frozen_control.get('version')==LOCAL_VERSION:
         from .behavior import prepare,restore_admitted
         if 'admitted_position' in entry and 'local_authorization' in source:
@@ -119,7 +167,8 @@ def reconcile(product,parent_id):
     plan,_=prepared.validate(binding=product.application.runtime.session.session_binding,
         owner_ref=product.application.owner_ref,user_ref=prepared.authorization.target_ref)
     if plan.action_id!=parent_id:raise ValueError('recovered parent identity differs')
-    outcome=ExecutionOutcome(**state['outcome'])
+    outcome=(restore_desktop_outcome(app.store.path.parent/'playback',journal,state,prepared)
+        if recover_desktop else ExecutionOutcome(**state['outcome']))
     validate_outcome(state['plan'],outcome)
     if 'admitted_position' in entry:
         from petlab_app.live_execution import verify_recovery
@@ -134,6 +183,7 @@ def reconcile(product,parent_id):
                 settle_recovered_input(product,ref['event_id'],parent_id)
         from petlab_app.live_execution import finish_recovered_inputs
         finish_recovered_inputs(product,parent_id,refs)
+    if recover_desktop:journal.seal_outcome(outcome)
     _finish_journal(journal,outcome)
     coordinate=outcome.details.get('occurred_at_wall_ms')
     if type(coordinate) is not int:raise ExecutionUncertain('sealed outcome lacks actual completion coordinate')

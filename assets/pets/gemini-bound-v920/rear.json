@@ -1,0 +1,13 @@
+{
+  "feet_start": 0.84,
+  "image": "../rear-v1/four-rear.png",
+  "index": 3,
+  "grid": {
+    "cell_width": 543,
+    "columns": 4,
+    "cell_height": 724,
+    "rows": 1
+  },
+  "version": "petlab-authored-rear-v1",
+  "sha256": "881aca9a5f0ee7051bd8c00927c497f5153c6e28727438a9e03dcd86caf20f3f"
+}

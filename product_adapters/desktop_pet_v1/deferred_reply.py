@@ -60,8 +60,11 @@ def verify_delivery(app,delivery):
     delivery=thaw_model_data(delivery)
     memory=app.runtime.memory_instance(delivery['event_id']);app._verify_source(memory.event)
     source=app._product(source_id=memory.event.event_id)['sources'][memory.event.event_id]
-    private_continuation=delivery.get('intention_continuation_version')=='cx67-intention-continuation-v1'
-    if (source['origin']!='input' or source['evidence'].get('response_policy')!=('eligible' if private_continuation else 'required')
+    from petlab_app.intention_continuation import INTENTION_VERSION,PLAYBACK_VERSION
+    continuation=delivery.get('intention_continuation_version')
+    if continuation not in (None,INTENTION_VERSION,PLAYBACK_VERSION):
+        raise ValueError('unknown reply continuation')
+    if (source['origin']!='input' or source['evidence'].get('response_policy')!=('eligible' if continuation else 'required')
             or delivery['source_binding_ref']!=memory.event.source_binding_ref
             or delivery['source_acceptance_fingerprint']!=memory.fact.settlement_ref['acceptance_fingerprint']):
         raise ValueError('deferred delivery differs from original required input')
@@ -73,9 +76,14 @@ def verify_delivery(app,delivery):
             or thaw_model_data(projection.semantic_resource_execution.payload)!=delivery['semantic_payload']):
         raise ValueError('deferred delivery differs from accepted planning projection')
     position=view['acceptance']['position']
-    if private_continuation:
+    if continuation:
         from petlab_app.intention_continuation import validate_planning
         planned=validate_planning(app,delivery['event_id'],projection.context.event_ref)
+        if continuation==PLAYBACK_VERSION:
+            from petlab_app.execution_inputs import completed_effect
+            effect=completed_effect(app,delivery['event_id'])
+            if effect is None or effect.fact.fingerprint!=planned.fact.fingerprint:
+                raise ValueError('playback delivery differs from bound effect')
         if (planned.fact.accepted_runtime_ordinal!=position['runtime_ordinal']
                 or planned.fact.temporal_position_fingerprint!=position['position']['fingerprint']):
             raise ValueError('intention delivery planning position differs')

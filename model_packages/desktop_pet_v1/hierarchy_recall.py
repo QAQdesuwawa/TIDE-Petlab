@@ -66,7 +66,8 @@ def association(cue,source):
 def _context(context,query):
     prior=context.metadata[KEY]
     return replace(context,metadata={**context.metadata,KEY:{**prior,'version':base.VERSION,
-        'cue':{'version':base.VERSION,'phrases':query['phrases'],'signatures':query['signatures']}}})
+        'cue':{'version':base.VERSION,'phrases':query['phrases'],'signatures':query['signatures'],
+               **({'semantic_strength':query['semantic_strength']} if 'semantic_strength' in query else {})}}})
 
 def recall(package,*,payload,context,rows=None,current=None):
     if not enabled(context):raise ValueError('hierarchical recall needs explicit version')

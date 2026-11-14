@@ -96,26 +96,28 @@ class SessionFile:
             self._validated_base_sha = hashlib.sha256(raw).digest()
         return record
 
-    def _reusable_base(self, session):
+    def _reusable_journal(self, session):
         # The digest comes only from this lease's original checkpoint reader or
         # atomic save, never a caller-owned mutable result or a disk sidecar.
         if self._validated_base_sha is None or not self.path.exists():return None
         raw = self.path.read_bytes()
         if hashlib.sha256(raw).digest() != self._validated_base_sha:return None
         base = _disk_decode(json.loads(raw.decode("utf-8")))
-        from .checkpoint_journal import _same
-        history = session.profile.get(FRAMEWORK_HISTORY_PROFILE_KEY)
-        if history is None:
-            history = HistoryAuthority(session_binding_fingerprint=session.session_binding.fingerprint).to_record()
+        from .checkpoint_journal import CheckpointJournal, _same
         if (type(session.position.runtime_ordinal) is not int
                 or base["session_id"] != session.session_binding.session_id
                 or base["session_binding_fingerprint"] != session.session_binding.fingerprint
                 or base["terminal_runtime_ordinal"] != session.position.runtime_ordinal
-                or base["bootstrap_mode"] != "formal-single-pet"
-                or not _same(session.profile, base["profile"])
-                or not _same(history, base["history"])):
+                or base["bootstrap_mode"] != "formal-single-pet"):
             return None
-        return base
+        history = base["profile"].get(FRAMEWORK_HISTORY_PROFILE_KEY)
+        if history is None:
+            history = HistoryAuthority(session_binding_fingerprint=session.session_binding.fingerprint).to_record()
+        if not _same(history, base["history"]):
+            return None
+        # The reconciliation proves equality and prepares owned rows in one pass.
+        journal = CheckpointJournal(self.path, base)
+        return journal if journal.adopt_unchanged_profile(session.profile) else None
 
     def enable_incremental(self,session):
         """Opt into durable deltas; decode the base into the original checkpoint.
@@ -131,12 +133,15 @@ class SessionFile:
         if Path(str(self.path)+'.delta.jsonl').exists():
             self.read(session_id=session.session_binding.session_id)
         else:
-            base = self._reusable_base(session)
-            if base is None:
-                self.save(session)
-                base=_disk_decode(json.loads(self.path.read_text(encoding='utf-8')))
+            journal = self._reusable_journal(session)
+            if journal is not None:
+                journal.start()
+                self._incremental = journal
+                return
+            self.save(session)
+            base = _disk_decode(json.loads(self.path.read_text(encoding='utf-8')))
             from .checkpoint_journal import CheckpointJournal
-            self._incremental=CheckpointJournal.create(self.path,base)
+            self._incremental = CheckpointJournal.create(self.path, base)
 
         self._prime_owned_baseline(session)
 

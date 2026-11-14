@@ -17,9 +17,12 @@ def typed_row(actor,owner,contents):
     return {'实际说话或行动者':actor,'已发生内容':[{'内容身份':labels[c.kind],'原文':c.description} for c in contents]}
 
 
-def card_for(app,event,*,readers,typed=False,timeline=False):
-    context=build(app,event)
+def card_for(app,event,*,readers,typed=False,timeline=False,public_human=False):
+    context=build(app,event,public_human=True) if public_human else build(app,event)
     if context is None:return None
+    readers_from_source=readers is None
+    if readers_from_source:
+        readers=tuple(ref for ref in context['conversation']['active_member_ids'] if ref!=app.owner_ref)
     rows=json.loads(context['text']) if context['text'] else []
     kept=[];refs=[];excluded=[];content_ids={}
     if len(rows)!=len(context['sources']):raise ValueError('visible context rows differ from source references')
@@ -64,14 +67,77 @@ def card_for(app,event,*,readers,typed=False,timeline=False):
     source_ids=[r['event_id'] for r in refs]
     return WriterCard(card_id='conversation:'+event.event_id+':witnessed',lane='conversation',kind=KIND,
         source_id=event.event_id,fields=fields,
-        source_receipt_refs=(context['fingerprint'],app.runtime.memory_instance(event.event_id).fact.fingerprint,
-            *(r['fact_fingerprint'] for r in refs)),
+        source_receipt_refs=(context['fingerprint'],*(r['fact_fingerprint'] for r in refs)) if readers_from_source else
+            (context['fingerprint'],app.runtime.memory_instance(event.event_id).fact.fingerprint,*(r['fact_fingerprint'] for r in refs)),
         provenance={'version':VERSION if not typed else 'desktop-pet-witnessed-conversation-delivery-v2-typed','status':status,'context_fingerprint':context['fingerprint'],
             'source_event_ids':source_ids,'source_count':len(refs),'excluded':excluded,
             **({'source_content_ids':content_ids} if typed else {}),
             'limit_chars':context['limit_chars'],'max_events':context['max_events'],
             'budget_boundary_event_id':context['budget_boundary_event_id'],
             'formal_recall':False,'state_commit_authority':False})
+
+
+LEGACY_DIRECT_RECENT_VERSION='desktop-pet-witnessed-direct-dialogue-v1'
+RESIDUAL_DIRECT_RECENT_VERSION='desktop-pet-witnessed-direct-dialogue-v2'
+REQUIRED_DIRECT_RECENT_VERSION='desktop-pet-witnessed-direct-dialogue-v3'
+DIRECT_RECENT_VERSION='desktop-pet-witnessed-direct-dialogue-v4-public-input'
+
+
+def direct_card_for(app,event,*,readers,version):
+    from .predecessor_reference import build as predecessor_sources
+    sources,_=predecessor_sources(app,event)
+    rows=[]
+    refs=[]
+    for original,ref in reversed(sources):
+        memory=app.runtime.memory_instance(ref['event_id'])
+        if not allowed(app,memory,readers):
+            continue
+        speaker='用户' if memory.event.event_kind=='peer_input' else '角色'
+        rows.append({'说话者':speaker,'原文':original})
+        refs.append(ref)
+    if not rows:
+        return None
+    current=app.runtime.memory_instance(event.event_id)
+    return WriterCard(card_id='conversation:'+event.event_id+':direct_recent',lane='conversation',kind=KIND,
+        source_id=event.event_id,
+        fields={'上下文范围':'直聊近期原话，按发生顺序。','已见的同会话前文':rows},
+        source_receipt_refs=(current.fact.fingerprint,*(ref['fact_fingerprint'] for ref in refs)),
+        provenance={'version':version,'source_event_ids':[ref['event_id'] for ref in refs],
+                    'formal_recall':False,'state_commit_authority':False})
+
+
+def reserve_direct_context(packet):
+    from .required_prompt import _view
+    cards=packet.sections['conversation']
+    recent=next((card for card in cards if card.provenance.get('version') in (DIRECT_RECENT_VERSION,REQUIRED_DIRECT_RECENT_VERSION,RESIDUAL_DIRECT_RECENT_VERSION)),None)
+    if recent is None:return packet,None
+    return _view(packet,{**packet.sections,'conversation':tuple(card for card in cards if card is not recent)}),recent
+
+
+def fit_direct_context(assembly,card):
+    from dataclasses import replace
+    from hashlib import sha256
+    from agents.responder import _PACKET_LANE_TITLES,_packet_material_record,_render_packet_card
+    from framework.model_api import thaw_model_data
+
+    fields=thaw_model_data(card.fields)
+    rows=fields['已见的同会话前文']
+    sources=list(card.provenance['source_event_ids'])
+    record=_packet_material_record(card)
+    # The immediately preceding user/assistant exchange is admitted together.
+    minimum=2 if [r['说话者'] for r in rows[-2:]]==['用户','角色'] else 1
+    remaining=assembly.budget_chars-len(assembly.system)-len(assembly.user)
+    for start in range(len(rows)-minimum+1):
+        block='\n\n'+_PACKET_LANE_TITLES['conversation']+'：\n'+_render_packet_card(
+            replace(card,fields={**fields,'已见的同会话前文':rows[start:]}))
+        if len(block)<=remaining:
+            system=assembly.system+block
+            return replace(assembly,system=system,
+                prompt_fingerprint=sha256((system+'\0'+assembly.user).encode('utf8')).hexdigest(),
+                delivered_materials=(*assembly.delivered_materials,
+                    {**record,'source_event_ids':sources[start:],'deferred_source_event_ids':sources[:start]}))
+    return replace(assembly,rejected_materials=(*assembly.rejected_materials,
+        {**record,'reason':'budget_excluded','deferred_source_event_ids':sources}))
 
 
 def execution_progress(receipt,contents):
@@ -86,7 +152,7 @@ def execution_progress(receipt,contents):
         if identity in actual:
             c=actual[identity]
             shown.append({'通道':{'speech':'说话','action':'身体动作','expression':'表情'}.get(c.kind,c.kind),'内容':c.description,'结果':labels.get(row['status'],row['status']),
-                **({'中止原因':{'user_contact':'用户触碰打断','physical_contact':'外部接触打断','destination_occupied':'落脚位置被占，尚未迈步','source_expired':'新的交互使旧计划失效','technical_failure':'播放故障','window_closed':'窗口关闭'}.get(row['reason'],'执行中止')} if row.get('reason') else {})})
+                **({'中止原因':{'user_contact':'用户触碰打断','target_unavailable':'原动作目标已离开可见范围','physical_contact':'外部接触打断','destination_occupied':'落脚位置被占，尚未迈步','source_expired':'新的交互使旧计划失效','technical_failure':'播放故障','window_closed':'窗口关闭'}.get(row['reason'],'执行中止')} if row.get('reason') else {})})
         elif row.get('status')=='cancelled':cancelled+=1
     return {'实际进度':shown,'未执行后续项数':cancelled,'后续状态':'旧计划已停止，结合本次交互重新安排'}
 

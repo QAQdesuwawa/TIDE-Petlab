@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 import sqlite3
 
+from model_packages.desktop_pet_v1.import_event import ImportedEventTag
+
 VERSION = 'petlab-chat-import-workspace-v1'
 MAX_SOURCE_BYTES = 64 * 1024 * 1024
 
@@ -35,10 +37,15 @@ class TranscriptMessage:
     role: str
     text: str
     timestamp_ms: int | None
+    event_tag: ImportedEventTag | None = None
 
     def record(self):
-        return dict(index=self.index, source_id=self.source_id, role=self.role,
-                    text=self.text, timestamp_ms=self.timestamp_ms)
+        record = dict(index=self.index, source_id=self.source_id, role=self.role,
+                      text=self.text, timestamp_ms=self.timestamp_ms)
+        if self.event_tag is not None:
+            record['event'] = self.event_tag.source_record()
+            record['event_semantic_key'] = self.event_tag.semantic_key
+        return record
 
 
 @dataclass(frozen=True)
@@ -48,8 +55,8 @@ class Transcript:
     messages: tuple[TranscriptMessage, ...]
 
 
-def read_transcript(path):
-    """Read explicit text-only messages. Timestamp, if supplied, is Unix ms.
+def read_transcript(path, *, user_id=None, npc_id=None):
+    """Read text messages and explicitly typed historical events. Timestamp, if supplied, is Unix ms.
 
     Accept a messages array or {"messages": [...]} with user/assistant roles.
     Missing timestamps remain None; no clock or age is guessed at intake.
@@ -68,10 +75,23 @@ def read_transcript(path):
         if set(data) != {'messages'}:raise ValueError('source object must contain only messages')
         data = data['messages']
     if not isinstance(data, list) or not data:raise ValueError('source requires a nonempty messages array')
+    speaker_roles = None
+    if user_id is not None or npc_id is not None:
+        user_id = _identifier(user_id, 'user_id')
+        npc_id = _identifier(npc_id, 'npc_id')
+        if user_id == npc_id:
+            raise ValueError('source user and NPC IDs must differ')
+        speaker_roles = {user_id: 'user', npc_id: 'assistant'}
     messages = [];ids = set()
     for index, row in enumerate(data):
-        if not isinstance(row, dict) or not {'role', 'content'} <= set(row) or set(row)-{'id', 'role', 'content', 'timestamp'}:
-            raise ValueError(f'message {index+1}: supported fields are id/role/content/timestamp')
+        if speaker_roles is not None:
+            if (not isinstance(row, dict) or not {'user_id', 'content'} <= set(row)
+                    or set(row) - {'user_id', 'content', 'timestamp'}
+                    or not isinstance(row['user_id'], str) or row['user_id'] not in speaker_roles):
+                raise ValueError(f'message {index+1}: expected mapped user_id, content and optional timestamp')
+            row = {k: v for k, v in row.items() if k != 'user_id'} | {'role': speaker_roles[row['user_id']]}
+        if not isinstance(row, dict) or not {'role', 'content'} <= set(row) or set(row)-{'id', 'role', 'content', 'timestamp', 'event'}:
+            raise ValueError(f'message {index+1}: supported fields are id/role/content/timestamp/event')
         if row['role'] not in ('user', 'assistant'):
             raise ValueError(f'message {index+1}: map source identity explicitly to user or assistant')
         text = row['content']
@@ -85,7 +105,11 @@ def read_transcript(path):
         timestamp = row.get('timestamp')
         if timestamp is not None and (type(timestamp) is not int or timestamp < 0):
             raise ValueError(f'message {index+1}: timestamp must be Unix milliseconds or null')
-        messages.append(TranscriptMessage(index, identity, row['role'], text, timestamp))
+        try:
+            event_tag = ImportedEventTag.read(row['event'], role=row['role']) if 'event' in row else None
+        except ValueError as error:
+            raise ValueError(f'message {index+1}: {error}') from error
+        messages.append(TranscriptMessage(index, identity, row['role'], text, timestamp, event_tag))
     return Transcript(str(path), hashlib.sha256(raw).hexdigest(), tuple(messages))
 
 
@@ -111,6 +135,8 @@ class ImportWorkspace:
                     message_count INTEGER NOT NULL, next_index INTEGER NOT NULL);
                 CREATE TABLE messages (idx INTEGER PRIMARY KEY, source_id TEXT, role TEXT NOT NULL,
                     body TEXT NOT NULL, timestamp_ms INTEGER, fingerprint TEXT NOT NULL);
+                CREATE TABLE event_tags (idx INTEGER PRIMARY KEY REFERENCES messages(idx),
+                    source TEXT NOT NULL, semantic_key TEXT NOT NULL);
                 CREATE TABLE steps (idx INTEGER PRIMARY KEY REFERENCES messages(idx),
                     estimate_record TEXT NOT NULL, fingerprint TEXT NOT NULL);
                 CREATE TABLE calls (operation_key TEXT PRIMARY KEY, reservation TEXT NOT NULL);
@@ -121,6 +147,9 @@ class ImportWorkspace:
             db.executemany('INSERT INTO messages VALUES (?,?,?,?,?,?)', [
                 (m.index, m.source_id, m.role, m.text, m.timestamp_ms, _digest(m.record()))
                 for m in transcript.messages])
+            db.executemany('INSERT INTO event_tags VALUES (?,?,?)', [
+                (m.index, _json(m.event_tag.source_record()), m.event_tag.semantic_key)
+                for m in transcript.messages if m.event_tag is not None])
             db.commit()
             return cls(path, db)
         except Exception:
@@ -146,7 +175,9 @@ class ImportWorkspace:
             meta = db.execute('SELECT version,source_digest,definition_ref FROM metadata WHERE id=1').fetchone()
             if meta != (VERSION, source_digest, definition_ref):
                 raise ValueError('workspace source, role definition or version differs')
-            # Additive host checkpoint support, without changing source rows.
+            # Additive storage for typed rows. Legacy row fingerprints stay intact.
+            db.execute('CREATE TABLE IF NOT EXISTS event_tags (idx INTEGER PRIMARY KEY REFERENCES messages(idx), '
+                       'source TEXT NOT NULL, semantic_key TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS calls (operation_key TEXT PRIMARY KEY, reservation TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, fingerprint TEXT NOT NULL)')
             db.commit()
@@ -165,11 +196,25 @@ class ImportWorkspace:
 
     def message(self, index):
         row = self.connection.execute(
-            'SELECT idx,source_id,role,body,timestamp_ms,fingerprint FROM messages WHERE idx=?', (index,)).fetchone()
+            'SELECT m.idx,m.source_id,m.role,m.body,m.timestamp_ms,m.fingerprint,t.source,t.semantic_key '
+            'FROM messages m LEFT JOIN event_tags t ON m.idx=t.idx WHERE m.idx=?', (index,)).fetchone()
         if row is None:raise ValueError('source index unavailable')
-        message = TranscriptMessage(*row[:5])
+        tag = None if row[6] is None else ImportedEventTag.read(json.loads(row[6]), role=row[2], resolved_key=row[7])
+        message = TranscriptMessage(*row[:5], event_tag=tag)
         if _digest(message.record()) != row[5]:raise ValueError('stored source fingerprint differs')
         return message
+
+    def source_location(self, index):
+        branch=self.setting('source_extension')
+        if branch is not None and index>=branch['prefix_count']:
+            return branch['source_digest'],branch['start']+index-branch['prefix_count']
+        return self.status()['source_digest'],index
+
+    def assistant_speech_indices(self, *, limit):
+        rows = self.connection.execute(
+            "SELECT m.idx FROM messages m LEFT JOIN event_tags t ON m.idx=t.idx "
+            "WHERE m.role='assistant' AND t.idx IS NULL ORDER BY m.idx LIMIT ?", (limit,))
+        return tuple(index for index, in rows)
 
     def record_step(self, index, estimate):
         if not isinstance(estimate, dict) or not estimate:raise ValueError('step requires an estimate record')
@@ -198,7 +243,7 @@ class ImportWorkspace:
         if _digest(value) != row[1]:raise ValueError('step fingerprint differs')
         return value
 
-    def reserve_call(self, key, binding):
+    def reserve_call(self, key, binding, *, reuse_only=False):
         """Allocate one paid invocation before dispatch; existing calls never redispatch."""
         import uuid
         _identifier(key, 'operation_key')
@@ -214,6 +259,7 @@ class ImportWorkspace:
                 if row['fingerprint'] != _digest({k:v for k,v in row.items() if k!='fingerprint'}):
                     raise ValueError('import invocation reservation integrity differs')
                 db.rollback();return row,False
+            if reuse_only:raise ValueError('offline continuation lacks its original reservation')
             row = {'operation_key':key,'binding':binding,'invocation_id':uuid.uuid4().hex}
             row['fingerprint'] = _digest(row)
             db.execute('INSERT INTO calls VALUES (?,?)',(key,_json(row)))

@@ -55,6 +55,10 @@ def validate_keys(keys,value):
         raise ValueError('action sequence is outside offered candidates')
     if value['selection'].get('version')==a.MODEL_VERSION and list(keys).count('read_web')>1:
         raise ValueError('one phone executor accepts one reading activity per response')
+    by_key={r['key']:r for r in value['catalog']['candidates']}
+    contact_targets=[by_key[k]['social_contact']['target'] for k in keys if 'social_contact' in by_key[k]]
+    if len(contact_targets)!=len(set(contact_targets)):
+        raise ValueError('one contact decision per participant per response')
     return list(keys)
 
 
@@ -93,9 +97,13 @@ def compose(keys,value,other_contents,*,audience,allow_thought=False,speech_timi
         required=by_key[key].get('approach')
         if required is not None and (not items or items[-1].semantic_key!='move_near' or items[-1].parameters.get('movement',{}).get('target_ref')!=target):
             from . import movement,meal_space
-            if semantic_key not in ('offer_bowl','accept_bowl') or by_key[key].get('physical_contract')!=meal_space.VERSION:
+            from .social_contact import KEYS as CONTACT_KEYS, VERSION as CONTACT_VERSION
+            contact_approach=(semantic_key in CONTACT_KEYS and semantic_key.startswith('accept_')
+                              and by_key[key].get('physical_contract')==CONTACT_VERSION)
+            if not contact_approach and (semantic_key not in ('offer_bowl','accept_bowl') or by_key[key].get('physical_contract')!=meal_space.VERSION):
                 raise ValueError('unexpected action approach prerequisite')
-            prep=replace(movement.content(target,{'key':'move_near','description':'走到交接对象身旁','motion':required}),
+            description='走到接触对象身旁' if semantic_key=='accept_kiss' else '走到交接对象身旁'
+            prep=replace(movement.content(target,{'key':'move_near','description':description,'motion':required}),
                 content_id='action:'+str(index)+':approach',recipient_refs=tuple(audience))
             children[prep.content_id]={'kind':'action','key':'move_near','after':[] if previous is None else [previous]}
             items.append(prep);previous=prep.content_id

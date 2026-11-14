@@ -27,7 +27,7 @@ def authorization(app,event_id):
         return authorize_interaction_tick(app,event_id)
     return required
 
-def ensure(product,event_id):
+def ensure(product,event_id,*,executable_keys=None,allow_live_snapshot=False):
     app=product.application
     if event_id in app.runtime.session.profile.get(KEY,{}):return selection(app,event_id)
     supplier=getattr(app,'meal_snapshot',None)
@@ -42,7 +42,7 @@ def ensure(product,event_id):
     auth=authorization(app,event_id)
     if auth is None:return None
     from product_adapters.desktop_pet_v1.settled_presentation import snapshot
-    settled=snapshot(app)
+    settled=snapshot(app,allow_pending=allow_live_snapshot)
     if settled is None:return None
     plan=settled['reaction']['expression_plan']
     from model_packages.desktop_pet_v1 import movement
@@ -50,7 +50,16 @@ def ensure(product,event_id):
     spatial_scene=spatial_supplier() if callable(spatial_supplier) else None
     from model_packages.desktop_pet_v1.action_targets import expand
     from .writer_visibility import output_readers
-    catalog=expand(getattr(product,'action_catalog',None),scene=spatial_scene,meal=scene,owner=app.owner_ref,primary=auth.target_ref,audience=output_readers(app,event_id))
+    if executable_keys is None:
+        executable_keys=getattr(product,'executable_action_keys',None)
+    # The phone fetch lifecycle is armed by the idle host. A direct reaction
+    # may look at the phone locally, using the separately declared visual clip.
+    base=getattr(product,'action_catalog',None)
+    if base is not None:
+        base={**base,'candidates':[row for row in base['candidates'] if row['key']!='read_web']}
+    catalog=expand(base,scene=spatial_scene,meal=scene,owner=app.owner_ref,
+        primary=auth.target_ref,audience=output_readers(app,event_id),executable_keys=executable_keys,
+        contact=app.contact_snapshot() if callable(getattr(app,'contact_snapshot',None)) else None)
     chosen=action_candidates.propose(eligible=True,tokens=action_candidates.compact_tokens(plan),source=auth.source_settlement_fingerprint,catalog=catalog,allow_speech=product.writer is not None)
     from model_packages.desktop_pet_v1.action_sequence import offer
     offered=offer(chosen,catalog,owner_ref=app.owner_ref,target_ref=auth.target_ref)

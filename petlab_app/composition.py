@@ -104,8 +104,11 @@ def definition_from_background(seed,measured):
         base_constants_version=measured["base_constants_version"])
 
 
-def open_application(*,definition,session_path,action_verifier,initial_coordinate=None,model_package=None):
+def open_application(*,definition,session_path,action_verifier,initial_coordinate=None,model_package=None,
+                     memory_recall_version=None,check_startup_resources=None):
     if not isinstance(definition,PetDefinition):raise TypeError("explicit pet definition is required")
+    if model_package is None:
+        model_package=DesktopPetPackage(parameter_package=reference_full_parameter_package())
     composition=_compose_pet_packages(definition.session_id,model_package=model_package)
     store=SessionFile(session_path)
     kwargs={"store":store,"model_runtime":composition.model_runtime,"temporal_runtime":composition.temporal_runtime,
@@ -128,6 +131,14 @@ def open_application(*,definition,session_path,action_verifier,initial_coordinat
             app=SinglePetApplication.create(session=session,**kwargs)
         restore_runtime_expression_state(app.runtime.session.profile,session_binding=app.runtime.session.session_binding)
         app.definition=definition
+        from model_packages.desktop_pet_v1.address_semantics import VERSION as ADDRESS_RECALL_VERSION
+        if memory_recall_version == ADDRESS_RECALL_VERSION:
+            from interaction_extensions.local_memory_source import register
+            from model_packages.desktop_pet_v1.memory_direct_readout import prevalidate_committed_sources
+            runtime = app.runtime
+            view = register(runtime._history(), session_id=definition.session_id, owner_ref=definition.owner_ref)
+            prevalidate_committed_sources(
+                model_package, view, runtime.session.position, check_resources=check_startup_resources)
         return app
     except Exception:
         store.close()

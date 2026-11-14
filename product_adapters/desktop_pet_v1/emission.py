@@ -172,8 +172,8 @@ def prepare_deferred_delivery(application,event_id,packet,prompt_delivery):
     source=application._product()['sources'][event_id]
     if source['origin']=='input' and source['evidence'].get('response_policy')=='eligible':
         from petlab_app.intention_continuation import authorize
-        authorize(application,event_id)
-        delivery['intention_continuation_version']='cx67-intention-continuation-v1'
+        authorization=authorize(application,event_id)
+        delivery['intention_continuation_version']=authorization.host_authorization_evidence['intention_continuation_version']
     if prompt_delivery['packet_fingerprint']!=packet.packet.packet_fingerprint:
         raise ValueError('deferred prompt differs from packet')
     delivery['plan']=_plan(delivery)

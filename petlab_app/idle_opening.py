@@ -271,7 +271,11 @@ class IdleOpeningHost:
                 meal_scene=meal_supplier() if callable(meal_supplier) else None
                 from model_packages.desktop_pet_v1.action_targets import expand
                 from .writer_visibility import output_readers
-                catalog=expand(getattr(self.product,'action_catalog',None),scene=scene,meal=meal_scene,owner=app.owner_ref,primary=target_ref,audience=output_readers(app,None))
+                executable_keys=getattr(executor,'executable_action_keys',None)
+                if executable_keys is None:executable_keys=getattr(self.product,'executable_action_keys',None)
+                catalog=expand(getattr(self.product,'action_catalog',None),scene=scene,meal=meal_scene,owner=app.owner_ref,
+                    primary=target_ref,audience=output_readers(app,None),executable_keys=executable_keys,
+                    contact=app.contact_snapshot() if callable(getattr(app,'contact_snapshot',None)) else None)
                 token_plan=viewed.profile[SETTLEMENT_KEY]['reaction']['expression_plan']
                 selection=choose(eligible=observed.assessment.eligible,tokens=compact_tokens(token_plan),source=progress.acceptance.fingerprint,catalog=catalog,allow_speech=self.product.writer is not None)
             else:selection=select_idle(eligible=observed.assessment.eligible,mode=mode)

@@ -7,8 +7,10 @@ from pathlib import Path
 from array import array
 from collections import OrderedDict
 from copy import deepcopy
+from itertools import islice
 import hashlib,json,math,queue,socket,sqlite3,subprocess,threading,time,urllib.request,urllib.error
 from model_packages.desktop_pet_v1.rag_policy import MODEL_SHA256,RERANKER_SHA256,EMBEDDING_POLICY,POLICY,VERSION,select_scores
+from .local_model_lifetime import spawn_owned_local_model as _spawn_owned_local_model
 
 def sha(path):
     h=hashlib.sha256()
@@ -32,8 +34,8 @@ class LocalModelRequestError(OSError):
             'input_limit_exceeded':('exceeds' in detail and ('context' in detail or 'batch' in detail))}
 
 class LlamaEmbeddingEngine:
-    def __init__(self,root,stop,log_path,kind="embedding"):
-        self.process=None;self.stop=stop;self.kind=kind
+    def __init__(self,root,stop,log_path,kind="embedding",*,runtime=None):
+        self.process=None;self._process_lifetime=None;self.stop=stop;self.kind=kind
         root=Path(root).resolve();manifest=json.loads((root/'MODEL_MANIFEST.json').read_text(encoding='utf8'))
         model=next(x for x in manifest['models'] if x['kind']==kind)
         expected=MODEL_SHA256 if kind=='embedding' else RERANKER_SHA256
@@ -48,10 +50,14 @@ class LlamaEmbeddingEngine:
         with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
         self.host=f'http://127.0.0.1:{port}';self.http=urllib.request.build_opener(urllib.request.ProxyHandler({}))
         args=['--embedding','--pooling','last','--embd-normalize','2'] if kind=='embedding' else ['--embedding','--rerank','--pooling','rank']
-        command=[str(root/'runtime/llama-server.exe'),'-m',str(weight),*args,'-c',('2048' if kind=='embedding' else '6144'),'--parallel',('1' if kind=='embedding' else '3'),'-t',('4' if kind=='embedding' else '8'),'-ub',('512' if kind=='embedding' else '1024'),'--host','127.0.0.1','--port',str(port)]
+        executable=(root/'runtime/llama-server.exe') if runtime is None else runtime[0]
+        command=[str(executable),'-m',str(weight),*args,'-c',('2048' if kind=='embedding' else '6144'),'--parallel',('1' if kind=='embedding' else '3'),'-t',('4' if kind=='embedding' else '8'),'-ub',('512' if kind=='embedding' else '1024'),'--host','127.0.0.1','--port',str(port)]
+        if runtime is not None:
+            command.extend(('--device',runtime[1],'-ngl','99'))
         Path(log_path).parent.mkdir(parents=True,exist_ok=True)
         with Path(log_path).open('ab') as log:
-            self.process=subprocess.Popen(command,cwd=root/'runtime',stdout=log,stderr=log,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            self.process,self._process_lifetime=_spawn_owned_local_model(
+                command,cwd=executable.parent,stdout=log,stderr=log,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         try:
             deadline=time.monotonic()+45
             while True:
@@ -85,17 +91,29 @@ class LlamaEmbeddingEngine:
         if set(scores)!=set(range(len(documents))) or any(type(v) not in (int,float) or not math.isfinite(v) or not 0<=v<=1 for v in scores.values()):raise ValueError('invalid rerank score set')
         return [scores[i] for i in range(len(documents))]
     def close(self):
-        if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
-            try:self.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:self.process.kill();self.process.wait(timeout=2)
+        try:
+            if self.process is not None and self.process.poll() is None:
+                self.process.terminate()
+                try:self.process.wait(timeout=2)
+                except subprocess.TimeoutExpired:self.process.kill();self.process.wait(timeout=2)
+        finally:
+            if self._process_lifetime is not None:
+                self._process_lifetime.close()
 
 class LocalMemoryRetrieval:
     identity='petlab.local-qwen3-cpu-address-v1'
     model=MODEL_SHA256+':'+RERANKER_SHA256
     policy=POLICY
-    def __init__(self,*,model_root,index_path,engine_factory=None):
+    def __init__(self,*,model_root,index_path,engine_factory=None,verified_runtime=None):
         self.model_root=Path(model_root);self.index_path=Path(index_path)
+        self._runtime=None
+        if verified_runtime is not None:
+            executable,device,digest=verified_runtime
+            executable=Path(executable).resolve(strict=True)
+            if sha(executable)!=digest:
+                raise ValueError('alternate retrieval runtime hash differs')
+            self._runtime=(executable,device)
+            self.identity=f'petlab.local-qwen3-address-v1:{digest}:{device}'
         self._stop=threading.Event();self.ready=threading.Event();self._lock=threading.Lock()
         self._queue=queue.Queue(maxsize=1);self._deferred=None;self._busy=False;self._engine=None;self._ranker=None;self.error=None
         self._query_vectors=OrderedDict();self._score_cache=OrderedDict()
@@ -108,8 +126,13 @@ class LocalMemoryRetrieval:
         db=None
         try:
             self.index_path.parent.mkdir(parents=True,exist_ok=True)
-            self._engine=(self._factory() if self._factory else LlamaEmbeddingEngine(self.model_root,self._stop,self.index_path.with_suffix('.model.log')))
-            self._ranker=(self._engine if self._factory else LlamaEmbeddingEngine(self.model_root,self._stop,self.index_path.with_suffix('.reranker.log'),kind='reranker'))
+            self._engine=(self._factory() if self._factory else LlamaEmbeddingEngine(self.model_root,self._stop,self.index_path.with_suffix('.model.log'),runtime=self._runtime))
+            self._ranker=(self._engine if self._factory else LlamaEmbeddingEngine(self.model_root,self._stop,self.index_path.with_suffix('.reranker.log'),kind='reranker',runtime=self._runtime))
+            if self._runtime is not None:
+                # Complete lazy device initialization before advertising readiness.
+                # These fixed strings never enter the query or document caches.
+                self._engine.embed('Local retrieval backend initialization.')
+                self._ranker.rerank('Backend initialization.', ['A fixed initialization passage.'])
             db=sqlite3.connect(self.index_path)
             db.execute('CREATE TABLE IF NOT EXISTS vectors(namespace TEXT,key TEXT,vector BLOB,PRIMARY KEY(namespace,key))')
             self.status='ready';self.ready.set()
@@ -131,6 +154,21 @@ class LocalMemoryRetrieval:
             if db is not None:db.close()
             if self._engine is not None:self._engine.close()
             if self._ranker is not None and self._ranker is not self._engine:self._ranker.close()
+    def _cached_documents(self, db, namespace, documents):
+        ordered = iter(reversed(documents))
+        while batch := tuple(islice(ordered, 128)):
+            missing = tuple(dict.fromkeys(row['content_fingerprint'] for row in batch
+                                          if (namespace, row['content_fingerprint']) not in self._vectors))
+            stored = {}
+            if missing:
+                placeholders = ','.join('?' for _ in missing)
+                stored = dict(db.execute(
+                    f'SELECT key,vector FROM vectors WHERE namespace=? AND key IN ({placeholders})',
+                    (namespace, *missing),
+                ))
+            for row in batch:
+                yield row, stored.get(row['content_fingerprint'])
+
     def _score(self,db,job):
         started=time.perf_counter()
         namespace=hashlib.sha256((job['namespace']+'\0'+self.model+'\0qwen-mrl256-l2-v1').encode('utf8')).hexdigest()
@@ -145,23 +183,23 @@ class LocalMemoryRetrieval:
                 while len(self._query_vectors)>128:self._query_vectors.popitem(last=False)
         query_ms=round((time.perf_counter()-started)*1000);vectors_started=time.perf_counter()
         scores={};hits=0;new=0
-        for row in reversed(job['documents']):
-            if time.perf_counter()-started>=self.vector_budget_s:break
+        for row,saved in self._cached_documents(db,namespace,job['documents']):
+            if time.perf_counter()-vectors_started>=self.vector_budget_s:break
             if job.get('prime'):
                 with self._lock:
                     if self._deferred is not None:break
             if self._stop.is_set():raise RuntimeError('retrieval stopped')
             key=(namespace,row['content_fingerprint']);vector=self._vectors.get(key)
             if vector is None:
-                saved=db.execute('SELECT vector FROM vectors WHERE namespace=? AND key=?',key).fetchone()
                 if saved is not None:
-                    vector=array('f');vector.frombytes(saved[0])
+                    vector=array('f');vector.frombytes(saved)
                     if len(vector)!=256 or any(not math.isfinite(x) for x in vector):raise ValueError('invalid saved vector')
                     hits+=1
-                else:
+                elif time.perf_counter()-started<self.vector_budget_s:
                     vector=self._engine.embed(row['text']);new+=1
                     db.execute('INSERT INTO vectors VALUES(?,?,?)',(*key,vector.tobytes()))
                     db.commit()
+                else:continue
                 self._vectors[key]=vector
             else:hits+=1
             if query is not None:scores[row['event_id']]=max(-1.,min(1.,sum(a*b for a,b in zip(query,vector))))
@@ -193,10 +231,13 @@ class LocalMemoryRetrieval:
             if final:job['progress']=snapshot
             return snapshot
         if final:publish()
-        # Three is the deployed server's physical slot count, not a recall cap.
-        for first in range(0,len(qualified),3):
+        # Publish the first fully reranked candidate before spending the
+        # remaining compute budget on a batch. Candidate order is unchanged.
+        pending=[row for row in qualified if row['event_id'] not in final]
+        first_batch=1 if not final else 3
+        batches=[pending[:first_batch],*(pending[i:i+3] for i in range(first_batch,len(pending),3))]
+        for batch in batches:
             if time.perf_counter()-started>=self.work_budget_s:break
-            batch=[row for row in qualified[first:first+3] if row['event_id'] not in final]
             if not batch:continue
             ranked=self._ranker.rerank(job['query'],[row['text'] for row in batch])
             if len(ranked)!=len(batch) or any(type(v) not in (int,float) or not math.isfinite(v) or not 0<=v<=1 for v in ranked):

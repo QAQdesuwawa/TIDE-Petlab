@@ -60,6 +60,12 @@ def connection(endpoint):
                     del _pools[old];value[0].close()
 
 
+def warm(endpoint):
+    """Initialize the route's transport and TLS context without opening a socket."""
+    with connection(endpoint):
+        pass
+
+
 def post(endpoint,data,headers,timeout):
     secure=urllib.parse.urlsplit(endpoint).scheme=='https'
     def trace(name,info):

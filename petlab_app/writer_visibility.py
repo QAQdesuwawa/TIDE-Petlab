@@ -12,6 +12,13 @@ CHOICE_VERSION='petlab-writer-recipient-memory-v4-stable-choice'
 VERSIONS.add(CHOICE_VERSION)
 OWNER_VERSION='petlab-writer-recipient-memory-v5-owner-cognition'
 VERSIONS.add(OWNER_VERSION)
+EXPERIENCE_VERSION='petlab-writer-recipient-memory-v6-shareable-experience'
+VERSIONS.add(EXPERIENCE_VERSION)
+TOWN_VERSION='petlab-writer-recipient-memory-v7-public-scene-activity'
+VERSIONS.add(TOWN_VERSION)
+SHARED_WORLD_VERSION='petlab-writer-recipient-memory-v8-shared-world'
+VERSIONS.add(SHARED_WORLD_VERSION)
+EXPERIENCE_VERSIONS={EXPERIENCE_VERSION,SHARED_WORLD_VERSION}
 
 
 def output_readers(app,event_id):
@@ -33,7 +40,7 @@ def plan(app,event_id,*,version=VERSION):
   row['owner']=app.owner_ref
   row['audience']=output_readers(app,event_id)
  from .intention_source import enabled
- if enabled(app):row['private_intention_context']='cx67-owner-cognition-v1'
+ if version not in EXPERIENCE_VERSIONS and enabled(app):row['private_intention_context']='cx67-owner-cognition-v1'
  if version==SCOPED_VERSION:
   from .destinations import primary
   row['required_reader']=primary(app,event_id)
@@ -50,7 +57,15 @@ def allowed(app,memory,readers,*,version=VERSION):
  from .participant_input import VERSION as HUMAN,NPC_VERSION,OBSERVED_VERSIONS,SPEECH_VERSIONS
  receipt=source['evidence'].get('input_source',{})
  shared=None
- if version in {VERSION,SCOPED_VERSION,CHOICE_VERSION} and public_observation(app,memory) is not None:return True
+ if version in {VERSION,SCOPED_VERSION,CHOICE_VERSION,TOWN_VERSION,*EXPERIENCE_VERSIONS} and public_observation(app,memory) is not None:return True
+ if version==TOWN_VERSION and public_scene_activity(app,event,receipt):return True
+ if version==SHARED_WORLD_VERSION:
+  from .screen_perception import WORLD_VERSION
+  if receipt.get('version')==WORLD_VERSION and source.get('origin')=='input':
+   # The content is a per-owner projection. The archived world observation
+   # carries the witnesses; foreground windows and private speech don't use it.
+   app._verify_source(event)
+   return set(readers)<=set(receipt['material']['viewers'])
  if event.event_kind=='peer_input' and receipt.get('version') in {HUMAN,NPC_VERSION,*OBSERVED_VERSIONS,*SPEECH_VERSIONS}:
   destination=_input(app,event.event_id)
   if destination is not None:shared=set(destination['audience'])|{app.owner_ref,event.actor_ref}
@@ -58,10 +73,23 @@ def allowed(app,memory,readers,*,version=VERSION):
   if c.private or c.kind=='thought':
    # The user-facing thought channel is still the owner's own cognition.
    # It never grants another NPC access to the same private body.
-   if event.actor_ref==app.owner_ref and set(readers)<={app.owner_ref,app.user_ref}:continue
+   if version not in EXPERIENCE_VERSIONS and event.actor_ref==app.owner_ref and set(readers)<={app.owner_ref,app.user_ref}:continue
    return False
   visible=shared if shared is not None else set(c.recipient_refs)|{app.owner_ref,event.actor_ref}
   if not set(readers)<=visible:return False
+ return True
+
+
+def public_scene_activity(app,event,receipt):
+ """A town host can prove a witnessed physical activity was public."""
+ from . import scene_encounter
+ verify=getattr(app,'public_scene_activity',None)
+ if (not callable(verify) or receipt.get('version')!=scene_encounter.ACTIVITY_VERSION
+     or event.owner_ref!=app.owner_ref or receipt['reader_ref']!=app.owner_ref
+     or receipt['actor_ref']!=event.actor_ref or receipt['event_id']!=event.event_id
+     or not verify(receipt) or tuple(event.contents)!=(scene_encounter.content(receipt),)):
+  return False
+ app._verify_source(event)
  return True
 
 
@@ -115,7 +143,7 @@ def receipt(visibility):
 def speech_audience(destination,visibility):
  """One sealed cap used by assembly, candidate checks and publication."""
  original=list(destination['audience'])
- if visibility is None or visibility.get('version') not in {SCOPED_VERSION,CHOICE_VERSION,OWNER_VERSION}:return original
+ if visibility is None or visibility.get('version') not in {SCOPED_VERSION,CHOICE_VERSION,OWNER_VERSION,*EXPERIENCE_VERSIONS}:return original
  row={k:v for k,v in visibility.items() if k!='fingerprint'}
  if visibility.get('fingerprint')!=fp(row):raise ValueError('memory visibility integrity differs')
  readers=row['audience']
@@ -124,7 +152,7 @@ def speech_audience(destination,visibility):
       or len(set(readers))!=len(readers) or not set(original)<=set(readers)):
    raise ValueError('owner output audience differs from source/scene')
   return list(readers)
- if visibility['version']==CHOICE_VERSION:
+ if visibility['version'] in {CHOICE_VERSION,*EXPERIENCE_VERSIONS}:
   if list(readers)!=original:raise ValueError('stable speech choice differs from destination')
   return list(readers)
  if (not readers or len(set(readers))!=len(readers) or not set(readers)<=set(original)

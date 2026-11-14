@@ -72,7 +72,13 @@ class DesktopPetPackage(CxSixSevenFullV2Package):
             if thaw_model_data(context.metadata.get(grounded_recall.KEY,{}).get('cue'))!=expected:
                 raise ValueError('recall cue differs from actual event evidence')
         calibration=measurement.get('local_calibration_reference')
-        plain={k:v for k,v in measurement.items() if k not in ('local_calibration_reference','pet_memory_recall')}
+        from .peer_opening import KEY as SPEECH_USE, matches
+        if SPEECH_USE in measurement:
+            from framework.model_api import thaw_model_data
+            use=thaw_model_data(measurement[SPEECH_USE])
+            if event.event_kind!='peer_input' or not matches(use,event):
+                raise ValueError('peer speech use differs from event evidence')
+        plain={k:v for k,v in measurement.items() if k not in ('local_calibration_reference','pet_memory_recall',SPEECH_USE)}
         result=super().measure_event(payload=plain,context=context)
         if calibration is not None:
             from framework.model_api import thaw_model_data,model_data_fingerprint

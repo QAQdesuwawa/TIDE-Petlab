@@ -176,7 +176,9 @@ class DesktopPetWindow:
             from .web_search import resources
             urls=configuration.reading_sources+resources(configuration.reading_searches)
             candidates=catalog(urls[0] if urls else None)
-            if any(c['key'] not in self.view.activity_clips for c in candidates['candidates']):
+            executable=getattr(self.view,'executable_action_keys',None)
+            if any(c['key'] not in self.view.activity_clips for c in candidates['candidates']
+                    if executable is None or c['key'] in executable):
                 raise ValueError('registered action entity has no animation in this character pack')
         elif activity_key!='speech' and activity_key not in self.view.activity_clips:
             raise ValueError('configured autonomous behavior has no animation in this character pack')
@@ -213,6 +215,7 @@ class DesktopPetWindow:
         self.view.action_hint_presenter=lambda emoji,ref,eyes:self.results.put(
             ('action_hint',{'emoji':emoji,'request_ref':ref,'eye_pose':eyes}))
         self.speech_bubble.on_hide=self._on_speech_hidden
+        self.view.activity_presenter=lambda icon: self.action_hint.hide() if icon is not None else None
         self.view.speech_slot_available=self.speech_bubble.accepts_speech
         if getattr(product,'is_isolated',False):
             self.view.apply_settled_presentation(product.startup_receipt.get('settled_presentation'))
@@ -407,6 +410,15 @@ class DesktopPetWindow:
             self.status.configure(text='有上次未完成的互动，请点“继续未完成的互动”。')
         return True
 
+    def show_local_listening(self):
+        """Acknowledge a local send using the last settled visual state."""
+        if self.closed or getattr(self,'_drag_origin',None) is not None:
+            return
+        if getattr(self.view,'active',None) is None:
+            self.view.select_presentation_target(self.configuration.definition.user_ref,pending=True)
+            self.view.show_eye_hint('open','input-listening:'+uuid.uuid4().hex)
+        self.speech_bubble.show_typing()
+
     def _submit(self,content,coordinate,policy,*,queue_while_busy=False):
         if self.closed or (self.busy and not queue_while_busy):return
         if self._needs_ingress_recovery():return
@@ -416,8 +428,7 @@ class DesktopPetWindow:
         self.status.configure(text="正在回应…")
         self.hide_speech()
         self.view.clear_gaze()
-        self.view.select_presentation_target(self.configuration.definition.user_ref,pending=True)
-        if policy=="required" and content.kind=="speech":self.speech_bubble.show_typing()
+        if policy=="required" and content.kind=="speech":self.show_local_listening()
         self._enqueue({"kind":"input","event_id":"input:"+uuid.uuid4().hex,
             "contents":(content,),"coordinate":coordinate,"response_policy":policy})
 

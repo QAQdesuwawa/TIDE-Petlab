@@ -86,7 +86,7 @@ def _object_destination(scene, own, obj, gap, reserved, reachable):
  raise ValueError('no free space near world object')
 
 
-def plan(scene,parameters,*,reserved=(),reachable=None):
+def plan(scene,parameters,*,reserved=(),reachable=None,alongside_only=False):
  if parameters.get('version')==FREE_VERSION:return basic_plan(scene,parameters)
  s=spatial.validate(scene);p=thaw_model_data(parameters)
  if not isinstance(p,dict) or set(p)!=set(definition())|{'target_ref'}:raise ValueError('movement fields differ')
@@ -109,21 +109,26 @@ def plan(scene,parameters,*,reserved=(),reachable=None):
  left=peer[0]-own[2]-p['gap_px']+inset;right=peer[0]+peer[2]+p['gap_px']-inset
  x=min((left,right),key=lambda x:abs(x-own[0]));y=peer[1]+peer[3]-own[3]
  if p['version']==STEP_VERSION:
-  from .physical_space import position_clear
+  from .physical_space import overlaps,position_clear
   vx,vy,vw,vh=s['viewport']
-  candidates=[max(vx,min(vx+max(0,vw-own[2]),v)) for v in (left,right)]
-  free=[v for v in candidates if position_clear(s,[v,y,*own[2:]])]
-  if free:x=min(free,key=lambda v:abs(v-own[0]))
+  side_y=max(vy,min(vy+max(0,vh-own[3]),y))
+  sides=[(max(vx,min(vx+max(0,vw-own[2]),v)),side_y) for v in (left,right)]
+  center=peer[0]+(peer[2]-own[2])/2
+  vertical=[] if alongside_only else [
+   (center,peer[1]-own[3]-p['gap_px']),(center,peer[1]+peer[3]+p['gap_px'])]
+  for candidates in (sides,vertical):
+   for a,b in sorted(candidates,key=lambda point:math.dist(own[:2],point)):
+    spot=(round(a),round(b))
+    landing=[*spot,*own[2:]]
+    if (vx<=spot[0]<=vx+vw-own[2] and vy<=spot[1]<=vy+vh-own[3]
+        and position_clear(s,landing) and not any(overlaps(landing,r) for r in reserved)
+        and (reachable is None or reachable(own[:2],spot))):
+     x,y=spot
+     break
+   else:continue
+   break
   else:
-   # Keep the selected recipient. A crowded row can still have free space
-   # above/below that person; the host route planner checks the full path.
-   center=peer[0]+(peer[2]-own[2])/2
-   vertical=[(center,peer[1]-own[3]-p['gap_px']),
-             (center,peer[1]+peer[3]+p['gap_px'])]
-   available=[(a,b) for a,b in vertical
-    if vx<=a<=vx+vw-own[2] and vy<=b<=vy+vh-own[3]
-    and position_clear(s,[a,b,*own[2:]])]
-   if available:x,y=min(available,key=lambda point:math.dist(own[:2],point))
+   if reachable is not None:raise ValueError('no free route near participant')
  vx,vy,vw,vh=s['viewport'];x=max(vx,min(vx+max(0,vw-own[2]),x));y=max(vy,min(vy+max(0,vh-own[3]),y))
  dx,dy=x-own[0],y-own[1];distance=math.hypot(dx,dy)
  arrival=p['version'] in (ARRIVAL_VERSION,STEP_VERSION)

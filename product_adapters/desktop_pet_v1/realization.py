@@ -22,14 +22,14 @@ from model_packages.desktop_pet_v1.events import Speech,Thought
 from model_packages.desktop_pet_v1.interaction_delivery import has_observations,has_body_targets
 from model_packages.desktop_pet_v1 import writer as codec
 from model_packages.desktop_pet_v1.presentation import build_guidance
-from model_packages.desktop_pet_v1.expression_profile import validate_expression_profile,natural_expression_policy
+from model_packages.desktop_pet_v1.expression_profile import validate_expression_profile,natural_expression_policy,persona_card_specs
 from petlab_app.providers import completion_text,_save_trace
 from petlab_app.composition import DEFINITION_KEY,PetDefinition
 from .expression import PetExpressionService
 from .execution import PreparedExecution,ExecutionUncertain
 from .emission import prepare_delivery
 from .memory_delivery import memory_cards
-from .prompt_delivery import compile_delivery
+from .prompt_delivery import AUDIENCE_SCHEMA_SUFFIX,COMPACT_ACTIONS_SUFFIX,CONCISE_SUFFIX,DIALOGUE_AUTHOR_SUFFIX,OCCURRENCE_SUFFIX,SCENE_FACTS_SUFFIX,compile_delivery
 from model_packages.desktop_pet_v1.content_view import DEFAULT_VERSION as CONTENT_VIEW_VERSION, content_view
 
 
@@ -51,6 +51,10 @@ class _LivePrepared:
     fingerprint: str
     state: object
     parameters: object
+
+
+class WriterRealizationFailed(RuntimeError):
+    """The Writer finished without a candidate, before any playback."""
 
 
 class PetRealizationService:
@@ -238,8 +242,14 @@ class PetRealizationService:
         expected_prompt={'system':delivery['system'],'user':delivery['user'],'prompt_fingerprint':delivery['prompt_fingerprint']}
         if artifact.get('prepared_prompt')!=expected_prompt or artifact.get('prompt',expected_prompt)!=expected_prompt:
             raise ValueError('pet Writer archived prompt differs from sealed request')
-        trace=Path(sealed['realizer_path']).resolve()
-        if trace.parent!=self.gateway.trace_dir or not trace.name.startswith('realizer-'):
+        archive_path=Path(sealed['realizer_path'])
+        trace=(self.gateway.trace_dir/archive_path.name).resolve()
+        if trace.parent!=self.gateway.trace_dir or not archive_path.name.startswith('realizer-'):
+            raise ValueError('pet Writer sealed trace is outside its bound directory')
+        relocated=archive_path.parent!=self.gateway.trace_dir
+        if relocated and (sealed['version']!=_INLINE_SEALED or 'provider' not in artifact
+                          or not archive_path.is_absolute() or '..' in archive_path.parts
+                          or not archive_path.name.endswith('.json')):
             raise ValueError('pet Writer sealed trace is outside its bound directory')
         if 'provider' in artifact:
             record=artifact['provider'].get('provider_result',{}).get('realizer_trace')
@@ -252,6 +262,14 @@ class PetRealizationService:
             candidate=RealizerCandidate(**{**record['candidate'],
                 'candidate_payload':freeze_model_payload(record['candidate']['candidate_payload']),
                 'realization_evidence':freeze_model_payload(record['candidate']['realization_evidence'])})
+            evidence=candidate.realization_evidence
+            if relocated and evidence.get('realizer_trace_ref')!=sealed['realizer_path']:
+                raise ValueError('relocated Writer trace differs from sealed candidate')
+            if 'provider_reuse' in evidence:
+                from petlab_app.providers import verify_writer_reuse
+                verify_writer_reuse(self.gateway.trace_dir,evidence['provider_reuse'],
+                    session_ref=request.session_binding_fingerprint,source_ref=event_id,position=position,
+                    request_ref=evidence['provider_request_fingerprint'],codec_ref=evidence['provider_codec_fingerprint'])
             context=request.readonly_facts.get('reading_context')
             if context is not None and context.get('result') is not None:
                 app._reading_context_offered=(event_id,context['result']['event_id'])
@@ -289,17 +307,26 @@ class PetRealizationService:
         self._readonly_archives.publish(wait=wait)
 
     def close(self):
+        self.finish_followup()
         self._live_prepared=None
         try:self._readonly_archives.close()
         finally:self.attempt_journal.close()
 
-    def packet(self,event_id,*,writer_request_id,writer_version=None,visual_capabilities=_CURRENT_VISUAL,content_view_version=CONTENT_VIEW_VERSION,rag_context=None,relation_version=_CURRENT_VISUAL,visibility=None,_expression_out=None,conversation_context=False,intention_snapshot=None,timeline_enabled=False):
+    def _persona_specs(self,role,event_id,version):
+        specs=persona_card_specs(role,self.expression_profile)
+        if version is None:
+            return specs
+        from .persona_layout import audience_specs
+        readers=participant_audience(self.application,event_id)
+        return audience_specs(specs,external_readers=any(ref!=role.owner_ref for ref in readers))
+
+    def packet(self,event_id,*,writer_request_id,writer_version=None,visual_capabilities=_CURRENT_VISUAL,content_view_version=CONTENT_VIEW_VERSION,rag_context=None,relation_version=_CURRENT_VISUAL,visibility=None,_expression_out=None,conversation_context=False,intention_snapshot=None,timeline_enabled=False,direct_recent_context=None,persona_audience_version=None):
         if relation_version is _CURRENT_VISUAL:
-            from .memory_relations import VERSION as RELATION_VERSION
+            from .memory_relations import CURRENT_VERSION as RELATION_VERSION
             relation_version=RELATION_VERSION if self.memory_links else None
         writer_version=self._version(event_id) if writer_version is None else writer_version
         capabilities=self.visual_capabilities if visual_capabilities is _CURRENT_VISUAL else visual_capabilities
-        if writer_version in {codec.IDLE_VERSION,codec.IDLE_DISPLAY_VERSION,codec.OPTIONAL_IDLE_VERSION}:return self._idle_packet(event_id,writer_request_id,writer_version=writer_version,visual_capabilities=capabilities,content_view_version=content_view_version,relation_version=relation_version,visibility=visibility,intention_snapshot=intention_snapshot)[:2]
+        if writer_version in {codec.IDLE_VERSION,codec.IDLE_DISPLAY_VERSION,codec.OPTIONAL_IDLE_VERSION}:return self._idle_packet(event_id,writer_request_id,writer_version=writer_version,visual_capabilities=capabilities,content_view_version=content_view_version,relation_version=relation_version,visibility=visibility,intention_snapshot=intention_snapshot,persona_audience_version=persona_audience_version)[:2]
         if writer_version not in {codec.VERSION,codec.LEGACY_VERSION,codec.CONTINUOUS_VERSION,codec.BODY_VERSION,codec.SUMMARY_VERSION}:raise ValueError("unsupported pet writer version")
         app=self.application
         with app._lock:
@@ -318,7 +345,16 @@ class PetRealizationService:
                     from petlab_app.interaction_observer import authorize_interaction_tick
                     authorization=authorize_interaction_tick(app,event_id)
             else:authorization=required_authorization
-            if not deferred:expression=lifecycle.expression
+            if not deferred:
+                expression=lifecycle.expression
+                # The old effect has already committed its actual expression
+                # spending. Reuse the input settlement with the current ledger.
+                from ops.runtime_expression_state import restore_runtime_expression_state
+                state=restore_runtime_expression_state(app.runtime.session.profile,
+                    session_binding=app.runtime.session.session_binding)
+                if expression.receipt['committed_remainders_fingerprint']!=model_data_fingerprint(state.committed_remainders):
+                    from .settlement_view import current_projection
+                    expression=current_projection(app)
             source=app.runtime.memory_instance(event_id)
             history=app.runtime._history()
             recalls=tuple(item for item in history.actual_recalls() if item.trigger_fact_id==event_id)
@@ -340,9 +376,6 @@ class PetRealizationService:
             role=PetDefinition.from_record(app.runtime.session.profile[DEFINITION_KEY])
             if role.fingerprint!=app.definition.fingerprint:
                 raise ValueError("writer definition differs from persisted role")
-            persona_background=role.background if self.expression_profile is None else self.expression_profile['description']
-            persona_refs=(role.fingerprint,) if self.expression_profile is None else (
-                role.fingerprint,model_data_fingerprint(self.expression_profile),self.expression_profile['source_ref'])
             def card(lane,kind,source_id,fields,refs,*,preserve=False,provenance=None):
                 return WriterCard(card_id=lane+":"+source_id,lane=lane,kind=kind,source_id=source_id,
                     fields=fields,source_receipt_refs=refs,provenance=provenance,budget_policy="preserve_selection" if preserve else "normal")
@@ -367,7 +400,7 @@ class PetRealizationService:
             from model_packages.desktop_pet_v1.content_view import RELATION_MEMORY_VERSION,QUERY_MEMORY_VERSION,HIERARCHY_MEMORY_VERSION
             if content_view_version in (RELATION_MEMORY_VERSION,QUERY_MEMORY_VERSION):
                 from .relation_annotations import for_memory,FIELD
-                annotation=for_memory(app.runtime.session.profile,source,app.owner_ref)
+                annotation=for_memory(app.runtime.session.profile,source,app.owner_ref,allow_unresolved_alias=True)
                 if annotation is not None:source_fields[FIELD]=annotation
             if content_view_version==QUERY_MEMORY_VERSION:
                 from .relation_annotations import query_references
@@ -424,8 +457,7 @@ class PetRealizationService:
                 form_fields["body_interaction_reference"]="身体部位参照：按body_target中实际起始接触的部位和已给含义自然回应，不播报几何/来源元数据；点按或保持不是擅自升级为疼痛、揉捏或拉扯。感受沿已选方向/状态与实际记忆表达，不按部位固定台词或情绪；素材反馈不是Action选择。"
             lanes={"current_input":[card("current_input","committed_pet_input",event_id,
                 source_fields,source_refs)],
-                "persona":[card("persona","pet_definition",role.owner_ref,
-                    {"name":role.name,"background":persona_background},persona_refs)],
+                "persona":[card("persona",*spec) for spec in self._persona_specs(role,event_id,persona_audience_version)],
                 "conversation":[card("conversation","accepted_state",event_id,
                     {"已结算状态":root_view(app.runtime.session.state.state),"时间":app.runtime.session.position.position.coordinate},
                     (source.fact.fingerprint,authorization.host_authorization_evidence['planning_view_fingerprint']) if deferred else (source.fact.fingerprint,))],
@@ -433,12 +465,17 @@ class PetRealizationService:
                     numbered=self.numbered_memory,links=self.memory_links and relation_version is None,bounded=writer_version!=codec.LEGACY_VERSION,natural=writer_version in {codec.SUMMARY_VERSION,codec.VERSION},content_view_version=content_view_version,annotation_profile=app.runtime.session.profile,application=app,intention_snapshot=intention_snapshot),
                 "form":[card("form","speech_output_contract",writer_version,form_fields,(writer_version,))]}
             if conversation_context:
-                from .conversation_delivery import card_for
-                context_card=card_for(app,source.event,readers=participant_audience(app,event_id),typed=conversation_context=='typed',timeline=timeline_enabled)
+                from .conversation_delivery import DIRECT_RECENT_VERSION,card_for
+                context_card=card_for(app,source.event,readers=participant_audience(app,event_id),typed=conversation_context=='typed',timeline=timeline_enabled,
+                    public_human=direct_recent_context==DIRECT_RECENT_VERSION)
                 if context_card is not None:lanes['conversation'].append(context_card)
                 from .conversation_delivery import progress_card
                 progress=progress_card(app,source.event,readers=participant_audience(app,event_id))
                 if progress is not None:lanes['conversation'].append(progress)
+            if direct_recent_context:
+                from .conversation_delivery import direct_card_for
+                recent=direct_card_for(app,source.event,readers=participant_audience(app,event_id),version=direct_recent_context)
+                if recent is not None:lanes['conversation'].append(recent)
             if rag_context is not None:
                 from .rag_memory import RagMemoryService
                 service=getattr(app,'rag_memory',None)
@@ -467,9 +504,9 @@ class PetRealizationService:
             if _expression_out is not None:_expression_out.append(expression)
             return packet,authorization
 
-    def _idle_packet(self,event_id,writer_request_id,*,writer_version=codec.IDLE_DISPLAY_VERSION,visual_capabilities=_CURRENT_VISUAL,content_view_version=CONTENT_VIEW_VERSION,composite_context_version=None,relation_version=_CURRENT_VISUAL,visibility=None,intention_snapshot=None):
+    def _idle_packet(self,event_id,writer_request_id,*,writer_version=codec.IDLE_DISPLAY_VERSION,visual_capabilities=_CURRENT_VISUAL,content_view_version=CONTENT_VIEW_VERSION,composite_context_version=None,relation_version=_CURRENT_VISUAL,visibility=None,intention_snapshot=None,persona_audience_version=None):
         if relation_version is _CURRENT_VISUAL:
-            from .memory_relations import VERSION as RELATION_VERSION
+            from .memory_relations import CURRENT_VERSION as RELATION_VERSION
             relation_version=RELATION_VERSION if self.memory_links else None
         capabilities=self.visual_capabilities if visual_capabilities is _CURRENT_VISUAL else visual_capabilities
         from types import SimpleNamespace
@@ -490,7 +527,6 @@ class PetRealizationService:
         recall=SimpleNamespace(recalled_fact_ids=tuple(m.event.event_id for m in memories),fingerprint=selection.receipt['fingerprint'])
         def card(lane,kind,key,fields,refs):
             return WriterCard(card_id=lane+':'+key,lane=lane,kind=kind,source_id=key,fields=fields,source_receipt_refs=refs)
-        persona_refs=(role.fingerprint,) if self.expression_profile is None else (role.fingerprint,model_data_fingerprint(self.expression_profile),self.expression_profile['source_ref'])
         form={'allowed_content_kinds':['speech'],'selected_action_keys':[],
             'output_fields':['speech','reported_used_memory_ids'],
             'idle_opening_reference':'本轮没有用户新输入。原状态与动态Tick已许可一次主动表达机会，结合当前材料与角色设定，自行决定想说或想做什么，也可以安静。已经发生的事情以本轮交付的事实及执行记录为依据。'}
@@ -504,8 +540,7 @@ class PetRealizationService:
             form['output_fields'].append('thought')
             form['private_expression_version']=codec.PRIVATE_EXPRESSION_VERSION
         lanes={'current_input':[],
-            'persona':[card('persona','pet_definition',role.owner_ref,{'name':role.name,
-                'background':role.background if self.expression_profile is None else self.expression_profile['description']},persona_refs)],
+            'persona':[card('persona',*spec) for spec in self._persona_specs(role,event_id,persona_audience_version)],
             'conversation':[card('conversation','accepted_state',event_id,{'已结算状态':root_view(app.runtime.session.state.state),
                 '时间':app.runtime.session.position.position.coordinate},(authorization.source_settlement_fingerprint,))],
             'memory':memory_cards(memories,recall=recall,read=selection.history_read,history=selection.history_source,
@@ -542,10 +577,11 @@ class PetRealizationService:
         return packet,authorization,expression
 
     @with_input_snapshot
-    def _request(self,event_id,*,writer_request_id,writer_version=None,visual_capabilities=_CURRENT_VISUAL,content_view_version=_CURRENT_VISUAL,composite_context_version=_CURRENT_VISUAL,prompt_delivery_version=None,rag_context=_CURRENT_VISUAL,relation_version=_CURRENT_VISUAL,visibility_version=_CURRENT_VISUAL,scene_context=_CURRENT_VISUAL,reading_context=_CURRENT_VISUAL,body_context=_CURRENT_VISUAL,meal_scene_context=_CURRENT_VISUAL,body_delivery_version=_CURRENT_VISUAL,action_sequence_context=None,audience_envelope=_CURRENT_VISUAL,relationship_context=_CURRENT_VISUAL,audience_motion_version=_CURRENT_VISUAL,intention_snapshot=_CURRENT_VISUAL,input_layout_version=_CURRENT_VISUAL,pending_conversation=_CURRENT_VISUAL,wire_normalization_version=_CURRENT_VISUAL,action_intent_version=_CURRENT_VISUAL):
+    def _request(self,event_id,*,writer_request_id,writer_version=None,visual_capabilities=_CURRENT_VISUAL,content_view_version=_CURRENT_VISUAL,composite_context_version=_CURRENT_VISUAL,prompt_delivery_version=None,rag_context=_CURRENT_VISUAL,relation_version=_CURRENT_VISUAL,visibility_version=_CURRENT_VISUAL,scene_context=_CURRENT_VISUAL,reading_context=_CURRENT_VISUAL,body_context=_CURRENT_VISUAL,meal_scene_context=_CURRENT_VISUAL,body_delivery_version=_CURRENT_VISUAL,action_sequence_context=None,audience_envelope=_CURRENT_VISUAL,relationship_context=_CURRENT_VISUAL,audience_motion_version=_CURRENT_VISUAL,intention_snapshot=_CURRENT_VISUAL,input_layout_version=_CURRENT_VISUAL,pending_conversation=_CURRENT_VISUAL,wire_normalization_version=_CURRENT_VISUAL,scene_delivery_version=None,speech_behavior_version=_CURRENT_VISUAL,action_intent_version=_CURRENT_VISUAL,audience_contract=_CURRENT_VISUAL,direct_recent_context=_CURRENT_VISUAL,independent_output_validation=_CURRENT_VISUAL,persona_audience_version=_CURRENT_VISUAL,writer_adaptation_version=_CURRENT_VISUAL,parallel_speech_version=_CURRENT_VISUAL):
         if content_view_version is _CURRENT_VISUAL:
             from model_packages.desktop_pet_v1.content_view import DECLARED_MEMORY_VERSION,HIERARCHY_MEMORY_VERSION,RELATION_MEMORY_VERSION,QUERY_MEMORY_VERSION
             content_view_version=(QUERY_MEMORY_VERSION if getattr(self.application,'memory_recall_version',None)=='desktop-pet-grounded-retention-recall-v2' else HIERARCHY_MEMORY_VERSION if getattr(self.application,'memory_recall_version',None) in ('desktop-pet-hierarchical-property-recall-v7','desktop-pet-property-address-recall-v8') else DECLARED_MEMORY_VERSION if getattr(self.application,'memory_recall_version',None) in ('desktop-pet-declared-form-recall-v4','desktop-pet-source-bound-reference-recall-v5','desktop-pet-owner-bound-reference-recall-v6','desktop-pet-hierarchical-property-recall-v7') else CONTENT_VIEW_VERSION)
+        new_delivery_request=prompt_delivery_version is None
         marker_default=writer_version is None and bool(getattr(self.application,'memory_recall_version',None))
         writer_version=self._version(event_id) if writer_version is None else writer_version
         marked=marker_default or writer_version.endswith(codec.MEMORY_MARKER_SUFFIX)
@@ -555,10 +591,43 @@ class PetRealizationService:
         from .prompt_delivery import CONTINUITY_VERSION,CONTINUITY_MARKER_VERSION,GROUPED_VERSION,GROUPED_MARKER_VERSION
         from .prompt_delivery import REQUIRED_VERSION,REQUIRED_MARKER_VERSION,ACTUAL_VERSION,ACTUAL_MARKER_VERSION,SITUATED_VERSION,SITUATED_MARKER_VERSION,SITUATED_PAIR_VERSION,SITUATED_PAIR_MARKER_VERSION,SITUATED_VERSIONS,RELATION_VERSION,RELATION_MARKER_VERSION,RELATION_PAIR_VERSION,RELATION_PAIR_MARKER_VERSION,RELATION_VERSIONS
         from .persona_layout import SUFFIX as PERSONA_SUFFIX
+        from .persona_layout import AUDIENCE_VERSION as PERSONA_AUDIENCE_VERSION
+        if persona_audience_version is _CURRENT_VISUAL:
+            persona_audience_version=PERSONA_AUDIENCE_VERSION if prompt_delivery_version is None else None
+        if persona_audience_version not in (None,PERSONA_AUDIENCE_VERSION):
+            raise ValueError('unknown persona audience projection')
+
+        from .conversation_delivery import DIRECT_RECENT_VERSION,REQUIRED_DIRECT_RECENT_VERSION,LEGACY_DIRECT_RECENT_VERSION,RESIDUAL_DIRECT_RECENT_VERSION
+        if direct_recent_context is _CURRENT_VISUAL:
+            direct_recent_context=(DIRECT_RECENT_VERSION if prompt_delivery_version is None and
+                getattr(self.application,'memory_recall_version',None)=='desktop-pet-property-address-recall-v8' else None)
+        if direct_recent_context not in (None,DIRECT_RECENT_VERSION,REQUIRED_DIRECT_RECENT_VERSION,LEGACY_DIRECT_RECENT_VERSION,RESIDUAL_DIRECT_RECENT_VERSION):
+            raise ValueError('unsupported direct conversation delivery version')
+        from .independent_output import VERSIONS as independent_output_versions, VERSION as independent_output_version
+        if independent_output_validation is _CURRENT_VISUAL:
+            independent_output_validation=independent_output_version if prompt_delivery_version is None else None
+        if independent_output_validation not in (None,*independent_output_versions):
+            raise ValueError('unsupported independent Writer output validation')
         layered_persona=prompt_delivery_version is None or prompt_delivery_version.endswith(PERSONA_SUFFIX)
         if prompt_delivery_version is not None:prompt_delivery_version=prompt_delivery_version.removesuffix(PERSONA_SUFFIX)
         stationary_choice=prompt_delivery_version is None or prompt_delivery_version.endswith("-stationary-v1")
         if prompt_delivery_version is not None:prompt_delivery_version=prompt_delivery_version.removesuffix("-stationary-v1")
+        chronological=prompt_delivery_version is None or prompt_delivery_version.endswith(OCCURRENCE_SUFFIX)
+        if prompt_delivery_version is not None:prompt_delivery_version=prompt_delivery_version.removesuffix(OCCURRENCE_SUFFIX)
+        compact_actions=prompt_delivery_version is None or prompt_delivery_version.endswith(COMPACT_ACTIONS_SUFFIX)
+        if prompt_delivery_version is not None:prompt_delivery_version=prompt_delivery_version.removesuffix(COMPACT_ACTIONS_SUFFIX)
+        dialogue_author=prompt_delivery_version is None or prompt_delivery_version.endswith(DIALOGUE_AUTHOR_SUFFIX)
+        if prompt_delivery_version is not None:prompt_delivery_version=prompt_delivery_version.removesuffix(DIALOGUE_AUTHOR_SUFFIX)
+        schema_first=prompt_delivery_version is None or prompt_delivery_version.endswith(AUDIENCE_SCHEMA_SUFFIX)
+        if prompt_delivery_version is not None:prompt_delivery_version=prompt_delivery_version.removesuffix(AUDIENCE_SCHEMA_SUFFIX)
+        concise=prompt_delivery_version is None or prompt_delivery_version.endswith(CONCISE_SUFFIX)
+        scene_facts=prompt_delivery_version is not None and prompt_delivery_version.endswith(SCENE_FACTS_SUFFIX)
+        if prompt_delivery_version is not None:prompt_delivery_version=prompt_delivery_version.removesuffix(CONCISE_SUFFIX).removesuffix(SCENE_FACTS_SUFFIX)
+        material_suffix=CONCISE_SUFFIX if concise else SCENE_FACTS_SUFFIX if scene_facts else ''
+        if schema_first:material_suffix+=AUDIENCE_SCHEMA_SUFFIX
+        if dialogue_author:material_suffix+=DIALOGUE_AUTHOR_SUFFIX
+        if compact_actions:material_suffix+=COMPACT_ACTIONS_SUFFIX
+        if chronological:material_suffix+=OCCURRENCE_SUFFIX
         if prompt_delivery_version is None:
             cohort=getattr(self.application,'multi_workspace',None)
             grouped=cohort is not None and len(cohort.definitions)>2
@@ -576,20 +645,25 @@ class PetRealizationService:
             action_sequence_context=verify_context(app,event_id,action_sequence_context)
             composite_context_version=None;body_context=None;body_delivery_version=None
         from petlab_app.writer_visibility import VERSION as VISIBILITY_VERSION,plan as visibility_plan,receipt as visibility_receipt
-        from petlab_app.writer_visibility import SCOPED_VERSION,CHOICE_VERSION,OWNER_VERSION,speech_audience
+        from petlab_app.writer_visibility import SCOPED_VERSION,EXPERIENCE_VERSIONS,SHARED_WORLD_VERSION,OWNER_VERSION,TOWN_VERSION,speech_audience
         if scene_context is _CURRENT_VISUAL:
             supplier=getattr(app,'scene_snapshot',None)
             scene_context=supplier() if callable(supplier) and self.expression_codes else None
         can_scope=(audience_envelope is not None and self.expression_codes and hasattr(app,'multi_workspace')
                    and scene_context is not None and participant_destination(app,event_id) is not None)
-        from . import action_intents
+        from . import action_intents,speech_behaviors
         from model_packages.desktop_pet_v1.action_candidates import MODEL_VERSION
         if action_intent_version is _CURRENT_VISUAL:
-            action_intent_version=(action_intents.CURRENT_VERSION if action_sequence_context is not None
+            action_intent_version=(action_intents.CURRENT_VERSION if not compact_actions and action_sequence_context is not None
                                    and action_sequence_context['selection']['version']==MODEL_VERSION else None)
         if action_intent_version not in {None,action_intents.VERSION,*action_intents.EMOJI_VERSIONS} or (action_intent_version and action_sequence_context is None):
             raise ValueError('unknown or unbound action intention version')
-        visibility=visibility_plan(app,event_id,version=(OWNER_VERSION if can_scope else VISIBILITY_VERSION) if visibility_version is _CURRENT_VISUAL else visibility_version)
+        speech_behavior_version=(speech_behaviors.VERSION if can_scope else None) if speech_behavior_version is _CURRENT_VISUAL else speech_behavior_version
+        if speech_behavior_version not in {None,speech_behaviors.VERSION}:raise ValueError('unknown speech behavior version')
+        default_visibility=(SHARED_WORLD_VERSION if speech_behavior_version else OWNER_VERSION) if can_scope else VISIBILITY_VERSION
+        if default_visibility==VISIBILITY_VERSION and callable(getattr(app,'public_scene_activity',None)):
+            default_visibility=TOWN_VERSION
+        visibility=visibility_plan(app,event_id,version=default_visibility if visibility_version is _CURRENT_VISUAL else visibility_version)
         if composite_context_version is _CURRENT_VISUAL:
             composite_context_version=None
             if self._idle(event_id):
@@ -598,7 +672,7 @@ class PetRealizationService:
                 if staged_selection(source(app,event_id,current=True)[0].row.get('behavior_selection')):
                     composite_context_version='desktop-pet-selected-plan-v1'
         if relation_version is _CURRENT_VISUAL:
-            from .memory_relations import VERSION as RELATION_VERSION
+            from .memory_relations import CURRENT_VERSION as RELATION_VERSION
             relation_version=RELATION_VERSION if self.memory_links else None
         if rag_context is _CURRENT_VISUAL:
             service=getattr(app,'rag_memory',None)
@@ -606,13 +680,14 @@ class PetRealizationService:
         capabilities=self.visual_capabilities if visual_capabilities is _CURRENT_VISUAL else visual_capabilities
         if not self.expression_codes or writer_version in {codec.LEGACY_VERSION,codec.IDLE_VERSION}:capabilities=None
         if writer_version in {codec.IDLE_VERSION,codec.IDLE_DISPLAY_VERSION,codec.OPTIONAL_IDLE_VERSION}:
-            packet,authorization,expression=self._idle_packet(event_id,writer_request_id,writer_version=writer_version,visual_capabilities=capabilities,content_view_version=content_view_version,composite_context_version=composite_context_version,relation_version=relation_version,visibility=visibility,intention_snapshot=intention_snapshot)
+            packet,authorization,expression=self._idle_packet(event_id,writer_request_id,writer_version=writer_version,visual_capabilities=capabilities,content_view_version=content_view_version,composite_context_version=composite_context_version,relation_version=relation_version,visibility=visibility,intention_snapshot=intention_snapshot,persona_audience_version=persona_audience_version)
         else:
             projected=[]
-            from .current_turn_delivery import VERSION as timeline_layout
-            packet,authorization=self.packet(event_id,writer_request_id=writer_request_id,writer_version=writer_version,visual_capabilities=capabilities,content_view_version=content_view_version,rag_context=rag_context,relation_version=relation_version,visibility=visibility,_expression_out=projected,conversation_context=conversation_context,intention_snapshot=intention_snapshot,timeline_enabled=input_layout_version is _CURRENT_VISUAL or input_layout_version==timeline_layout)
+            from .current_turn_delivery import VERSION as timeline_layout, ADJACENT_LAYOUTS
+            packet,authorization=self.packet(event_id,writer_request_id=writer_request_id,writer_version=writer_version,visual_capabilities=capabilities,content_view_version=content_view_version,rag_context=rag_context,relation_version=relation_version,visibility=visibility,_expression_out=projected,conversation_context=conversation_context,intention_snapshot=intention_snapshot,timeline_enabled=input_layout_version is _CURRENT_VISUAL or input_layout_version in (timeline_layout,*ADJACENT_LAYOUTS),direct_recent_context=direct_recent_context,persona_audience_version=persona_audience_version)
             expression=projected[0]
-        from .spatial_delivery import reserve as scene_reserve,augment as scene_augment
+        from .spatial_delivery import VERSION as current_scene_delivery, reserve as scene_reserve, augment as scene_augment
+        scene_delivery_version=scene_delivery_version or current_scene_delivery
         from model_packages.desktop_pet_v1 import spatial
         if scene_context is _CURRENT_VISUAL:
             supplier=getattr(app,'scene_snapshot',None)
@@ -652,6 +727,7 @@ class PetRealizationService:
         meal_reserve=meal_delivery.reserve(meal_scene_context)
         body_reserve=600 if body_context is not None and body_delivery_version is None else 0
         from . import audience_delivery
+        if audience_contract is _CURRENT_VISUAL:audience_contract=audience_delivery.DIRECT_VERSION
         if audience_envelope is _CURRENT_VISUAL:
             audience_envelope=None
             dest=participant_destination(app,event_id)
@@ -668,16 +744,17 @@ class PetRealizationService:
         elif visibility is not None and visibility['version']==SCOPED_VERSION:
             raise ValueError('scoped memory requires enforced speech audience')
         from model_packages.desktop_pet_v1.audience_motion import VERSION as motion_contract
-        if audience_motion_version is _CURRENT_VISUAL:audience_motion_version='physical-audience-policy-v4'
-        if audience_motion_version not in (None,motion_contract,'physical-audience-policy-v2','physical-audience-policy-v3','physical-audience-policy-v4'):
+        from model_packages.desktop_pet_v1.audience_motion import CURRENT_PRIVATE, SERIAL_POLICIES, SINGLE_POLICIES
+        if audience_motion_version is _CURRENT_VISUAL:audience_motion_version=CURRENT_PRIVATE
+        if audience_motion_version not in (None,motion_contract,'physical-audience-policy-v2','physical-audience-policy-v3','physical-audience-policy-v4',*SERIAL_POLICIES):
             raise ValueError('unknown audience movement contract')
         # New selections use physical prerequisites. Sealed old requests retain
         # their explicitly absent contract during verification/recovery.
-        automatic_approach=('single-target' if audience_motion_version=='physical-audience-policy-v4' else audience_motion_version is not None)
-        owner_cognition=visibility is not None and visibility['version']==OWNER_VERSION
-        audience_reserve=0 if audience_envelope is None else audience_delivery.reserve(audience_envelope,automatic_approach=automatic_approach,owner_cognition=owner_cognition,thought_enabled=(self.private_thought if owner_cognition else True))
+        automatic_approach=('single-target' if audience_motion_version in SINGLE_POLICIES else audience_motion_version is not None)
+        owner_cognition=visibility is not None and visibility['version'] in {OWNER_VERSION,*EXPERIENCE_VERSIONS}
+        audience_reserve=0 if audience_envelope is None else audience_delivery.reserve(audience_envelope,automatic_approach=automatic_approach,owner_cognition=owner_cognition,thought_enabled=(self.private_thought if owner_cognition else True),version=audience_contract,concise=concise,schema_first=schema_first)
         independent_gaze=composite_context_version is None and body_context is None
-        scene_budget=full_budget-audience_reserve-reading_reserve-body_reserve-meal_reserve-(scene_reserve(scene_context,independent=independent_gaze) if scene_context is not None else 0)
+        scene_budget=full_budget-audience_reserve-reading_reserve-body_reserve-meal_reserve-(scene_reserve(scene_context,independent=independent_gaze,version=scene_delivery_version,concise=concise) if scene_context is not None else 0)
         from .prompt_delivery import VERSION as DEFAULT_DELIVERY,CAPABILITY_VERSION,READABLE_VERSION,MARKER_VERSION,EVIDENCE_VERSION,EVIDENCE_MARKER_VERSION
         interaction_mode=None
         if prompt_delivery_version in SITUATED_VERSIONS|RELATION_VERSIONS:
@@ -693,7 +770,7 @@ class PetRealizationService:
             else:relationship_context=relationship_views.validate(app,relationship_context,relationship_destination)
         else:relationship_context=None
         if input_layout_version is _CURRENT_VISUAL:
-            from .current_turn_delivery import VERSION as input_layout_version
+            from .current_turn_delivery import WORLD_SOURCE_VERSION as input_layout_version
         from . import pending_conversation as pending_views
         from petlab_app.destinations import audience as current_audience
         pending_readers=current_audience(app,event_id)
@@ -702,34 +779,57 @@ class PetRealizationService:
         elif pending_conversation is not None:
             pending_conversation=pending_views.validate(app,pending_conversation,event_id,pending_readers)
         if pending_conversation is not None:scene_budget-=len(pending_views.text(pending_conversation))
-        from .current_turn_delivery import VERSION as current_layout, SOURCE_VERSION
+        from .current_turn_delivery import VERSION as current_layout, SOURCE_VERSION, ADJACENT_LAYOUTS
         owner_events=None
-        if input_layout_version in (current_layout,SOURCE_VERSION):
+        if input_layout_version in (current_layout,SOURCE_VERSION,*ADJACENT_LAYOUTS):
             sources=app._product()['sources']
             owner_events={i:sources[i]['event'] for card in packet.packet.sections['memory']
                 for i in card.provenance['selected_memory_ids']}
+        memory_occurrences=None
+        if chronological:
+            from .event_timeline import describe
+            memory_occurrences={identity:describe(app,app.runtime.memory_instance(identity).event)[0]['原发生时间']
+                for card in packet.packet.sections['memory'] for identity in card.provenance['selected_memory_ids']}
+        if parallel_speech_version is _CURRENT_VISUAL:
+            parallel_speech_version='petlab-parallel-speech-guidance-v1' if (
+                new_delivery_request and layered_persona and action_sequence_context is not None) else None
+        if parallel_speech_version not in (None,'petlab-parallel-speech-guidance-v1'):
+            raise ValueError('unknown speech timing guidance')
         prompt_delivery=compile_delivery(packet.packet,budget_chars=scene_budget if scene_context is not None or reading_context is not None or body_context is not None or meal_scene_context is not None or pending_conversation is not None else self.budget_chars,
-            input_layout_version=input_layout_version,property_owner_events=owner_events,delivery_version=prompt_delivery_version+("-stationary-v1" if stationary_choice else "")+(PERSONA_SUFFIX if layered_persona else ""),interaction_mode=interaction_mode,relationship_context=relationship_context,body_context=body_context if body_delivery_version is not None else None,action_sequence_context=action_sequence_context,free_action_intents=bool(action_intent_version),action_emoji=action_intent_version in action_intents.EMOJI_VERSIONS,action_eyes=action_intent_version==action_intents.CURRENT_VERSION)
-        if marked != (prompt_delivery['version'].removesuffix(PERSONA_SUFFIX).removesuffix('-stationary-v1') in {MARKER_VERSION,EVIDENCE_MARKER_VERSION,"desktop-pet-prompt-delivery-v12-optional-idle-markers","desktop-pet-prompt-delivery-v14-idle-opportunity-markers","desktop-pet-prompt-delivery-v16-independent-idle-children-markers","desktop-pet-prompt-delivery-v18-timed-idle-opportunity-markers","desktop-pet-prompt-delivery-v20-shared-event-bodies-markers","desktop-pet-prompt-delivery-v22-subtype-references-markers","desktop-pet-prompt-delivery-v24-query-reference-markers","desktop-pet-prompt-delivery-v26-speaker-framed-markers",CONVERSATION_MARKER_VERSION,METADATA_MARKER_VERSION,CONTINUITY_MARKER_VERSION,GROUPED_MARKER_VERSION,REQUIRED_MARKER_VERSION,ACTUAL_MARKER_VERSION,SITUATED_MARKER_VERSION,SITUATED_PAIR_MARKER_VERSION,RELATION_MARKER_VERSION,RELATION_PAIR_MARKER_VERSION}):raise ValueError("writer marker codec/delivery version mismatch")
+            input_layout_version=input_layout_version,property_owner_events=owner_events,delivery_version=prompt_delivery_version+material_suffix+("-stationary-v1" if stationary_choice else "")+(PERSONA_SUFFIX if layered_persona else ""),interaction_mode=interaction_mode,relationship_context=relationship_context,body_context=body_context if body_delivery_version is not None else None,action_sequence_context=action_sequence_context,free_action_intents=bool(action_intent_version),action_emoji=action_intent_version in action_intents.EMOJI_VERSIONS,action_eyes=action_intent_version in action_intents.EYE_VERSIONS,
+            action_capabilities=action_intent_version in action_intents.CAPABILITY_VERSIONS,memory_occurrences=memory_occurrences,parallel_speech=bool(parallel_speech_version))
+        if marked != (prompt_delivery_version in {MARKER_VERSION,EVIDENCE_MARKER_VERSION,"desktop-pet-prompt-delivery-v12-optional-idle-markers","desktop-pet-prompt-delivery-v14-idle-opportunity-markers","desktop-pet-prompt-delivery-v16-independent-idle-children-markers","desktop-pet-prompt-delivery-v18-timed-idle-opportunity-markers","desktop-pet-prompt-delivery-v20-shared-event-bodies-markers","desktop-pet-prompt-delivery-v22-subtype-references-markers","desktop-pet-prompt-delivery-v24-query-reference-markers","desktop-pet-prompt-delivery-v26-speaker-framed-markers",CONVERSATION_MARKER_VERSION,METADATA_MARKER_VERSION,CONTINUITY_MARKER_VERSION,GROUPED_MARKER_VERSION,REQUIRED_MARKER_VERSION,ACTUAL_MARKER_VERSION,SITUATED_MARKER_VERSION,SITUATED_PAIR_MARKER_VERSION,RELATION_MARKER_VERSION,RELATION_PAIR_MARKER_VERSION}):raise ValueError("writer marker codec/delivery version mismatch")
         from .required_prompt import supplementary_budget
         configured_budget=full_budget
         full_budget=supplementary_budget(prompt_delivery,full_budget)
-        if scene_context is not None:prompt_delivery=scene_augment(prompt_delivery,scene_context,budget_chars=full_budget-reading_reserve,independent=independent_gaze)
+        if scene_context is not None:prompt_delivery=scene_augment(prompt_delivery,scene_context,budget_chars=full_budget-reading_reserve,independent=independent_gaze,version=scene_delivery_version,concise=concise)
         if reading_context is not None:prompt_delivery=reading_delivery.augment(prompt_delivery,reading_context,budget_chars=full_budget,free_action_intents=bool(action_intent_version))
         if meal_scene_context is not None:prompt_delivery=meal_delivery.augment(prompt_delivery,meal_scene_context,budget_chars=full_budget)
         if body_context is not None and body_delivery_version is None:
             from .body_delivery import augment as body_augment
-            prompt_delivery=body_augment(prompt_delivery,body_context,budget_chars=full_budget,include_scene=meal_scene_context is None)
+            prompt_delivery=body_augment(prompt_delivery,body_context,budget_chars=full_budget,include_scene=meal_scene_context is None,concise=concise)
         if audience_envelope is not None:
-            prompt_delivery=audience_delivery.augment(prompt_delivery,audience_envelope,budget_chars=full_budget,automatic_approach=automatic_approach,owner_cognition=owner_cognition,thought_enabled=(self.private_thought if owner_cognition else True))
+            prompt_delivery=audience_delivery.augment(prompt_delivery,audience_envelope,budget_chars=full_budget,automatic_approach=automatic_approach,owner_cognition=owner_cognition,thought_enabled=(self.private_thought if owner_cognition else True),version=audience_contract,concise=concise,schema_first=schema_first)
         if full_budget!=configured_budget:
             prompt_delivery['supplementary_budget']={'version':'retained-selection-overflow-v1','configured_chars':configured_budget,'retained_overflow_chars':full_budget-configured_budget,'effective_chars':full_budget}
             prompt_delivery['fingerprint']=model_data_fingerprint({k:v for k,v in prompt_delivery.items() if k!='fingerprint'})
+        from .wire_normalization import EXPRESSION_LABEL_VERSION
+        if writer_adaptation_version is _CURRENT_VISUAL:
+            writer_adaptation_version=EXPRESSION_LABEL_VERSION if new_delivery_request else None
+        if writer_adaptation_version not in (None,EXPRESSION_LABEL_VERSION):
+            raise ValueError('unknown Writer adaptation version')
+        if writer_adaptation_version and prompt_delivery['memory_aliases']:
+            from .memory_delivery import connect_predecessor_reply
+            prompt_delivery=connect_predecessor_reply(app,event_id,prompt_delivery,budget_chars=full_budget)
         destination=participant_destination(app,event_id)
         if pending_conversation is not None:prompt_delivery=pending_views.augment(prompt_delivery,pending_conversation,full_budget)
+        if speech_behavior_version and audience_envelope is not None:
+            prompt_delivery=speech_behaviors.augment(prompt_delivery,app,
+                readers=audience_envelope['allowed_speech'],budget_chars=full_budget)
         profile_facts={} if self.expression_profile is None else {"expression_profile":thaw_model_data(self.expression_profile)}
         if pending_conversation is not None:profile_facts['pending_conversation']=pending_conversation
         if audience_envelope is not None:profile_facts['audience_envelope']=audience_envelope
+        if speech_behavior_version:profile_facts['speech_behavior_version']=speech_behavior_version
         if action_intent_version:profile_facts['action_intent_version']=action_intent_version
         if action_sequence_context is not None:profile_facts['action_sequence_context']=action_sequence_context
         if meal_scene_context is not None:profile_facts['meal_scene_context']=meal_scene_context
@@ -770,9 +870,16 @@ class PetRealizationService:
             from model_packages.desktop_pet_v1.action_sequence import VERSION as SEQUENCE_VERSION
             private_control.pop('composite',None)
             private_control['action_sequence_contract']=SEQUENCE_VERSION
-            if input_layout_version==current_layout:
-                if not action_intent_version:private_control['optional_action_validation']='independent-unavailable-v2-code-objects'
+            if input_layout_version in (current_layout,*ADJACENT_LAYOUTS):
+                if not action_intent_version:private_control['optional_action_validation']=(
+                    'exact-codes-v1' if compact_actions else 'independent-unavailable-v2-code-objects')
                 private_control['speech_segment_normalization']='single-object-v2-optional-timing'
+                if private_control.get('optional_action_validation')=='exact-codes-v1' and independent_output_validation:
+                    private_control['independent_output_validation']=independent_output_validation
+        if parallel_speech_version:
+            private_control["parallel_speech_version"]=parallel_speech_version
+        if writer_adaptation_version:
+            private_control["writer_adaptation_version"]=writer_adaptation_version
         from petlab_app.destinations import is_npc_whisper
         if is_npc_whisper(destination):
             from model_packages.desktop_pet_v1 import whisper
@@ -780,9 +887,9 @@ class PetRealizationService:
             profile_facts['whisper_context']=whisper.context(scene_context,authorization.target_ref,
                 tuple(r for r in app.multi_workspace.participants if r!=app.owner_ref))
             private_control['whisper_contract']=whisper.VERSION
-        if audience_motion_version in ('physical-audience-policy-v2','physical-audience-policy-v3','physical-audience-policy-v4'):private_control['audience_motion_policy']=audience_motion_version
+        if audience_motion_version in ('physical-audience-policy-v2','physical-audience-policy-v3','physical-audience-policy-v4',*SERIAL_POLICIES):private_control['audience_motion_policy']=audience_motion_version
         if audience_envelope is not None:
-            private_control['audience_contract']=audience_delivery.VERSION
+            private_control['audience_contract']=audience_contract
             if automatic_approach and scene_context is not None and not private_control.get('whisper_contract'):
                 from model_packages.desktop_pet_v1.audience_motion import VERSION as motion_version
                 private_control['audience_motion_contract']=motion_version
@@ -792,22 +899,89 @@ class PetRealizationService:
                 **({"gaze_contract":spatial.GAZE} if scene_context is not None else {}),
                 **({"presentation_contract":"desktop-pet-face-expression-v1"} if self.expression_codes and writer_version!=codec.LEGACY_VERSION and writer_version!=codec.IDLE_VERSION else {})},
             readonly_facts={**profile_facts,**({"memory_relation_version":relation_version} if relation_version is not None else {}),**({"rag_context":rag_context} if rag_context is not None else {}),**({"content_view_version":content_view_version} if content_view_version is not None else {}),"writer_packet":packet.packet.to_record(),"writer_delivery":thaw_model_data(packet.receipt),
-                "prompt_delivery":prompt_delivery,**({"relationship_context":relationship_context} if prompt_delivery_version in RELATION_VERSIONS else {}),
+                "prompt_delivery":prompt_delivery,**({"persona_audience_version":persona_audience_version} if persona_audience_version else {}),**({"direct_recent_context":direct_recent_context} if direct_recent_context else {}),**({"relationship_context":relationship_context} if prompt_delivery_version in RELATION_VERSIONS else {}),
                 "memory_display_config":{"numbered":self.numbered_memory,"links":self.memory_links,"budget_chars":self.budget_chars},
                 "expression_delivery":expression_delivery})
         return packet,authorization,request
 
-    def begin(self,event_id,*,seal_only=False,action_sequence_context=None):
+    @staticmethod
+    def _provider_fields(request):
+        delivery=thaw_model_data(request.readonly_facts['prompt_delivery'])
+        contract=request.control['version']
+        if request.control.get('gaze_contract'):contract+='+scene-v1'
+        if request.readonly_facts.get('reading_context',{}).get('site'):contract+='+reading-parameters-v1'
+        if request.control.get('action_sequence_contract'):contract+='+action-sequence-v1'
+        return contract,[{'role':role,'content':delivery[role]} for role in ('system','user')]
+
+    def prefetch_followup(self,product,event_id,action_id):
+        """Prepare only provider input, without creating a playable candidate."""
+        from concurrent.futures import ThreadPoolExecutor
+        from petlab_app.live_execution import accepts_input,recovery_projection
+        from petlab_app.reaction_action import ensure
+        from .sequence_delivery import context_for
+        app=self.application
+        pending=getattr(self,'_followup_writer',None)
+        if pending is not None:
+            if pending[0]==event_id or not pending[2].done():return
+            self.finish_followup()
+        entry=app._product()['executions'].get(action_id)
+        if entry is None or not (accepts_input(app,action_id,entry)
+                or recovery_projection(app,event_id,action_id)):
+            return
+        if not any(ref['event_id']==event_id for ref in entry.get('live_input_sources',())):
+            return
+        policy=app._product()['sources'][event_id]['evidence'].get('response_policy')
+        if policy!='required':
+            from petlab_app.participant_input import OPEN_INVITATION_VERSION
+            from petlab_app.peer_reaction import KEY
+            source=app._product()['sources'][event_id]['evidence']
+            assessment=app.runtime.session.profile.get(KEY,{}).get('assessments',{}).get(event_id,{})
+            if (policy!='eligible' or source.get('input_source',{}).get('version')!=OPEN_INVITATION_VERSION
+                    or not assessment.get('eligible')):
+                return
+        selection=ensure(product,event_id,allow_live_snapshot=True)
+        _,authorization,request=self._request(event_id,writer_request_id=uuid.uuid4().hex,
+            action_sequence_context=context_for(app,event_id,selection))
+        contract,messages=self._provider_fields(request)
+        call=self.gateway.prepare(session_binding=app.runtime.session.session_binding,
+            current_position=app.runtime.session.position,operation_kind='writer',source_fact_ref=event_id,
+            codec_contract=contract,messages=messages,temperature=self.temperature,require_json=True,
+            parse=lambda wire:wire,source_receipt_refs=(authorization.fingerprint,),provisional_writer=True)
+        pool=ThreadPoolExecutor(max_workers=1,thread_name_prefix='pet-followup-writer')
+        try:future=pool.submit(call.transport)
+        finally:pool.shutdown(wait=False)
+        self._followup_writer=(event_id,call,future)
+
+    def finish_followup(self,event_id=None,request=None):
+        pending=getattr(self,'_followup_writer',None)
+        if pending is None or (event_id is not None and pending[0]!=event_id):
+            return None
+        _,call,future=pending
+        if request is not None:
+            from petlab_app.providers import PROVISIONAL_WRITER_SUFFIX
+            contract,messages=self._provider_fields(request)
+            transport=self.gateway.transport_for('writer')
+            expected=transport.payload(messages=messages,temperature=self.temperature,require_json=True)
+            if (call.request.codec_contract!=contract+PROVISIONAL_WRITER_SUFFIX
+                    or thaw_model_data(call.request.request_payload)!=thaw_model_data(expected)):
+                if future.done():self.finish_followup()
+                return None
+        self._followup_writer=None
+        future.result()
+        result=call.finish()
+        return call if result.status=='parsed' else None
+
+    def begin(self,event_id,*,seal_only=False,action_sequence_context=None,replay=None):
         from .prepared_writer import PreparedWriter
         return PreparedWriter(self,event_id,self._prepare_steps(event_id,
-            seal_only=seal_only,action_sequence_context=action_sequence_context))
+            seal_only=seal_only,action_sequence_context=action_sequence_context,replay=replay))
 
-    def prepare(self,event_id,*,seal_only=False,action_sequence_context=None):
-        work=self.begin(event_id,seal_only=seal_only,action_sequence_context=action_sequence_context)
+    def prepare(self,event_id,*,seal_only=False,action_sequence_context=None,replay=None):
+        work=self.begin(event_id,seal_only=seal_only,action_sequence_context=action_sequence_context,replay=replay)
         work.transport()
         return work.finish()
 
-    def _prepare_steps(self,event_id,*,seal_only=False,action_sequence_context=None):
+    def _prepare_steps(self,event_id,*,seal_only=False,action_sequence_context=None,replay=None):
         app=self.application
         planning_position=app.runtime.session.position
         from . import deferred_reply
@@ -857,36 +1031,66 @@ class PetRealizationService:
                 from model_packages.desktop_pet_v1.visual_capabilities import validate
                 frozen_capabilities=validate(request.readonly_facts.get('visual_capabilities'))
                 text=completion_text(wire);gaze=None;reading={}
+                independent_output=request.control.get('independent_output_validation') is not None
                 if request.control.get("wire_normalization_version"):
                     from .wire_normalization import normalize
                     text,reduction=normalize(text)
                     if reduction is not None:reading["wire_normalization"]=reduction
+                if (request.control.get('writer_adaptation_version')
+                        and request.control.get('presentation_contract')=='desktop-pet-face-expression-v1'):
+                    from model_packages.desktop_pet_v1.face_expression import LABELS
+                    from .wire_normalization import normalize_expression_label
+                    choices=LABELS if frozen_capabilities is None else frozen_capabilities['choices']
+                    text,adjustment=normalize_expression_label(text,choices)
+                    if adjustment:reading['output_adjustments']=[adjustment]
                 if request.control.get('optional_channel_validation')=='unavailable-private-v1':
                     from .sequence_delivery import isolate_unavailable_thought
                     text,rejected=isolate_unavailable_thought(text)
                     if rejected:reading['unexecuted_channel_proposals']=rejected
-                if request.control.get('speech_segment_normalization') in ('single-object-v1','single-object-v2-optional-timing'):
+                if not independent_output and request.control.get('speech_segment_normalization') in ('single-object-v1','single-object-v2-optional-timing'):
                     from .sequence_delivery import normalize_single_speech
                     text=normalize_single_speech(text,implicit_timing=request.control['speech_segment_normalization']=='single-object-v2-optional-timing')
                 if request.readonly_facts.get('action_intent_version'):
                     from .action_intents import reduce_output
-                    text,reading['action_intent_resolution']=reduce_output(text,request.readonly_facts['action_sequence_context'],version=request.readonly_facts['action_intent_version'])
+                    text,reading['action_intent_resolution']=reduce_output(text,request.readonly_facts['action_sequence_context'],version=request.readonly_facts['action_intent_version'],scene=request.readonly_facts.get('scene_context'))
                 if request.control.get('optional_action_validation')=='independent-unavailable-v2-code-objects':
                     from .sequence_delivery import normalize_action_code_objects
                     text=normalize_action_code_objects(text)
-                if request.control.get('optional_action_validation') in ('independent-unavailable-v1','independent-unavailable-v2-code-objects'):
+                if not independent_output and request.control.get('optional_action_validation') in ('independent-unavailable-v1','independent-unavailable-v2-code-objects','exact-codes-v1'):
                     from .sequence_delivery import isolate_unavailable
-                    text,rejected=isolate_unavailable(text,request.readonly_facts['action_sequence_context'])
+                    text,rejected=isolate_unavailable(text,request.readonly_facts['action_sequence_context'],
+                        exact=request.control['optional_action_validation']=='exact-codes-v1')
                     if rejected:reading['unexecuted_action_proposals']=rejected
                 if request.control.get('audience_contract'):
                     from .audience_delivery import split_output as split_audience
-                    text,choice=split_audience(text,request.readonly_facts['audience_envelope'])
+                    text,choice=split_audience(text,request.readonly_facts['audience_envelope'],version=request.control['audience_contract'],
+                        allow_single_target=delivery['version'].removesuffix('-persona-v1').removesuffix('-stationary-v1')
+                            .removesuffix(OCCURRENCE_SUFFIX).removesuffix(COMPACT_ACTIONS_SUFFIX).removesuffix(DIALOGUE_AUTHOR_SUFFIX).endswith(AUDIENCE_SCHEMA_SUFFIX))
+                    if 'speech_to' in choice:reading['speech_to']=choice.pop('speech_to')
                     reading['audience']=choice
+                from . import speech_behaviors
+                offered=delivery.get('speech_behaviors')
+                share=None
+                if request.readonly_facts.get('speech_behavior_version'):
+                    text,share=speech_behaviors.split(text,offered)
                 sequence_context=request.readonly_facts.get('action_sequence_context')
                 if sequence_context is not None:
                     from .sequence_delivery import split_output as split_sequence,split_speeches,split_expressions
                     from model_packages.desktop_pet_v1.face_expression import CODES
-                    text,faces=split_expressions(text,sequence_context,allowed=CODES if frozen_capabilities is None else frozen_capabilities["choices"])
+                    allowed_expressions=CODES if frozen_capabilities is None else frozen_capabilities["choices"]
+                    if independent_output:
+                        from .independent_output import recover
+                        text,rejected,adjustments=recover(text,sequence_context,
+                            scene=request.readonly_facts.get('scene_context'),human_ref=app.user_ref,
+                            expressions=allowed_expressions,gaze_independent=delivery.get('scene_delivery',{}).get('independent',False),
+                            version=request.control['independent_output_validation'])
+                        if rejected:reading['unexecuted_action_proposals']=rejected
+                        if adjustments:reading.setdefault('output_adjustments',[]).extend(adjustments)
+                        if json.loads(text).get('speech') is None:
+                            if 'audience' in reading:reading['audience']={'speech':[]}
+                            reading.pop('speech_to',None)
+                            share=None
+                    text,faces=split_expressions(text,sequence_context,allowed=allowed_expressions)
                     if faces is not None:reading["expression_segments"]=faces
                     text,segments=split_speeches(text,sequence_context)
                     if segments is not None:reading['speech_segments']=segments
@@ -896,19 +1100,34 @@ class PetRealizationService:
                 context=request.readonly_facts.get('reading_context')
                 if context is not None and context.get('site') is not None:
                     from .reading_delivery import split_output as split_reading
-                    text,query=split_reading(text,site=context['site'],optional=request.readonly_facts.get('action_intent_version') is not None)
+                    text,query=split_reading(text,site=context['site'],optional=request.readonly_facts.get('action_intent_version') is not None
+                        or (request.control.get('optional_action_validation')=='exact-codes-v1' and context.get('optional_action')))
                     reading['search_query']=query
                 if request.readonly_facts.get('scene_context') is not None:
                     from .spatial_delivery import split_output
                     text,gaze=split_output(text,request.readonly_facts['scene_context'],
                         independent=delivery['scene_delivery']['independent'],human_ref=app.user_ref)
+                if share is not None:
+                    body=json.loads(text)
+                    reading['speech_behavior']=speech_behaviors.validate_share(
+                        share,offered,speech=body.get('speech') or reading.get('speech_segments'),
+                        readers=reading.get('audience',{}).get('speech',()))
                 if 'action_intent_resolution' in reading:
                     from .action_intents import presentation_hint
                     hint=presentation_hint(reading['action_intent_resolution'],
                         destination=request.readonly_facts.get('participant_destination'),
                         envelope=request.readonly_facts.get('audience_envelope'))
                     if hint is not None:reading['activity_hint']=hint
-                if request.control.get('allow_thought') is True:
+                allow_silence = (request.control["version"].removesuffix(codec.MEMORY_MARKER_SUFFIX)==codec.OPTIONAL_IDLE_VERSION
+                    or delivery.get("scene_delivery",{}).get("independent",False)
+                    or sequence_context is not None or delivery.get("interaction_mode")=="contextual")
+                private_expression = request.control.get('allow_thought') is True
+                numbered = request.control["version"].endswith(codec.MEMORY_MARKER_SUFFIX)
+                if allow_silence or private_expression:
+                    from .wire_normalization import separate_absent_memory_claims
+                    text,discarded=separate_absent_memory_claims(text,aliases=aliases,private=private_expression,numbered=numbered)
+                    if discarded:reading['discarded_memory_claims']=discarded
+                if private_expression:
                     value=codec.parse_private_expression(text,delivered_memory_ids=tuple(aliases),
                         expression_codes=request.control.get('presentation_contract')=='desktop-pet-face-expression-v1',
                         allowed_expressions=None if frozen_capabilities is None else tuple(frozen_capabilities['choices']))
@@ -916,12 +1135,11 @@ class PetRealizationService:
                     if gaze is not None:value['gaze_target']=gaze
                     value.update(reading)
                     return value
-                parse_speech=codec.parse_marked_speech if request.control["version"].endswith(codec.MEMORY_MARKER_SUFFIX) else codec.parse_speech
+                parse_speech=codec.parse_marked_speech if numbered else codec.parse_speech
                 value=parse_speech(text,delivered_memory_ids=tuple(aliases),
                     expression_codes=request.control.get("presentation_contract")=="desktop-pet-face-expression-v1",
                     allowed_expressions=None if frozen_capabilities is None else tuple(frozen_capabilities['choices']),
-                    allow_silence=(request.control["version"].removesuffix(codec.MEMORY_MARKER_SUFFIX)==codec.OPTIONAL_IDLE_VERSION
-                        or delivery.get("scene_delivery",{}).get("independent",False) or sequence_context is not None or delivery.get("interaction_mode")=="contextual"))
+                    allow_silence=allow_silence)
                 value["reported_used_memory_ids"]=[aliases[key] for key in value["reported_used_memory_ids"]]
                 if gaze is not None:value['gaze_target']=gaze
                 value.update(reading)
@@ -932,11 +1150,26 @@ class PetRealizationService:
         self.attempt_journal.record_provider_dispatch(writer_request_id)
         self.attempt_journal.flush_batch()
         self.attempt_journal._readers.release()  # Never hold log handles over network I/O.
+        contract,messages=self._provider_fields(request)
+        provisional=self.finish_followup(event_id,request)
+        if provisional is None and replay is not None:
+            previous,call=replay
+            fields=('participant_destination','audience_envelope','action_sequence_context','scene_context',
+                    'reading_context','visual_capabilities','body_context','meal_scene_context',
+                    'whisper_context','speech_behavior_version','action_intent_version')
+            if (previous.source_fact_ref==request.source_fact_ref
+                    and previous.source_settlement_fingerprint==request.source_settlement_fingerprint
+                    and previous.target_ref==request.target_ref
+                    and previous.control==request.control
+                    and previous.readonly_facts['prompt_delivery']['memory_aliases']==aliases
+                    and previous.readonly_facts['prompt_delivery'].get('scene_delivery')==delivery.get('scene_delivery')
+                    and all(previous.readonly_facts.get(key)==request.readonly_facts.get(key) for key in fields)):
+                provisional=call  # Gateway still verifies exact wire request and original receipt.
         result=yield self.gateway.prepare(session_binding=app.runtime.session.session_binding,
             current_position=app.runtime.session.position,operation_kind="writer",source_fact_ref=event_id,
-            codec_contract=request.control['version']+('+scene-v1' if request.control.get('gaze_contract') else '')+('+reading-parameters-v1' if request.readonly_facts.get('reading_context',{}).get('site') else '')+('+action-sequence-v1' if request.control.get('action_sequence_contract') else ''),messages=[{"role":"system","content":delivery["system"]},
-                {"role":"user","content":delivery["user"]}],
-            temperature=self.temperature,require_json=True,parse=parse,source_receipt_refs=(authorization.fingerprint,))
+            codec_contract=contract,messages=messages,
+            temperature=self.temperature,require_json=True,parse=parse,source_receipt_refs=(authorization.fingerprint,),
+            **({'reuse_from':provisional} if provisional is not None else {}))
         def invoke(realizer_request):
             if result.status!="parsed":
                 raise RealizerInvocationFailure(failure_kind="pet_writer_failed",failure_source_ref=result.request.fingerprint)
@@ -1004,19 +1237,28 @@ class PetRealizationService:
             return {"candidate_payload":payload,
                 "realization_evidence":{"version":request.control["version"],"writer_packet_fingerprint":packet_fingerprint,
                     **sequence_evidence,
+                    **({"output_adjustments":value["output_adjustments"]} if value.get("output_adjustments") else {}),
                     **({"wire_normalization":value["wire_normalization"]} if value.get("wire_normalization") else {}),
                     **({'whisper_contract':request.control['whisper_contract']} if request.control.get('whisper_contract') else {}),
                     **({'audience_motion_contract':request.control['audience_motion_contract']} if request.control.get('audience_motion_contract') else {}),
                     **({'audience_envelope':thaw_model_data(request.readonly_facts['audience_envelope']), 'selected_speech_audience':value['audience']['speech'], **({'memory_visibility':thaw_model_data(request.readonly_facts['memory_visibility'])} if request.readonly_facts.get('memory_visibility',{}).get('version')=='petlab-writer-recipient-memory-v3-scoped-speech' else {})} if request.control.get('audience_contract') else {}),
                     **({"speech_decision":"silent"} if speech is None else {}),
                     **({"unexecuted_channel_proposals":value["unexecuted_channel_proposals"]} if value.get("unexecuted_channel_proposals") else {}),
+                    **({"discarded_memory_claims":value["discarded_memory_claims"]} if value.get("discarded_memory_claims") else {}),
                     **({"reading_intent":{"version":"pet-reading-parameters-v1","site":request.readonly_facts["reading_context"]["site"],"query":value["search_query"],"source_tick":event_id}} if "search_query" in value else {}),
+                    **({'speech_to':value['speech_to']} if 'speech_to' in value else {}),
+                    **({'speech_behavior':value['speech_behavior']} if 'speech_behavior' in value else {}),
                     **({'action_intent_resolution':value['action_intent_resolution']} if 'action_intent_resolution' in value else {}),
+                    **({'unexecuted_action_proposals':value['unexecuted_action_proposals']} if
+                       request.control.get('optional_action_validation')=='exact-codes-v1' and value.get('unexecuted_action_proposals') else {}),
                     **({'activity_hint':value['activity_hint']} if 'activity_hint' in value else {}),
                     "expression_delivery":thaw_model_data(request.readonly_facts["expression_delivery"]),
                     "prompt_delivery_fingerprint":delivery["fingerprint"],
                     "writer_delivery_fingerprint":request.readonly_facts['writer_delivery']['fingerprint'],"delivered_memory_ids":list(ids),
                     "reported_used_memory_ids":list(used),**channel_claims,
+                    **({'provider_reuse':{'invocation_id':result.execution.attempt.invocation_evidence['invocation_id'],
+                        'original':thaw_model_data(result.execution.attempt.invocation_evidence['reused_response'])}}
+                       if 'reused_response' in result.execution.attempt.invocation_evidence else {}),
                     "provider_request_fingerprint":result.request.fingerprint,
                     "provider_codec_fingerprint":result.parse_receipt.fingerprint,
                     "realizer_trace_ref":str(realizer_path)}}
@@ -1032,7 +1274,7 @@ class PetRealizationService:
         self.attempt_journal.record_terminal(writer_request_id,status=result.status)
         written=self.attempt_journal.flush_batch()
         if inline_archive:self._readonly_archives.defer(realizer_path,record)
-        if result.status!="candidate_ready":raise RuntimeError("pet writer realizer failed")
+        if result.status!="candidate_ready":raise WriterRealizationFailed("pet writer realizer failed")
         from .quiet_realization import quiet_candidate
         context=request.readonly_facts.get('reading_context')
         if app.runtime.session.position==planning_position and context is not None and context.get('result') is not None:
@@ -1102,8 +1344,16 @@ class PetRealizationService:
             content_view_version=prepared.request.readonly_facts.get('content_view_version'),
             composite_context_version=prepared.request.readonly_facts.get('composite_context_version'),
             prompt_delivery_version=prepared.request.readonly_facts['prompt_delivery']['version'],
+            direct_recent_context=prepared.request.readonly_facts.get('direct_recent_context'),
+            persona_audience_version=prepared.request.readonly_facts.get('persona_audience_version'),
+            writer_adaptation_version=prepared.request.control.get('writer_adaptation_version'),
+            parallel_speech_version=prepared.request.control.get('parallel_speech_version'),
+            independent_output_validation=prepared.request.control.get('independent_output_validation'),
             input_layout_version=prepared.request.readonly_facts['prompt_delivery'].get('input_layout_version'),
+            scene_delivery_version=prepared.request.readonly_facts['prompt_delivery'].get('scene_delivery',{}).get('version'),
+            speech_behavior_version=prepared.request.readonly_facts.get('speech_behavior_version'),
             action_intent_version=prepared.request.readonly_facts.get('action_intent_version'),
+            audience_contract=prepared.request.control.get('audience_contract'),
             pending_conversation=prepared.request.readonly_facts.get('pending_conversation'),
             rag_context=prepared.request.readonly_facts.get('rag_context'),
             relation_version=prepared.request.readonly_facts.get('memory_relation_version'),

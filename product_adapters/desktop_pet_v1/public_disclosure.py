@@ -44,6 +44,16 @@ def context(runtime,event,measurement_payload,peer):
  return {'desktop_pet_public_disclosure':{**row,'fingerprint':fp(row)}}
 
 
+def performed_pair_source(runtime,event,peer):
+ """A verified own effect can be the first directed interaction with its recipient."""
+ if not enabled(runtime) or event.event_kind!='npc_output':return {}
+ dest=destination(runtime,event)
+ if dest is None or dest['primary']!=peer:return {}
+ if not any(c.kind in ('speech','expression','action') and not c.private
+            and peer in c.recipient_refs for c in event.contents):return {}
+ return {'desktop_pet_performed_pair_source':event.source_binding_ref}
+
+
 def counterparty(runtime,event):
  """The existing directed target, shared by measurement and settlement."""
  from model_packages.desktop_pet_v1.web_observation import is_observation

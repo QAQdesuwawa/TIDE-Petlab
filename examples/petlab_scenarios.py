@@ -45,10 +45,10 @@ class OfflineFixture:
     def __init__(self,case):
         self.case=case;self.calls=[];self.current_question=None;self.fail_measurement=False
 
-    def writer(self,system):
+    def writer(self,prompt):
         marker='相关记忆（按发生顺序）：'
-        if marker not in system:raise ValueError('no delivered memory cards')
-        cards=json.JSONDecoder().raw_decode(system.split(marker,1)[1].lstrip())[0]
+        if marker not in prompt:raise ValueError('no delivered memory cards')
+        cards=json.JSONDecoder().raw_decode(prompt.split(marker,1)[1].lstrip())[0]
         if not cards:raise ValueError('no delivered memory cards')
         if self.current_question is None:raise ValueError('fixture question not selected')
         values=[];used=[]
@@ -61,14 +61,14 @@ class OfflineFixture:
             card,prop=max(matches,key=lambda pair:pair[0]['发生时间'])
             values.append(prop['value']);used.append(card['记忆标记'])
         return {'speech':'；'.join(values),'reported_used_memory_ids':list(dict.fromkeys(used)),
-                **({'actions':[]} if '可选动作序列：' in system else {})}
+                **({'actions':[]} if '可选动作序列：' in prompt else {})}
 
     def complete(self,payload):
         self.calls.append(deepcopy(payload))
         system=payload['messages'][0]['content'];user=payload['messages'][-1]['content']
         # Identify the declared Writer contract, independent of persona/header
         # layout. This synthetic adapter never calls a real model.
-        if 'reported_used_memory_ids' in system:value=self.writer(system)
+        if 'reported_used_memory_ids' in system:value=self.writer(system+'\n'+user)
         elif '【桌宠创建范围】' in system:
             value={'persona_card':self.case['persona'],'weights':WEIGHTS,'ammo':[]}
         elif '【旧聊天联合估计合同】' in system:
@@ -129,6 +129,8 @@ def no_execution(*args):
 
 class TextFileExecutor:
     """Records a real local file effect; does not pretend to animate or display UI."""
+    executable_action_keys = frozenset()
+
     def __init__(self,path):self.path=path
     def __call__(self,action_id,contents):
         with self.path.open('a',encoding='utf8') as f:

@@ -9,9 +9,39 @@ from model_packages.desktop_pet_v1.basic_actions import KEYS as BASIC_ACTIONS
 VERSION = 'desktop-pet-free-action-intents-v1'
 EMOJI_VERSION = 'desktop-pet-free-action-intents-v2-emoji'
 ORDINARY_VERSION = 'desktop-pet-free-action-intents-v3-ordinary-fallback'
-CURRENT_VERSION = 'desktop-pet-free-action-intents-v4-eye-presentation'
-EMOJI_VERSIONS = frozenset({EMOJI_VERSION,ORDINARY_VERSION,CURRENT_VERSION})
+EYE_VERSION = 'desktop-pet-free-action-intents-v4-eye-presentation'
+NAMED_VERSION = 'desktop-pet-free-action-intents-v5-named-movement'
+CAPABILITY_VERSION = 'desktop-pet-free-action-intents-v6-capabilities'
+CURRENT_VERSION = 'desktop-pet-free-action-intents-v7-world-objects'
+CAPABILITY_VERSIONS = frozenset({CAPABILITY_VERSION,CURRENT_VERSION})
+EYE_VERSIONS = frozenset({EYE_VERSION,NAMED_VERSION,*CAPABILITY_VERSIONS})
+EMOJI_VERSIONS = frozenset({EMOJI_VERSION,ORDINARY_VERSION,*EYE_VERSIONS})
 _OWN_HINT_ACTIONS = frozenset((*BASIC_ACTIONS,'play_tail','stroll','relocate'))
+_CAPABILITIES = {
+    'play_tail': '能摆动自己的尾巴',
+    'peek_phone': '能拿手机翻看一会儿，随后收起',
+    'read_web': '能用手机联网阅读网页',
+}
+_LOCAL_PHONE = re.compile(r'(?:拿出|拿起|掏出)?手机(?:翻看|看看|看一会儿)?|(?:低头)?(?:看|翻看|刷)(?:一会儿)?手机')
+_TAIL = re.compile(r'(?:轻摆|轻晃|甩了甩|摇了摇|摆了摆)尾巴|尾巴(?:轻摆|轻晃|晃了晃|摇了摇|摆了摆)')
+
+
+def capability_card(offer,*,concise=False,include_contact=False):
+    keys = set(offer['allowed_keys'])
+    capabilities = [value for key, value in _CAPABILITIES.items() if key in keys]
+    if include_contact:
+        from model_packages.desktop_pet_v1.social_contact import KINDS
+        action_types={key.split('@',1)[0] for key in keys}
+        invitations=[label for kind,label in KINDS.items() if 'invite_'+kind in action_types]
+        if invitations:capabilities.append('可向指定同伴发出'+'、'.join(invitations)+'邀请')
+        if any(key.startswith('accept_') and key[7:] in KINDS for key in action_types):
+            capabilities.append('收到接触邀请可接受或谢绝')
+    if not capabilities:
+        return ''
+    if concise:return '\n【角色本轮可用表现】\n'+'；'.join(capabilities)+'。'
+    return ('\n【角色本轮可用表现】\n'+'；'.join(capabilities)+'。动作可留空。'
+            '想接连做多件事时，把自身小动作和面向对象的动作分别写进 action_intents。'
+            '自身动作的 target_ref 为 null。')
 FORMAT = ('动作意图与话语、表情各自选择。结合此刻人设、关系和经历，用自然短语写想做的身体动作。'
           'action_intents为有序数组，每项含description和target_ref，最多4项，可为[]或null。'
           '涉及特定对象时，target_ref填现场给出的对应标识；纯自身动作填null。'
@@ -49,6 +79,9 @@ PHRASES = {
     'invite_cheek_kiss': r'(?:邀请亲脸颊|提出亲脸颊邀请|请求亲脸颊)',
     'accept_cheek_kiss': r'(?:接受亲脸颊邀请|同意亲脸颊)',
     'decline_cheek_kiss': r'(?:拒绝亲脸颊邀请|谢绝亲脸颊)',
+    'invite_kiss': r'(?:邀请接吻|提出接吻邀请|请求接吻|想接吻|邀请亲嘴)',
+    'accept_kiss': r'(?:接受接吻邀请|同意接吻|同意亲嘴)',
+    'decline_kiss': r'(?:拒绝接吻(?:邀请)?|谢绝接吻|拒绝亲嘴)',
     'eat_rice': r'(?:吃饭|吃一口饭|吃一口白饭)',
     'request_bowl': r'(?:要碗|借碗|请求递碗|请求饭碗)',
     'offer_bowl': r'(?:递饭|递碗|递出饭碗|把碗递过去|分享碗里的饭)',
@@ -75,24 +108,40 @@ def _phrase(text, target):
     return re.sub(r'(?:一下|一点|一些)$', '', re.sub(r'^(?:轻轻地?|慢慢地?|稍微)', '', text))
 
 
-def _option(intent, offer, *, ordinary_fallback=False):
+def _option(intent, offer, *, ordinary_fallback=False, scene=None, capabilities=False, world_objects=False):
     text, target = intent['description'], intent['target_ref']
     phrase = _phrase(text, target)
     meanings = {key for key, pattern in MATCHERS.items()
                 if pattern.fullmatch(phrase) or pattern.fullmatch(text)}
+    if capabilities and _LOCAL_PHONE.fullmatch(phrase):
+        meanings.discard('read_web')
+        meanings.add('peek_phone')
+    if capabilities and _TAIL.fullmatch(phrase):
+        meanings.add('play_tail')
+    labels = {row['label'] for row in (scene or {}).get('participants',()) if row['ref']==target}
+    for obj in (scene or {}).get('objects',()):
+        if obj['ref'] == target and obj['ref'].startswith('world:screen:'):
+            labels.update((obj['label'], '窗口', '前台窗口', '提示窗口'))
+            if any(re.fullmatch(rf'(?:走到|走向|走近|靠近|凑近){re.escape(label)}(?:旁边|旁|看看)?', phrase)
+                   for label in labels):
+                meanings.add('move_near')
+        elif world_objects and obj['ref']==target:
+            label=unicodedata.normalize('NFKC',obj['label']).strip()
+            labels.update((label,label.partition('(')[0].strip()))
+            if any(re.fullmatch(rf'(?:走到|走向|走近|靠近|凑近)(?:那封|那份|那个)?{re.escape(name)}(?:旁边|旁|看看|看一眼)?',phrase)
+                   or re.fullmatch(rf'走过去(?:看看|看一眼)(?:那封|那份|那个)?{re.escape(name)}',phrase)
+                   for name in labels if name):
+                meanings.add('move_near')
+    if scene is not None and target is not None and any(re.fullmatch(
+            rf'(?:往|朝|向){re.escape(label)}(?:那边|身边|旁边)挪(?:了挪|一挪|一步)?',phrase)
+            for label in labels|{target}):
+        meanings.add('move_near')
     matches = []
     for row in offer['catalog']['candidates']:
         key = row.get('action_key', row['key'])
         directed = key in TARGETED or 'social_contact' in row
         expected = row.get('target_ref', offer['target_ref']) if directed else None
-        named_object = False
-        if expected == target and 'world_object' in row:
-            label = unicodedata.normalize('NFKC', row['world_object']['label'])
-            for suffix in (label, '「'+label+'」'):
-                if phrase.endswith(suffix) and MATCHERS[key].fullmatch(phrase[:-len(suffix)].rstrip()):
-                    named_object = True
-                    break
-        if (key in meanings or named_object) and expected == target and row['key'] in offer['allowed_keys']:
+        if key in meanings and expected == target and row['key'] in offer['allowed_keys']:
             matches.append(row['key'])
     if len(matches) == 1:
         return matches[0], None
@@ -114,7 +163,7 @@ def _eye_effect(description):
     return None
 
 
-def reduce_output(text, context, *, version=VERSION):
+def reduce_output(text, context, *, version=VERSION, scene=None):
     value = json.loads(text)
     if not isinstance(value, dict):
         raise ValueError('writer output must be an object')
@@ -136,7 +185,9 @@ def reduce_output(text, context, *, version=VERSION):
                     (not isinstance(intent['target_ref'], str) or not 0 < len(intent['target_ref']) <= 96))):
             decisions.append({'index': index, 'status': 'not_executed', 'reason': 'invalid_intent'})
             continue
-        key, reason = _option(intent, offer,ordinary_fallback=version in (ORDINARY_VERSION,CURRENT_VERSION))
+        key, reason = _option(intent, offer,ordinary_fallback=version in {ORDINARY_VERSION,*EYE_VERSIONS},
+                              scene=scene if version in {NAMED_VERSION,*CAPABILITY_VERSIONS} else None,
+                              capabilities=version in CAPABILITY_VERSIONS,world_objects=version==CURRENT_VERSION)
         if key is not None:
             try:
                 validate_keys([*keys, key], offer)
@@ -175,6 +226,8 @@ def reduce_output(text, context, *, version=VERSION):
 
 def presentation_hint(resolution, *, destination, envelope):
     if resolution['version'] not in EMOJI_VERSIONS:return None
+    if any(row.get('status') == 'matched' for row in resolution['decisions']):
+        return None
     if destination is not None and destination['conversation']['conversation_id'] != 'petlab:public':
         return None
     # The optional icon is an explicitly public output. Its source context
@@ -182,7 +235,7 @@ def presentation_hint(resolution, *, destination, envelope):
     if envelope is not None and set(envelope['allowed_speech']) != set(envelope['physical_observers']):
         return None
     for row in resolution['decisions']:
-        if resolution['version']==CURRENT_VERSION and row.get('target_ref') is None and row.get('description'):
+        if resolution['version'] in EYE_VERSIONS and row.get('target_ref') is None and row.get('description'):
             eyes=_eye_effect(row['description'])
             if (row.get('reason')=='ordinary_animation_unavailable'
                     and _phrase(row['description'],None) in ('躺下休息','躺下来休息','侧躺休息')):

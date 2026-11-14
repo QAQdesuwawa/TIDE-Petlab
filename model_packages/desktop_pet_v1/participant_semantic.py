@@ -75,3 +75,21 @@ class StructuredParticipantSemanticCodec(BoundParticipantSemanticCodec):
      row['对象']=list(getattr(self.base,'speech_address_refs',content.recipient_refs))
    user=prefix+heading+json.dumps(facts,ensure_ascii=False)+raw[end:]
   return system,user
+
+
+class NamedParticipantSemanticCodec:
+ """Public identity labels supplement IDs; quotations and pair binding stay intact."""
+ def __init__(self,base,*,names):
+  self.base=base
+  if not names or any(not isinstance(k,str) or not k or not isinstance(v,str) or not v.strip() for k,v in names.items()):
+   raise ValueError('public participant names invalid')
+  self.names=dict(sorted(names.items()))
+  self.request_version=base.request_version+':participant-labels-v1'
+ def __getattr__(self,name):return getattr(self.base,name)
+ def build_request(self,*,event,recall_hint):
+  system,user=self.base.build_request(event=event,recall_hint=recall_hint)
+  marker='【参与者归属合同】\n'
+  prefix,raw=system.rsplit(marker,1)
+  bindings,end=json.JSONDecoder().raw_decode(raw)
+  bindings['参与者公开姓名']=[{'参与者ID':ref,'显示名称':name} for ref,name in self.names.items()]
+  return prefix+marker+json.dumps(bindings,ensure_ascii=False,separators=(',',':'))+raw[end:],user

@@ -1,6 +1,104 @@
 {
   "version": "petlab-local-activities-v4-atlas",
   "clips": {
+      "peek_phone": {
+        "source": "bound_rig",
+        "duration_ms": 2300,
+        "channels": [
+          {
+            "part": "phone_arms",
+            "parameter": "opacity",
+            "amplitude": 1,
+            "curve": [
+              [
+                0,
+                0
+              ],
+              [
+                0.18,
+                1
+              ],
+              [
+                0.82,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ]
+          },
+          {
+            "part": "left_arm",
+            "parameter": "opacity",
+            "amplitude": -1,
+            "curve": [
+              [
+                0,
+                0
+              ],
+              [
+                0.18,
+                1
+              ],
+              [
+                0.82,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ]
+          },
+          {
+            "part": "right_arm",
+            "parameter": "opacity",
+            "amplitude": -1,
+            "curve": [
+              [
+                0,
+                0
+              ],
+              [
+                0.18,
+                1
+              ],
+              [
+                0.82,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ]
+          },
+          {
+            "part": "head",
+            "parameter": "y",
+            "amplitude": 10,
+            "curve": [
+              [
+                0,
+                0
+              ],
+              [
+                0.18,
+                1
+              ],
+              [
+                0.82,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ]
+          }
+        ]
+      },
     "play_tail": {
       "source": "bound_rig",
       "duration_ms": 2400,

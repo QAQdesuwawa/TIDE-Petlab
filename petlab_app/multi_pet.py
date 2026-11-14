@@ -17,6 +17,7 @@ from product_adapters.cx_six_seven_v1.multi_participant.sessions import ProductC
 from ops.storage import atomic_write_json
 
 VERSION='petlab-multi-workspace-v1'
+OPEN_INVITATION_POLICY='open-invitation-v1'
 DEFAULT_NAMES={'DS1':'大肥鱼','DS2':'小肥鱼'}
 
 def _instance_text(text,name):
@@ -49,6 +50,27 @@ def multi_configurations(configuration,*,workspace_root=None,count=None):
   saved=_read(path)
   if set(saved)!={'version','definitions'} or saved['version']!=VERSION or len(saved['definitions'])<2:raise ValueError('multi workspace definition differs')
   names={k:v['name'] for k,v in saved['definitions'].items()}
+  imported=path.parent/'imported-pair.json'
+  if imported.is_file():
+   from .paired_history_import import VERSION as IMPORT_VERSION
+   from .composition import PetDefinition
+   from .setup_dialog import read_configuration_record
+   from .desktop_app import configuration_from_record
+   records={k:PetDefinition.from_record(v) for k,v in saved['definitions'].items()}
+   if (_read(imported)!={'version':IMPORT_VERSION,'definitions':{k:d.fingerprint for k,d in records.items()}}
+       or (count is not None and count!=len(records))):
+    raise ValueError('imported pair workspace identity differs')
+   result={}
+   for label,d in records.items():
+    config_path=path.parent/'actors'/_key(d.owner_ref)[:16]/'config.json'
+    record=read_configuration_record(config_path)
+    if fp(record['definition'])!=d.fingerprint:raise ValueError('imported participant configuration differs')
+    local=configuration_from_record(record,require_api_key=False)
+    from .import_expression_refresh import load_profile_refresh
+    profile=load_profile_refresh(path.parent,label,d,local.expression_profile)
+    result[label]=replace(configuration,definition=d,expression_profile=profile,
+                          memory_recall_version=local.memory_recall_version)
+   return result
   if count is not None and count!=len(names):raise ValueError('saved workspace pet count differs; choose a new workspace')
  else:
   size=2 if count is None else count
@@ -133,21 +155,39 @@ class MultiPetWorkspace:
    self.registry.register_session(ProductConversationSession(conversation=descriptor,participants=tuple(participants[x] for x in descriptor.active_member_ids)))
   for path in sorted((self.root/'audience-scopes').glob('*.json')):
    descriptor=ConversationDescriptor.from_record(_read(path))
-   self.audience_scope(descriptor.active_member_ids,expected=descriptor)
- def audience_scope(self,members,*,expected=None):
+   self.audience_scope(descriptor.active_member_ids,expected=descriptor,
+                       local=descriptor.conversation_id.startswith('petlab:audience-local:'))
+ def audience_scope(self,members,*,expected=None,local=False):
   """Register a deterministic frozen recipient scope, not a new social group."""
   members=tuple(sorted(members))
   if len(members)<2 or len(set(members))!=len(members) or not set(members)<=set(self.participants):
    raise ValueError('invalid audience scope members')
-  key='audience:'+_key('\0'.join(members))
-  descriptor=ConversationDescriptor(conversation_id='petlab:'+key,kind='direct' if len(members)==2 else 'group',active_member_ids=members,membership_version=1)
+  prefix='audience-local:' if local else 'audience:'
+  key=prefix+_key('\0'.join(members))
+  descriptor=ConversationDescriptor(conversation_id='petlab:'+key,kind='group' if local or len(members)>2 else 'direct',active_member_ids=members,membership_version=1)
   if expected is not None and expected!=descriptor:raise ValueError('audience scope identity differs')
   with self.lock:
    if key not in self.conversations:
-    _immutable(self.root/'audience-scopes'/(key.split(':',1)[1]+'.json'),descriptor.as_record())
+    name=key.replace(':','-') if local else key.split(':',1)[1]
+    _immutable(self.root/'audience-scopes'/(name+'.json'),descriptor.as_record())
     self.registry.register_session(ProductConversationSession(conversation=descriptor,participants=tuple(self.participants[x] for x in members)))
     self.conversations[key]=descriptor
   return descriptor
+ def registered_destination(self,record):
+  record=thaw_model_data(record)
+  identity=record['conversation_id']
+  for key,descriptor in self.conversations.items():
+   if descriptor.conversation_id==identity:
+    if descriptor.as_record()!=record:raise ValueError('executed destination differs from registration')
+    return key,descriptor
+  prefixes=('petlab:audience:','petlab:audience-local:')
+  if not identity.startswith(prefixes):raise ValueError('executed destination is not registered')
+  saved=self.registry.load_session(identity)
+  if saved is None or saved.conversation.as_record()!=record:
+   raise ValueError('executed audience scope differs from durable registration')
+  descriptor=self.audience_scope(saved.conversation.active_member_ids,expected=saved.conversation,
+                                 local=identity.startswith(prefixes[1]))
+  return identity.removeprefix('petlab:'),descriptor
  @staticmethod
  def whisper_key(a,b):return 'whisper:'+':'.join(sorted((a,b)))
  def set_speech_mode(self,owner,peer,mode):
@@ -178,10 +218,16 @@ class MultiPetWorkspace:
    _immutable(self.root/'sources'/(_key(event.event_id)+'.json'),row)
    self._route(row)
   return event
- def submit_human(self,*,event_id,conversation,text,at,addressed,input_content=None):
+ def submit_human(self,*,event_id,conversation,text,at,addressed,input_content=None,open_invitation=False):
   if not isinstance(text,str) or not text.strip():raise ValueError('submitted message missing')
   event=commit_message_event(self._descriptor(conversation),event_id=event_id,sender_participant_id=self.human,text=text,committed_at_ms=at,addressed_participant_ids=addressed)
-  return self._append(event,{'kind':'human','participant_id':self.human},human_content=None if input_content is None else input_content.to_record())
+  origin={'kind':'human','participant_id':self.human}
+  if open_invitation:
+   if (conversation!='public' or input_content is not None or
+       set(event.addressed_participant_ids)!=set(event.visible_recipient_ids)):
+    raise ValueError('open invitation requires an untyped public message to the room')
+   origin['opening_policy']=OPEN_INVITATION_POLICY
+  return self._append(event,origin,human_content=None if input_content is None else input_content.to_record())
  def publish_output(self,app,*,event_id,conversation,addressed):
   if app is None or app.owner_ref not in self.aliases:raise ValueError('NPC output needs exact registered owner')
   definition=self.definitions[self.aliases[app.owner_ref]]
@@ -216,27 +262,39 @@ class MultiPetWorkspace:
     **({'private_speech_target':frozen['primary']} if physical else {})}
   if envelope is not None:
    origin.pop('private_speech_target',None)
-   origin['selected_speech_audience']=realization['selected_speech_audience']
+   origin['selected_speech_audience']=list(realization['selected_speech_audience'])
   canonical=canonical_npc_output_event_id(conversation_id=descriptor.conversation_id,sender_participant_id=app.owner_ref,action_id=event_id)
+  actual_targets=tuple(event.target_refs) or tuple(addressed)
+  if 'speech_to' in realization:
+   from product_adapters.desktop_pet_v1.audience_delivery import visible_targets
+   actual_targets=tuple(visible_targets(actual_targets,realization['speech_to'],
+       [{'kind':c.kind,'recipient_refs':c.recipient_refs} for c in event.contents if not c.private]))
   # A previously published source is immutable, including legacy speech-only
   # projections of mixed actions. Recovery never reinterprets old history.
   old_path=self.root/'sources'/(_key(canonical)+'.json')
   if old_path.exists():
    old=_verify(_read(old_path));old_event=CommittedConversationEvent.from_record(old['event'])
-   if old['origin']!=origin or set(old_event.addressed_participant_ids)!=set(addressed):raise ValueError('published execution binding differs')
+   if (old['origin']!=origin
+       or set(old_event.addressed_participant_ids) not in (set(addressed),set(actual_targets))):
+    raise ValueError('published execution binding differs')
    self._route(old);return old_event
   from .visible_delivery import outward,create,ENVELOPE_TEXT
   contents=outward(event,audience)
   if not contents:raise ValueError('NPC execution has no visible audience')
   manifest,bodies=create(event,audience,public_physical=physical)
+  if 'speech_to' in realization:
+   manifest['target_refs']=list(actual_targets)
   for digest,body in bodies.items():_immutable(self.root/'visible-contents'/(digest+'.json'),body)
-  committed=commit_message_event(descriptor,event_id=canonical,sender_participant_id=app.owner_ref,text=ENVELOPE_TEXT,committed_at_ms=event.position.coordinate,sender_action_id=event_id,addressed_participant_ids=addressed)
+  committed=commit_message_event(descriptor,event_id=canonical,sender_participant_id=app.owner_ref,text=ENVELOPE_TEXT,committed_at_ms=event.position.coordinate,sender_action_id=event_id,addressed_participant_ids=actual_targets)
   return self._append(committed,origin,manifest)
  def _route(self,row):
   _verify(row);event=CommittedConversationEvent.from_record(row['event'])
   origin=row['origin'];sender=self.participants.get(event.sender_participant_id)
   if sender is None or origin.get('participant_id')!=event.sender_participant_id or origin.get('kind')!=sender.kind:raise ValueError('source sender identity differs')
   if sender.kind=='npc' and (not event.sender_action_id or origin.get('action_id')!=event.sender_action_id):raise ValueError('NPC source lacks committed action')
+  requires_reply=(sender.kind=='human' and origin.get('opening_policy')!=OPEN_INVITATION_POLICY
+    and row.get('human_content',{}).get('semantic_key') not in {'drag_contact','scene_departure','witnessed_pointer'})
+  policy='required' if requires_reply else 'eligible'
   for delivery in route_committed_event(event):
    alias=self.aliases.get(delivery.recipient_participant_id)
    if alias is None:continue # human has no model store/Actor
@@ -246,7 +304,7 @@ class MultiPetWorkspace:
    projection=project_delivery(event,delivery,recipient_participant_id=self.definitions[alias].owner_ref)
    receipt=_signed({'version':VERSION,'source_fingerprint':row['fingerprint'],
       'delivery':delivery.as_record(),'projection':projection.as_record(),
-      'response_policy':('required' if sender.kind=='human' and row.get('human_content',{}).get('semantic_key') not in {'drag_contact','scene_departure','witnessed_pointer'} else 'eligible') if delivery.delivery_scope=='addressed' or visible is not None else None,
+      'response_policy':policy if delivery.delivery_scope=='addressed' or visible is not None else None,
       'sender_kind':sender.kind,'preference_evidence':sender.kind=='human',
       **({'visible':visible} if visible is not None else {})})
    _immutable(self.inbox_path(alias,delivery.delivery_id),receipt)
@@ -259,7 +317,7 @@ class MultiPetWorkspace:
  def recover_routes(self):
   with self.lock,routing_lock(self.root):
    for row in self.source_events():self._route(row)
- def read_delivery(self,alias,path):
+ def read_delivery(self,alias,path,*,include_source=False):
   self.actor_path(alias)
   row=_verify(_read(path));projection=row['projection']
   if projection['recipient_participant_id']!=self.definitions[alias].owner_ref:raise ValueError('inbox owner differs')
@@ -270,7 +328,7 @@ class MultiPetWorkspace:
   visible=visible_project(self.root,source,projection['recipient_participant_id'])
   if ('visible_manifest' in source and visible is None) or row.get('visible')!=visible:raise ValueError('inbox visible contents differ')
   if path!=self.inbox_path(alias,expected.delivery_id):raise ValueError('inbox path differs from delivery')
-  return row
+  return (row,source) if include_source else row
  def inbox(self,alias):
   rows=[self.read_delivery(alias,path) for path in (self.actor_path(alias)/'inbox').glob('*.json')]
   from .visible_delivery import delivery_order

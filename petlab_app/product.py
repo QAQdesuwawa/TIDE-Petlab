@@ -9,6 +9,7 @@ from product_adapters.desktop_pet_v1.execution import ExecutionCancelled, Execut
 from product_adapters.desktop_pet_v1.realization import PetRealizationService
 from product_adapters.desktop_pet_v1.semantic import TreePetSemanticService as PetSemanticService
 from .composition import open_application
+from .session import PRODUCT_KEY
 from .ordered_checkpoint import product_scope
 
 
@@ -17,22 +18,20 @@ def wall_clock_ms():
 
 
 class PetProduct:
-    def __init__(self,*,application,gateway,writer_temperature,numbered_memory=False,memory_links=False,writer_budget_chars=None,expression_profile=None,expression_codes=False,visual_capabilities=None,writer_enabled=True,memory_recall_version=None,private_thought=False):
+    def __init__(self,*,application,gateway,writer_temperature,numbered_memory=False,memory_links=False,writer_budget_chars=None,expression_profile=None,expression_codes=False,visual_capabilities=None,writer_enabled=True,memory_recall_version=None,private_thought=False,segmented_measurement=False,compact_history_measurement=False):
         if type(writer_enabled) is not bool:raise ValueError('writer_enabled must be boolean')
         self.application=application
         self.gateway=gateway
         self.reply_cancellations=None  # Optional read-only host work disposition, never memory/state.
         application.memory_recall_version=memory_recall_version
-        self.semantic=PetSemanticService(application=application,gateway=gateway,memory_recall_version=memory_recall_version,defer_audit_views=True)
+        self.semantic=PetSemanticService(application=application,gateway=gateway,memory_recall_version=memory_recall_version,defer_audit_views=True,segmented_measurement=segmented_measurement,compact_history_measurement=compact_history_measurement)
         self.writer=PetRealizationService(application=application,gateway=gateway,temperature=writer_temperature,
             numbered_memory=numbered_memory,memory_links=memory_links,budget_chars=writer_budget_chars,
             expression_profile=expression_profile,expression_codes=expression_codes,visual_capabilities=visual_capabilities,private_thought=private_thought) if writer_enabled else None
-        from pathlib import Path
-        import os
         from .local_retrieval import LocalMemoryRetrieval
+        from .model_resources import model_root
         from product_adapters.desktop_pet_v1.rag_memory import RagMemoryService
-        pack=Path(os.environ.get('TIDE_PET_LOCAL_MODELS',str(Path(__file__).resolve().parents[1]/'local_models')))
-        provider=LocalMemoryRetrieval(model_root=pack,index_path=application.store.path.with_suffix('.rag.sqlite3'))
+        provider=LocalMemoryRetrieval(model_root=model_root(),index_path=application.store.path.with_suffix('.rag.sqlite3'))
         self.rag_memory=RagMemoryService(application=application,provider=provider,trace_dir=gateway.trace_dir/'local-rag',reply_source_key=self._reply_source_key)
         application.rag_memory=self.rag_memory
         self.rag_memory.warm_sources()
@@ -41,16 +40,17 @@ class PetProduct:
 
 
     @classmethod
-    def open(cls,*,definition,session_path,gateway,writer_temperature,initial_coordinate=None,numbered_memory=False,memory_links=False,writer_budget_chars=None,expression_profile=None,expression_codes=False,visual_capabilities=None,writer_enabled=True,memory_recall_version=None,model_package=None,private_thought=False):
+    def open(cls,*,definition,session_path,gateway,writer_temperature,initial_coordinate=None,numbered_memory=False,memory_links=False,writer_budget_chars=None,expression_profile=None,expression_codes=False,visual_capabilities=None,writer_enabled=True,memory_recall_version=None,model_package=None,private_thought=False,segmented_measurement=False,compact_history_measurement=False,check_startup_resources=None):
         holder={}
         def verify(prepared,source):
             return holder["product"].realizers.verify_prepared(prepared,source)
         app=open_application(definition=definition,session_path=session_path,action_verifier=verify,
-            initial_coordinate=initial_coordinate,model_package=model_package)
+            initial_coordinate=initial_coordinate,model_package=model_package,
+            memory_recall_version=memory_recall_version,check_startup_resources=check_startup_resources)
         try:
             product=cls(application=app,gateway=gateway,writer_temperature=writer_temperature,
                 numbered_memory=numbered_memory,memory_links=memory_links,writer_budget_chars=writer_budget_chars,
-                expression_profile=expression_profile,expression_codes=expression_codes,visual_capabilities=visual_capabilities,writer_enabled=writer_enabled,memory_recall_version=memory_recall_version,private_thought=private_thought)
+                expression_profile=expression_profile,expression_codes=expression_codes,visual_capabilities=visual_capabilities,writer_enabled=writer_enabled,memory_recall_version=memory_recall_version,private_thought=private_thought,segmented_measurement=segmented_measurement,compact_history_measurement=compact_history_measurement)
             holder["product"]=product
             return product
         except Exception:
@@ -61,7 +61,8 @@ class PetProduct:
     @reply_scope
     @product_scope
     def _reply(self,event_id,*,executor,completion_coordinate,is_cancelled,
-            continuation=None,on_reply_ready=lambda:None,on_prepared=lambda prepared:None):
+            continuation=None,on_reply_ready=lambda:None,on_prepared=lambda prepared:None,
+            admit_reply=lambda:True):
         self.last_quiet_realization=None
         # All opening contexts consume the same expression/execution path.
         # Only sustained input supplies an additional live-source guard.
@@ -69,22 +70,29 @@ class PetProduct:
         if publish is not None:publish()
         if continuation is not None:
             if not continuation.check('before_writer'):return None
-        elif is_cancelled():return None
+        elif is_cancelled() or not admit_reply():return None
         from .intention_wait import ReplanIntention
         from .retired_transport import WriterInterrupted,drain
         drain(self)
+        replay=None
         while True:
             try:
-                prepared=self.realizers.prepare(event_id,on_language_ready=on_reply_ready,is_cancelled=is_cancelled)
+                executable_keys=getattr(executor,'executable_action_keys',None)
+                options={} if executable_keys is None else {'executable_keys':executable_keys}
+                if replay is not None:options['replay']=replay
+                prepared=self.realizers.prepare(event_id,on_language_ready=on_reply_ready,is_cancelled=is_cancelled,**options)
                 break
-            except ReplanIntention:
-                if is_cancelled():return None
+            except ReplanIntention as stale:
+                if is_cancelled() or not admit_reply():return None
+                if continuation is not None and not continuation.check('before_writer'):return None
+                replay=stale.replay
             except WriterInterrupted:
                 return None
         from product_adapters.desktop_pet_v1.quiet_realization import QuietRealization
         if isinstance(prepared,QuietRealization):
             hint=prepared.evidence['candidate']['realization_evidence'].get('activity_hint')
             presenter=getattr(executor,'present_action_hint',None)
+            if not admit_reply():return None
             if (hint is not None and presenter is not None and not is_cancelled()
                     and (continuation is None or continuation.check('before_execution'))):
                 presenter(hint['emoji'],prepared.request_id,
@@ -96,10 +104,10 @@ class PetProduct:
             self.writer.prepare(event_id,seal_only=True)
         on_prepared(prepared)
         if continuation is not None and not continuation.check('before_execution',prepared):return None
-        if is_cancelled():return None
+        if is_cancelled() or not admit_reply():return None
         def execute_guarded(action_id,contents):
             self.application.store.flush_pending()
-            if is_cancelled():
+            if is_cancelled() or not admit_reply():
                 raise ExecutionCancelled('opening cancelled before any effect')
             admit=getattr(continuation,'admit_effects',None)
             if admit is not None and not admit():
@@ -113,7 +121,7 @@ class PetProduct:
                     composite=prepared.composite_plan()
                     hint=prepared.candidate.realization_evidence.get('activity_hint')
                     presenter=getattr(executor,'present_action_hint',None)
-                    if hint is not None and presenter is not None:
+                    if hint is not None and presenter is not None and not any(c.kind=='action' for c in contents):
                         presenter(hint['emoji'],prepared.request.request_ref,
                             **({'eye_pose':hint['eye_pose']} if 'eye_pose' in hint else {}))
                     if composite is not None:
@@ -137,8 +145,11 @@ class PetProduct:
                     return executor(action_id,contents)
         executor_cancelled=False
         try:
+            followup=getattr(self,'continue_after_playback',None)
             return self.application.execute(prepared,executor=execute_guarded,coordinate=completion_coordinate,
-                measure=self.semantic.measure)
+                measure=self.semantic.measure,after_playback=None if followup is None else
+                lambda effect:followup(effect,executor=executor,completion_coordinate=completion_coordinate,
+                    is_cancelled=is_cancelled,on_reply_ready=on_reply_ready))
         except ExecutionCancelled as error:
             executor_cancelled=True
             from product_adapters.desktop_pet_v1.execution import ExecutionBlocked
@@ -204,16 +215,22 @@ class PetProduct:
         """
         app=self.application
         with app._lock:
-            sources=app._product()['sources'];answered=set();required=[]
+            profile=app.runtime.session.profile
+            sources=profile.get(PRODUCT_KEY,{}).get('sources',{})
+            answered=set();required=[]
             for source in sources.values():
                 if source['origin']!='execution':continue
                 event=PetEvent.from_record(source['event']);app._verify_source(event)
                 key=self._reply_source_key(source)
                 if key in answered:raise ValueError('one input has multiple actual replies')
                 answered.add(key)
-            for event in app.runtime.events:
-                source=sources[event.event_id]
-                if event.event_kind!='peer_input' or source['evidence'].get('response_policy')!='required':continue
+            for event_id, entry in profile.get(EVENT_JOURNAL_KEY, {}).items():
+                source = sources[event_id]
+                if source['evidence'].get('response_policy') != 'required':
+                    continue
+                event = PetEvent.from_record(entry['event'])
+                if event.event_kind != 'peer_input':
+                    continue
                 app._verify_source(event)
                 # Legacy ongoing observations recover only through live capture.
                 if any(content.parameters.get('capture_version') in {'petlab-mouse-observation-v2','petlab-mouse-observation-v3','petlab-mouse-contact-v4','petlab-mouse-batch-v5'}
@@ -248,10 +265,21 @@ class PetProduct:
             unfinished=[key for key,entry in product['executions'].items() if entry['status']!='executed']
             if unfinished:
                 if len(unfinished)!=1:raise ExecutionUncertain('multiple pending executions need reconciliation')
+                action_id=unfinished[0]
+                preceding=product['executions'][action_id].get('preceding_effect')
+                if preceding is not None and preceding not in app.runtime.session.profile.get(EVENT_JOURNAL_KEY,{}):
+                    source=product['sources'][preceding]
+                    if source['origin']!='execution':raise ValueError('preceding effect lacks an execution source')
+                    self._recover_output(PetEvent.from_record(source['event']))
                 from product_adapters.desktop_pet_v1.composite_execution import reconcile
-                return reconcile(self,unfinished[0])
+                return reconcile(self,action_id)
             journal=app.runtime.session.profile.get(EVENT_JOURNAL_KEY,{})
             pending=[source for event_id,source in product["sources"].items() if event_id not in journal]
+            if len(pending)==2 and all(s['origin']=='execution' for s in pending):
+                first,second=pending
+                if product['executions'][second['event']['event_id']].get('preceding_effect')==first['event']['event_id']:
+                    self._recover_output(PetEvent.from_record(first['event']))
+                    pending=[second]
             if len(pending)>1 or any('prefetch' in s for s in pending):
                 from .measurement_pipeline import recover as recover_prefetch
                 recovered=recover_prefetch(self,pending)

@@ -73,6 +73,7 @@ class Content:
         }
 
     def as_text(self) -> str:
+        if self.semantic_key=='screen_observation':return '[屏幕观察] '+self.description
         if self.parameters.get('capture_version')=='pet-desktop-obstruction-input-v1':return '[现场观察] '+self.description
         if self.parameters.get('capture_version') in ('pet-external-observation-v1','pet-external-observation-v2'):return '[网页观察] '+self.description
         return self.prefix + self.description

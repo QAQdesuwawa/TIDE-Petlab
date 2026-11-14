@@ -22,7 +22,11 @@ def roots(app, source_ref):
 
 
 def record(app, source_ref, *, phase, evidence, actual_effect_ref=None):
-    if not enabled(app):return
+    # A qualified takeover closes the formed intent even when private
+    # intention measurement is disabled. It still has no playback effect.
+    takeover=(phase=='interrupted' and evidence.get('reason')=='pending'
+              and bool(evidence.get('superseded_by')))
+    if not takeover and not enabled(app):return
     identities=roots(app,source_ref)
     if not identities:return
     profile=dict(app.runtime.session.profile)
@@ -91,11 +95,35 @@ def actual(app, source_ref, source):
             from .execution_inputs import KEY as LIVE_INPUTS
             grant=app.runtime.session.profile.get(KEY,{}).get('assessments',{}).get(takeover.get('event_id'))
             binding=app.runtime.session.profile.get(LIVE_INPUTS,{}).get(takeover.get('event_id'))
-            if grant is None or binding is None:raise ValueError('actual takeover lacks formal qualification')
-            _verify(grant);_verify(binding)
-            if (not grant['eligible'] or grant['version']!=KEY or grant['fingerprint']!=takeover.get('grant_fingerprint')
-                or binding['grant']!=grant['fingerprint'] or binding['action_id']!=event.event_id):
-                raise ValueError('actual takeover qualification differs')
+            if takeover.get('kind')=='required_human_followup':
+                from .participant_input import ADDRESSED_SPEECH_VERSION
+                identity=takeover['event_id']
+                memory=app.runtime.memory_instance(identity)
+                app._verify_source(memory.event)
+                accepted=app._product()['sources'][identity]
+                inputs=receipt['realization_evidence'].get('live_input_sources',())
+                if (accepted['evidence'].get('response_policy')!='required'
+                    or accepted['evidence'].get('input_source',{}).get('version')!=ADDRESSED_SPEECH_VERSION
+                    or memory.fact.fingerprint!=takeover['input_fact']
+                    or not any(r['event_id']==identity and r['source_binding']==memory.event.source_binding_ref for r in inputs)):
+                    raise ValueError('actual takeover lacks a bound required human input')
+            else:
+                if grant is None or binding is None:raise ValueError('actual takeover lacks formal qualification')
+                _verify(grant);_verify(binding)
+                if (not grant['eligible'] or grant['version']!=KEY or grant['fingerprint']!=takeover.get('grant_fingerprint')
+                    or binding['grant']!=grant['fingerprint'] or binding['action_id']!=event.event_id):
+                    raise ValueError('actual takeover qualification differs')
+            if takeover.get('parent_action_id',event.event_id)!=event.event_id:
+                raise ValueError('actual takeover parent differs')
+            if 'child_ids' in takeover:
+                results=receipt['outcome']['details']['child_results']
+                expected={key for key,row in results.items() if row['status']=='cancelled'
+                          and row.get('cause_ref')==takeover['event_id']}
+                identities=takeover['child_ids']
+                input_event=app.runtime.memory_instance(takeover['event_id']).event
+                if (not expected or set(identities)!=expected or len(identities)!=len(expected)
+                        or takeover.get('actor_ref')!=input_event.actor_ref):
+                    raise ValueError('actual speech takeover children differ')
             evidence['qualification_takeover']=dict(takeover)
         record(app,source_ref,phase='interrupted',evidence=evidence)
 

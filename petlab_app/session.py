@@ -16,7 +16,7 @@ from product_adapters.desktop_pet_v1.expression import attach_input_continuation
 from product_adapters.desktop_pet_v1.emission import commit_delivery,verify_commits
 from ops.runtime_expression_state import RUNTIME_EXPRESSION_STATE_KEY
 
-from .owned_journals import seal_session,publish_session
+from .owned_journals import seal_progress_rows,seal_session,publish_session
 
 PRODUCT_KEY = "desktop_pet_product_v1"
 ADMISSION_VERSION = "desktop-pet-received-input-v3-admission"
@@ -48,14 +48,14 @@ class SinglePetApplication:
             self.definition=PetDefinition.from_record(saved_definition)
             if self.definition.owner_ref!=owner_ref or self.definition.user_ref!=user_ref:
                 raise ValueError('saved pet identity differs from application owner')
-        self._validate_product()
         history=self.runtime.session.profile.get(FRAMEWORK_HISTORY_PROFILE_KEY)
         if history is not None and history.get('version')=='framework-history-snapshot-storage-v2':
-            # Reuse the framework's validated factory snapshot and its existing
-            # identity cache; never manufacture a replacement History root.
+            # SinglePetRuntime has validated the History and event journal.
+            # Reuse that immutable snapshot for the per-source checks below.
             published=self.runtime._history().to_record(compact=True)
             self.runtime.session=replace(self.runtime.session,profile={
                 **self.runtime.session.profile,FRAMEWORK_HISTORY_PROFILE_KEY:published})
+        self._validate_product()
         self.runtime.session=seal_session(self.runtime.session)
         # Cold restoration is outside interaction admission. Warm the exact
         # sealed rows once; new/changed rows still pass the original validators.
@@ -87,7 +87,7 @@ class SinglePetApplication:
         register_profile(checkpoint["profile"])
         from model_packages.desktop_pet_v1.declaration_sources import restore_scope
         with restore_scope(checkpoint['profile']):
-            session = restore_bootstrapped_runtime_session(profile=checkpoint["profile"], model_runtime=model_runtime,
+            session = restore_bootstrapped_runtime_session(profile=seal_progress_rows(checkpoint["profile"]), model_runtime=model_runtime,
                 temporal_runtime=temporal_runtime, runtime_variant=runtime_variant)
             if session.session_binding.fingerprint != checkpoint["session_binding_fingerprint"]:
                 raise ValueError("checkpoint runtime binding differs from the restored session")
@@ -125,8 +125,13 @@ class SinglePetApplication:
                     raise ValueError("source journal identity differs from event")
                 self._verify_source(event)
                 verified_events[event_id] = event.to_record()
-            for event in self.runtime.events:
-                if verified_events.get(event.event_id) != event.to_record():
+            # SinglePetRuntime already validated the committed event records.
+            # Compare both complete representations without parsing them again.
+            journal = self.runtime.session.profile.get(EVENT_JOURNAL_KEY, {})
+            for event_id, entry in journal.items():
+                expected = verified_events.get(event_id)
+                if (expected != thaw_model_data(entry["event"])
+                        and expected != PetEvent.from_record(entry["event"]).to_record()):
                     raise ValueError("event source differs from the validated source journal")
             for action_id, execution in product["executions"].items():
                 if execution.get("status") not in {"started","uncertain","executed"}:
@@ -223,7 +228,9 @@ class SinglePetApplication:
                 if raw['response_policy'] not in allowed_policies(external):raise ValueError('external source reply policy differs')
                 if external['version']==READING_SOURCE_VERSION and external['reading_checkpoint']['coordinate']!=event.position.coordinate:raise ValueError('reading source capture time differs')
                 from .participant_input import VERSIONS as PARTICIPANT_VERSIONS
-                if external['version'] in PARTICIPANT_VERSIONS and external['received_at_ms']!=event.position.coordinate:raise ValueError('participant received time differs')
+                from .scene_encounter import VERSIONS as SCENE_ENCOUNTER
+                from .screen_perception import VERSIONS as SCENE_FACTS
+                if external['version'] in {*PARTICIPANT_VERSIONS,*SCENE_ENCOUNTER,*SCENE_FACTS} and external['received_at_ms']!=event.position.coordinate:raise ValueError('participant received time differs')
                 expected_raw['input_source']=thaw_model_data(external);expected_actor=external['actor_ref']
             if (raw != expected_raw or model_data_fingerprint(raw) != event.source_receipt_ref
                     or event.source_ref != "received:"+event.event_id or event.target_refs != (self.owner_ref,)
@@ -381,7 +388,7 @@ class SinglePetApplication:
     def settle_received(self,event_id,*,measure):
         """Settle a previously accepted input; never accept caller-written event data."""
         with self._lock:
-            source=self._product(source_id=event_id)['sources'].get(event_id)
+            source = self.runtime.session.profile.get(PRODUCT_KEY, {}).get('sources', {}).get(event_id)
             if source is None or source['origin']!='input':
                 raise ValueError('settlement requires an accepted input source')
             event=PetEvent.from_record(source['event'])
@@ -392,20 +399,21 @@ class SinglePetApplication:
         """Accept the durable source without holding the application lock over network I/O."""
         with self._lock:
             from .external_input import validate as validate_external,INPUT_VERSION
-            saved=self._product(source_id=event_id)['sources'].get(event_id)
-            if input_source is None and saved is not None:input_source=saved['evidence'].get('input_source')
+            saved = self.runtime.session.profile.get(PRODUCT_KEY, {}).get('sources', {}).get(event_id)
+            if input_source is None and saved is not None:input_source=thaw_model_data(saved['evidence'].get('input_source'))
             if input_source is not None:
                 from .external_input import READING_SOURCE_VERSION,allowed_policies
                 if admission_coordinate is not None or response_policy not in allowed_policies(input_source):raise ValueError('external observation requires explicit input policy')
                 validate_external(self,input_source,contents,event_id=event_id)
                 if input_source.get('version')==READING_SOURCE_VERSION and input_source['reading_checkpoint']['coordinate']!=coordinate:raise ValueError('reading capture time differs')
                 from .participant_input import VERSIONS as PARTICIPANT_VERSIONS
-                if input_source['version'] in PARTICIPANT_VERSIONS and input_source['received_at_ms']!=coordinate:raise ValueError('participant received time differs')
+                from .scene_encounter import VERSIONS as SCENE_ENCOUNTER
+                from .screen_perception import VERSIONS as SCENE_FACTS
+                if input_source['version'] in {*PARTICIPANT_VERSIONS,*SCENE_ENCOUNTER,*SCENE_FACTS} and input_source['received_at_ms']!=coordinate:raise ValueError('participant received time differs')
                 if actor_ref!=input_source['actor_ref']:raise ValueError('external input actor differs')
             if actor_ref != self.user_ref and input_source is None:
                 raise ValueError("received input actor is not the configured user")
-            product = self._product(source_id=event_id)
-            existing = product["sources"].get(event_id)
+            existing = saved
             legacy = response_policy is None
             if legacy:
                 if (existing is None or existing.get("origin") != "input"
@@ -439,7 +447,7 @@ class SinglePetApplication:
             product = self._product(source_id=event_id)
             existing = product["sources"].get(event_id)
             if existing is not None:
-                if existing["event"] != event.to_record():
+                if thaw_model_data(existing["event"]) != event.to_record():
                     raise ValueError("received source identity conflicts with an earlier input")
             else:
                 self._require_ready(during_live_execution=True)
@@ -451,7 +459,7 @@ class SinglePetApplication:
                 self._publish_product(product)
             return event
 
-    def execute(self,prepared:PreparedExecution,*,executor,coordinate,measure,_recovered_outcome=None):
+    def execute(self,prepared:PreparedExecution,*,executor,coordinate,measure,after_playback=None,_recovered_outcome=None):
         with self._lock:
             session = self.runtime.session
             plan,contents = prepared.validate(binding=session.session_binding,owner_ref=self.owner_ref,user_ref=prepared.authorization.target_ref)
@@ -465,10 +473,14 @@ class SinglePetApplication:
                 else:
                     event = PetEvent.from_record(product["sources"][plan.action_id]["event"])
                     return self._settle(event,measure)
-            if _recovered_outcome is None:self._require_ready()
+            if _recovered_outcome is None:
+                self._require_ready()
+                from .measurement_pipeline import admitted_parent
+                preceding=admitted_parent(self)
             else:
                 if existing is None or prepared.composite_plan() is None:
                     raise ValueError('recovery requires existing composite execution')
+                preceding=existing.get('preceding_effect')
                 full=self._product();committed_ids=self.runtime.session.profile.get(EVENT_JOURNAL_KEY,{})
                 if any(key not in committed_ids for key in full['sources']) or any(
                         key!=plan.action_id and row['status']!='executed' for key,row in full['executions'].items()):
@@ -497,8 +509,11 @@ class SinglePetApplication:
                 if authorize(self,source.event.event_id)!=prepared.authorization or prepared.scope_ref!=source.event.scope_ref:
                     raise ValueError('deferred reply differs from its required input or current planning state')
             from .external_input import INPUT_VERSION
-            expected_actor=(self._product()['sources'][source.event.event_id]['evidence'].get('input_source',{}).get('actor_ref')
-                if self._product()['sources'][source.event.event_id]['evidence'].get('version')==INPUT_VERSION else self.user_ref) if not idle else self.user_ref
+            expected_actor = self.user_ref
+            if not idle:
+                evidence = product['sources'][source.event.event_id]['evidence']
+                if evidence.get('version') == INPUT_VERSION:
+                    expected_actor = evidence.get('input_source', {}).get('actor_ref')
             if not idle and not deferred and (source.event.event_kind != "peer_input" or source.event.actor_ref != expected_actor
                     or prepared.scope_ref != source.event.scope_ref
                     or source.fact.accepted_runtime_ordinal != prepared.authorization.source_runtime_ordinal
@@ -521,7 +536,8 @@ class SinglePetApplication:
             entry = {"status":"started","prepared_fingerprint":prepared.fingerprint,
                      "coordinate":actual_coordinate,"candidate_ref":prepared.candidate.candidate_ref,
                      "admitted_position":prepared.position.to_record(),
-                     **({'live_input_sources':recovered_inputs} if recovered_inputs else {})}
+                     **({'live_input_sources':recovered_inputs} if recovered_inputs else {}),
+                     **({'preceding_effect':preceding} if preceding is not None else {})}
             product["executions"][plan.action_id] = entry
             self._publish_product(product)
             try:
@@ -654,9 +670,12 @@ class SinglePetApplication:
                     # psychological settlement, just as in _settle.
                     self._verify_source(event)
                     self.on_execution_committed(event)
+                    pending.prepare_output(event)
                     from .live_execution import PlaybackSettlementPending
                     raise PlaybackSettlementPending(plan.action_id)
                 raise RuntimeError('pending input must settle before actual output; effect is archived')
+            if after_playback is not None:
+                after_playback(event)
             return self._settle(event,measure)
 
     def close(self):

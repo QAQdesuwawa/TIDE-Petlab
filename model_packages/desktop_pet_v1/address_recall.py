@@ -6,6 +6,9 @@ from . import grounded_recall as base,hierarchy_recall as old
 from .address_semantics import VERSION
 from .hierarchy_semantics import validate
 STRENGTH_VERSION="desktop-pet-property-shared-depth-v1"
+INDEPENDENT_VERSION="desktop-pet-independent-retrieval-v1"
+INDEPENDENT_CONFIG="desktop-pet-three-route-recall-v9"
+CONTENT_CUE_KEY="desktop_pet_property_content_cue"
 KEY=base.KEY
 register_event=base.register_event
 view_for=base.view_for
@@ -49,6 +52,8 @@ def property_strengths(queries,candidates):
 
 def make_cue(event,parsed):
  cue=old.make_cue(event,parsed)
+ if parsed.get('retrieval_routes')==INDEPENDENT_VERSION:
+  cue['retrieval_routes']=INDEPENDENT_VERSION
  if parsed.get('address_strength_version')==STRENGTH_VERSION:
   cue['address_strength_version']=STRENGTH_VERSION
  references=thaw_model_data(parsed.get('predecessor_refs',()))
@@ -65,6 +70,14 @@ def make_cue(event,parsed):
 def metadata(runtime,event,parsed):
  result=old.metadata(runtime,event,parsed)[KEY]
  return {KEY:{**result,'version':VERSION,'cue':make_cue(event,parsed)}}
+
+
+def numeric_metadata(runtime,event,parsed):
+ if parsed.get('retrieval_routes')==INDEPENDENT_VERSION:
+  # The address table remains available to content retrieval. The formal
+  # numeric stage receives no semantic filter and uses the original operator.
+  return {CONTENT_CUE_KEY:make_cue(event,parsed)}
+ return metadata(runtime,event,parsed)
 
 
 def _properties(source):

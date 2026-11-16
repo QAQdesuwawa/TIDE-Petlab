@@ -91,6 +91,14 @@ def targets(scene):
          +tuple(r['ref'] for r in scene.get('objects',()) if r['ref'].startswith(SCREEN_PREFIX)))
 
 
+def gaze_targets(scene):
+ scene=validate(scene)
+ vx,vy,w,h=scene['viewport']
+ return (*targets(scene),*(obj['ref'] for obj in scene.get('objects',())
+          if not obj['ref'].startswith(SCREEN_PREFIX)
+          and vx<=obj['point'][0]<vx+w and vy<=obj['point'][1]<vy+h))
+
+
 def direction(scene,target):
  scene=validate(scene)
  point=next((r['point'] for r in scene.get('objects',()) if r['ref']==target),None)
@@ -123,7 +131,7 @@ def separation(scene,target):
          'scene_fingerprint':s['fingerprint'],'sampled_at_ms':s['sampled_at_ms']}
 
 
-def card(scene,*,include_distances=False):
+def card(scene,*,include_distances=False,world_gaze=False):
  scene=validate(scene)
  rows=[]
  for r in scene['participants']:
@@ -135,7 +143,7 @@ def card(scene,*,include_distances=False):
   rows.append(row)
  objects=[obj for obj in scene.get('objects',()) if not obj['ref'].startswith(SCREEN_PREFIX)]
  return json.dumps({'现场':'桌面窗口当前采样，单位像素，横轴向右/纵轴向下','自己':scene['owner_ref'],
-  '采样毫秒':scene['sampled_at_ms'],'可见对象':rows,'视线可选目标':list(targets(scene)),
+  '采样毫秒':scene['sampled_at_ms'],'可见对象':rows,'视线可选目标':list(gaze_targets(scene) if world_gaze else targets(scene)),
   'front含义':'朝向屏幕前方',
   **({'公共物件':[{'对象':obj['ref'],'名称':obj['label'],'坐标':obj['point'],
       **({'现场状态':obj['fact']} if 'fact' in obj else {}),
@@ -146,7 +154,7 @@ def card(scene,*,include_distances=False):
 
 def intent(scene,target):
  scene=validate(scene)
- if target not in targets(scene):raise ValueError('gaze target is not visible')
+ if target not in gaze_targets(scene):raise ValueError('gaze target is not visible')
  return {'version':GAZE,'target_ref':target,'scene_fingerprint':scene['fingerprint'],'status':'planned'}
 
 
@@ -168,7 +176,7 @@ def validate_gaze(value):
 def resolve(presentation,scene,*,renderable):
  gaze=validate_gaze(presentation['gaze'])
  if gaze['status']!='planned' or type(renderable)is not bool:raise ValueError('gaze must be a planned presentation')
- available=renderable and scene is not None and gaze['target_ref'] in targets(scene)
+ available=renderable and scene is not None and gaze['target_ref'] in gaze_targets(scene)
  return {**gaze,'status':'shown' if available else 'unavailable'}
 
 

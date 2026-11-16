@@ -35,6 +35,9 @@ class PetProduct:
         self.rag_memory=RagMemoryService(application=application,provider=provider,trace_dir=gateway.trace_dir/'local-rag',reply_source_key=self._reply_source_key)
         application.rag_memory=self.rag_memory
         self.rag_memory.warm_sources()
+        from model_packages.desktop_pet_v1.address_recall import INDEPENDENT_CONFIG
+        if memory_recall_version==INDEPENDENT_CONFIG:
+            self.rag_memory.prime()
         from product_adapters.desktop_pet_v1.realizers import PetRealizers
         self.realizers=PetRealizers(self)
 
@@ -168,7 +171,9 @@ class PetProduct:
             if continuation is not None:
                 continuation.publish('execution_guard',prepared=prepared,executor_cancelled=executor_cancelled)
             if self.writer is not None:self.writer.publish_readonly_archives()
-            self.rag_memory.prime()
+            from model_packages.desktop_pet_v1.address_recall import INDEPENDENT_CONFIG
+            if self.application.memory_recall_version!=INDEPENDENT_CONFIG:
+                self.rag_memory.prime()
 
     @product_scope
     def interact(self,*,event_id,contents,coordinate,executor,completion_coordinate=wall_clock_ms,

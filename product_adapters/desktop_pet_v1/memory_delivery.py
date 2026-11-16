@@ -14,7 +14,7 @@ def memory_content_attributes(contents,*,bounded=True,natural=False):
     return content_attributes(contents,compact=bounded and has_observations(contents),natural=natural)
 
 
-def memory_cards(memories, *, recall, read, history, owner_ref, numbered=False, links=False,bounded=True,natural=False,content_view_version=None,annotation_profile=None,application=None,intention_snapshot=None):
+def memory_cards(memories, *, recall, read, history, owner_ref, numbered=False, links=False,bounded=True,natural=False,content_view_version=None,annotation_profile=None,application=None,intention_snapshot=None,environment_evidence=False):
     if not isinstance(numbered,bool) or not isinstance(links,bool) or (links and not numbered):
         raise ValueError("memory links require explicitly numbered memory")
     if not memories:return ()
@@ -40,6 +40,11 @@ def memory_cards(memories, *, recall, read, history, owner_ref, numbered=False, 
         if application is not None:
             from petlab_app.visible_delivery import presentation_fields
             rows[-1]=presentation_fields(application,event,rows[-1])
+        if environment_evidence and application is not None:
+            from .environment_delivery import FIELD, evidence
+            environment = evidence(application, event, contents)
+            if environment:
+                rows[-1][FIELD] = environment
         added=()
         if application is not None:
             from .intention_delivery import annotation as intention_annotation,FIELD as INTENTION_FIELD
@@ -102,11 +107,17 @@ def memory_aliases(packet, delivered_card_ids):
     return aliases
 
 
-def ordered_memory_union(cards, *, memories, source_refs, assembly_version):
+def covered_memory_contents(cards):
+    """Only preserved Writer cards can stand in for another copy of a fragment."""
+    return {identity:tuple(contents) for card in cards if card.budget_policy=='preserve_selection'
+            for identity,contents in card.provenance.get('source_content_ids', {}).items()}
+
+
+def ordered_memory_union(cards, *, memories, source_refs, assembly_version, ranking=(), route_evidence=None,ranking_audit=None,track_content=False):
     """Order already selected, authorized records; never rescore or trim them."""
     cards=tuple(cards)
     if not cards:return ()
-    rows={};markers=set()
+    rows={};markers=set();coverage={}
     for card in cards:
         ids=tuple(card.provenance['selected_memory_ids'])
         records=card.fields.get('相关记忆（按发生顺序）',(card.fields,))
@@ -118,15 +129,29 @@ def ordered_memory_union(cards, *, memories, source_refs, assembly_version):
             if identity in rows or identity not in memories or marker in markers:
                 raise ValueError('memory union has duplicate or unauthorized sources')
             rows[identity]=thaw_model_data(row);markers.add(marker)
+            if track_content and 'previous_writer_request_id' not in card.provenance:
+                event=memories[identity].event
+                coverage[identity]=card.provenance.get('projected_content_ids') or [
+                    c.content_id for c in event.visible_contents(event.owner_ref)]
     selected=tuple(sorted(rows,key=lambda i:memories[i].fact.accepted_runtime_ordinal))
     body=[rows[i] for i in selected]
     provenance={'presentation_version':assembly_version,'selected_memory_ids':selected,
         'fields_fingerprint':model_data_fingerprint(body),
         'source_cards':[{'card_id':c.card_id,'provenance_fingerprint':model_data_fingerprint(c.provenance),
                          'fields_fingerprint':model_data_fingerprint(c.fields)} for c in cards]}
+    if track_content:
+        provenance['source_content_ids']=coverage
+    fields={'相关记忆（按发生顺序）':body}
+    if route_evidence is not None:
+        provenance['retrieval_routes']=route_evidence
+    if ranking_audit is not None:
+        provenance['ranking_audit']=ranking_audit
+    if ranking:
+        provenance['retrieval_ranking']=ranking
+        fields={'本轮相关性排序':[rows[item['event_id']]['记忆标记'] for item in ranking],**fields}
     return (WriterCard(card_id='memory:ordered-union:'+model_data_fingerprint(provenance),
         lane='memory',kind='numbered_pet_memory',source_id=assembly_version,
-        fields={'相关记忆（按发生顺序）':body},provenance=provenance,
+        fields=fields,provenance=provenance,
         source_receipt_refs=tuple(dict.fromkeys(ref for c in cards for ref in c.source_receipt_refs))+tuple(source_refs),
         budget_policy='preserve_selection'),)
 

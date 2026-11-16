@@ -1,6 +1,7 @@
 {
   "version": "petlab-local-activities-v4-atlas",
   "rig_binding": "rig.json",
+  "shared_meal": "petlab-bound-shared-meal-v1",
   "clips": {
     "head_bow": {
       "source": "bound_rig",

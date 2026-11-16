@@ -58,9 +58,9 @@ def wrap(payload,control,ctx):
  from .events import Content
  base=thaw_model_data(payload)
  children=base.get('action_sequence',{}).get('children',control.get('composite',{}).get('children',{}))
- from .audience_motion import CURRENT_PRIVATE
+ from .audience_motion import CURRENT_PRIVATE, EXPLICIT_WHISPER_ONLY
  items,plan=compose(tuple(Content.from_record(r) for r in base['contents']),children,ctx,
-  finish_speech_before_departure=control.get('audience_motion_policy')==CURRENT_PRIVATE)
+  finish_speech_before_departure=control.get('audience_motion_policy')in (CURRENT_PRIVATE, EXPLICIT_WHISPER_ONLY))
  return {**base,'contents':[r.to_record() for r in items],
          'whisper_plan':None if plan is None else thaw_model_data(plan.children)}
 

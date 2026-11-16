@@ -118,6 +118,8 @@ class RigExpressionPresenter:
             return frame.composite(layers,poses),active
         rig=frame.rig;materials=rig.get('expression_materials',{})
         def rendered(overrides,pose):
+            from .shared_meal_animation import side_hold_pose
+            pose=side_hold_pose(rig,pose)
             from .rig_motion_marks import behind_limbs
             result=render(rig['parts'],{**rig['textures'],**overrides},pose,
                           size=(frame.width,frame.height),expression=frame.code,layers=_layers,selected_parts=_parts)

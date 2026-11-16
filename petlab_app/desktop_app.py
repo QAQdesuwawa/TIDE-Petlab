@@ -72,7 +72,8 @@ class DesktopConfiguration:
                 or type(w.get('timeout_s',45)) not in (int,float) or not 0<w.get('timeout_s',45)<=120):raise ValueError('invalid read-only web tool configuration')
         if self.writer_model is not None and (not isinstance(self.writer_model,str) or not self.writer_model.strip()):
             raise ValueError("writer model must be an explicit nonempty name or None")
-        if self.memory_recall_version not in (None,'desktop-pet-grounded-retention-recall-v2','desktop-pet-declared-form-recall-v4','desktop-pet-source-bound-reference-recall-v5','desktop-pet-owner-bound-reference-recall-v6','desktop-pet-hierarchical-property-recall-v7','desktop-pet-property-address-recall-v8'):raise ValueError('unknown pet recall model')
+        from model_packages.desktop_pet_v1.address_recall import INDEPENDENT_CONFIG
+        if self.memory_recall_version not in (None,'desktop-pet-grounded-retention-recall-v2','desktop-pet-declared-form-recall-v4','desktop-pet-source-bound-reference-recall-v5','desktop-pet-owner-bound-reference-recall-v6','desktop-pet-hierarchical-property-recall-v7','desktop-pet-property-address-recall-v8',INDEPENDENT_CONFIG):raise ValueError('unknown pet recall model')
         from model_packages.desktop_pet_v1.behavior import MODES
         if self.idle_behavior not in MODES:raise ValueError('unknown idle behavior')
         if self.idle_behavior!='speech' and self.opening_mode!='shared-opening-v1':

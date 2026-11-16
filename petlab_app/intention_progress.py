@@ -8,6 +8,11 @@ from .intention_source import enabled
 PROOFS='cx67-intention-progress-evidence-v1'
 
 
+def _recording_enabled(app):
+    from product_adapters.desktop_pet_v1.metacognition import enabled as learning_enabled
+    return enabled(app) or learning_enabled()
+
+
 def roots(app, source_ref):
     from .peer_reaction import KEY
     grants=app.runtime.session.profile.get(KEY,{}).get('assessments',{})
@@ -26,7 +31,7 @@ def record(app, source_ref, *, phase, evidence, actual_effect_ref=None):
     # intention measurement is disabled. It still has no playback effect.
     takeover=(phase=='interrupted' and evidence.get('reason')=='pending'
               and bool(evidence.get('superseded_by')))
-    if not takeover and not enabled(app):return
+    if not takeover and not _recording_enabled(app):return
     identities=roots(app,source_ref)
     if not identities:return
     profile=dict(app.runtime.session.profile)
@@ -63,21 +68,26 @@ def record(app, source_ref, *, phase, evidence, actual_effect_ref=None):
 
 
 def planned(app, source_ref, prepared, *, writer=None):
-    if not enabled(app):return
+    if not _recording_enabled(app):return
     prepared.validate(binding=app.runtime.session.session_binding,owner_ref=app.owner_ref,
                       user_ref=prepared.authorization.target_ref)
     identity=prepared.request.readonly_facts.get('writer_packet',{}).get('writer_request_id')
     archive=(writer.attempt_journal._artifact_path(identity) if writer is not None and identity else
              prepared.candidate.realization_evidence.get('trace_ref'))
+    note=prepared.candidate.realization_evidence.get('metacognition')
     record(app,source_ref,phase='planned',evidence={
         'prepared_ref':prepared.fingerprint,'candidate_ref':prepared.candidate.candidate_ref,
         'writer_request_id':identity,
+        **({'metacognition':{
+            'basis':note['basis'],'purpose':note.get('purpose'),
+            'intended_targets':list(note.get('speech_targets') or ())}}
+           if note is not None else {}),
         **({'candidate_archive':str(archive),'candidate_fingerprint':fp(prepared.candidate.to_record()),
             'archive_kind':'writer_attempt' if writer is not None and identity else 'local_realizer'} if archive else {})})
 
 
 def actual(app, source_ref, source):
-    if not enabled(app):return
+    if not _recording_enabled(app):return
     from model_packages.desktop_pet_v1.events import PetEvent
     event=PetEvent.from_record(source['event']);app._verify_source(event)
     if source['origin']!='execution':raise ValueError('intention effect requires actual execution')

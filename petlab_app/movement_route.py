@@ -44,6 +44,19 @@ def route(scene,start,end,*,reserved=()):
                 cost[j]=new;prev[j]=i;heapq.heappush(queue,(new,j))
     return None
 
+def next_corner_fraction(points, walked, distance):
+    """Cap a delayed frame at the next bend so its swept test stays on-route."""
+    if distance <= 0:
+        return 1.0
+    cumulative = 0.0
+    for start, end in zip(points, points[1:]):
+        cumulative += math.dist(start, end)
+        corner = cumulative / distance
+        if corner > walked + 1e-9:
+            return min(1.0, corner)
+    return 1.0
+
+
 def sample(points,fraction,*,heading=0):
     """Position and horizontal facing of the same segment of the route."""
     lengths=[math.dist(a,b) for a,b in zip(points,points[1:])]

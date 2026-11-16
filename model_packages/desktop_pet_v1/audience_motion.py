@@ -9,7 +9,8 @@ PREFIX='audience:approach:'
 VERSION='desktop-pet-audience-motion-v1'
 SERIAL_PRIVATE='physical-audience-policy-v5'
 CURRENT_PRIVATE='physical-audience-policy-v6'
-SERIAL_POLICIES=(SERIAL_PRIVATE,CURRENT_PRIVATE)
+EXPLICIT_WHISPER_ONLY='physical-audience-policy-v7'
+SERIAL_POLICIES=(SERIAL_PRIVATE,CURRENT_PRIVATE,EXPLICIT_WHISPER_ONLY)
 REUSE_POLICIES=('physical-audience-policy-v3','physical-audience-policy-v4',*SERIAL_POLICIES)
 SINGLE_POLICIES=('physical-audience-policy-v4',*SERIAL_POLICIES)
 

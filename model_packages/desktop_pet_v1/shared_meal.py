@@ -145,19 +145,27 @@ def result_content(content,result,*,status):
     else:text='开始'+text+'，中途停止；未完成饭碗交接。'
     return replace(content,description=text,parameters={**dict(content.parameters),'meal_result':r,'execution_status':status})
 
-def card(value):
+def card(value, *, snapshot=False):
     s=validate(value)
     request='无' if s['request'] is None else s['request']['actor_ref']+'向'+s['request']['target_ref']+'索要'
     offer='无' if s['offer'] is None else s['offer']['actor_ref']+'递向'+s['offer']['target_ref']+'，尚未接过'
-    return '当前饭碗由'+s['holder_ref']+'持有；'+('还有饭。' if s['portions'] else '饭已吃完。')+'索要：'+request+'；递出：'+offer+'。'
+    present=('采样时已有饭碗，由'+s['holder_ref']+'持有；'+f'还剩{s["portions"]}份。' if snapshot else
+             '当前饭碗由'+s['holder_ref']+'持有；'+('还有饭。' if s['portions'] else '饭已吃完。'))
+    return present+'索要：'+request+'；递出：'+offer+'。'
 
 
-def placement(value):
+def placement_event_id(interaction_id):
+    return 'meal:placement:'+interaction_id
+
+
+def placement(value, *, from_button=False):
     from .events import Interaction
     s=validate(value)
     audience='两只角色' if s['version']==VERSION else '在场角色'
-    text='用户通过“开饭”菜单给'+s['holder_ref']+'放了一碗饭，'+audience+'都看见了。'+card(s)
+    text=('用户按下出饭按钮，出现一碗饭，由'+s['holder_ref']+'拿到，'
+          if from_button else '用户通过“开饭”菜单给'+s['holder_ref']+'放了一碗饭，')
+    text+=audience+'都看见了。'+card(s)
     return Interaction(content_id='meal:placement',semantic_key='place_meal',
         description=text,recipient_refs=tuple(s['participants']),
-        parameters={'input_kind':'context_menu','meal_scene':s,
+        parameters={'input_kind':'desktop_button' if from_button else 'context_menu','meal_scene':s,
             'definition':{'semantic_key':'place_meal','description':'用户放置饭碗，角色看到当前道具和持有者'}})

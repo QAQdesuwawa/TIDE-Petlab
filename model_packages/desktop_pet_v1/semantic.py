@@ -126,11 +126,15 @@ class DesktopPetReferenceInteractionSemanticCodec(DesktopPetNaturalInteractionSe
         return reference_subtype_prompt(event),user
 
 
-def evidence_source(event):
+def evidence_parts(event):
     from .interaction_delivery import has_observations
     from .interaction_summary import summarize_interaction
-    return '\n'.join(summarize_interaction(c)['交互摘要'] if has_observations((c,))
-                     else c.description for c in event.contents)
+    return tuple(summarize_interaction(c)['交互摘要'] if has_observations((c,))
+                 else c.description for c in event.contents)
+
+
+def evidence_source(event):
+    return '\n'.join(evidence_parts(event))
 
 
 class LocalEvidenceMixin:

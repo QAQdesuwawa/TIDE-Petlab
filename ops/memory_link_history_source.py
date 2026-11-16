@@ -39,6 +39,7 @@ def _checked_edge(edge):
 def history_memory_link_subcard(
     *, history: HistoryAuthority, history_read: HistoryRead, parent_card_id: str,
     selected_memory_ids: Sequence[str], enabled: bool = False,
+    edge_fact_ids: frozenset[str] | None = None,
 ) -> MemoryLinkSubcard | None:
     """Project only direct accepted edges whose endpoints are both selected.
 
@@ -73,8 +74,11 @@ def history_memory_link_subcard(
     if not set(selected).issubset(history_read.fact_ids):
         raise ValueError("selected memory is outside the accepted history read")
     positions = {value: index for index, value in enumerate(selected)}
+    edge_facts = positions.keys() if edge_fact_ids is None else edge_fact_ids
+    if not set(edge_facts).issubset(positions):
+        raise ValueError("linked endpoints must already be selected")
     edges = [edge for edge in history.influence_edges()
-             if edge.parent_fact_id in positions and edge.child_fact_id in positions]
+             if edge.parent_fact_id in edge_facts and edge.child_fact_id in edge_facts]
     reads = {history_read.fingerprint: history_read}
     recalls = {}
     for edge in edges:

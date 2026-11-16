@@ -24,6 +24,11 @@ class PetSemanticService:
     def __init__(self,*,application,gateway,memory_recall_version=None,defer_audit_views=False,segmented_measurement=False,compact_history_measurement=False):
         self.application=application
         self.gateway=gateway
+        from model_packages.desktop_pet_v1.address_recall import INDEPENDENT_CONFIG
+        from model_packages.desktop_pet_v1.address_semantics import VERSION as ADDRESS_VERSION
+        self.independent_retrieval=memory_recall_version==INDEPENDENT_CONFIG
+        if self.independent_retrieval:
+            memory_recall_version=ADDRESS_VERSION
         if type(defer_audit_views) is not bool:raise ValueError('audit view mode must be boolean')
         self.defer_audit_views=defer_audit_views
         if type(segmented_measurement) is not bool or (segmented_measurement and memory_recall_version!='desktop-pet-property-address-recall-v8'):
@@ -191,12 +196,26 @@ class PetSemanticService:
         compact=self.compact_history_measurement and address_mode and hierarchy_mode and not has_observations(event.contents) and any(c.kind=='speech' for c in event.contents)
         referents=None
         predecessors=()
-        if address_mode and hierarchy_mode and not is_visible:
-            from .predecessor_reference import build as predecessor_sources,build_public
-            predecessors,predecessor_text=(build_public(app,event) if visible_receipt.get('version') else predecessor_sources(app,event))
+        public_predecessors=False
+        if address_mode and hierarchy_mode:
+            from .predecessor_reference import build as predecessor_sources,build_public,build_visible_peer
+            if is_visible:
+                predecessors,predecessor_text=build_visible_peer(app,event)
+            elif visible_receipt.get('version'):
+                predecessors,predecessor_text=build_public(app,event)
+                public_predecessors=True
+            else:
+                predecessors,predecessor_text=predecessor_sources(app,event)
         if predecessors:
-            from model_packages.desktop_pet_v1.predecessor_reference import PredecessorCodec,PublicPredecessorCodec
-            predecessor_codec=PublicPredecessorCodec if visible_receipt.get("version") else PredecessorCodec
+            from model_packages.desktop_pet_v1.predecessor_reference import (
+                PredecessorCodec, PublicPredecessorCodec, VisiblePeerPredecessorCodec,
+            )
+            if is_visible:
+                predecessor_codec=VisiblePeerPredecessorCodec
+            elif public_predecessors:
+                predecessor_codec=PublicPredecessorCodec
+            else:
+                predecessor_codec=PredecessorCodec
             codec=predecessor_codec(hierarchy_codec_type(codec),predecessor_text)
             context_refs=(*context_refs,*(ref['fact_fingerprint'] for _,ref in predecessors))
         elif hierarchy_mode and not (compact and event.event_kind=='npc_output') and getattr(hierarchy_codec_type,'referent_context_enabled',False):
@@ -323,9 +342,12 @@ class PetSemanticService:
                         if graded:
                             from model_packages.desktop_pet_v1.address_recall import STRENGTH_VERSION
                             parsed_cues['address_strength_version']=STRENGTH_VERSION
+                        if self.independent_retrieval:
+                            from model_packages.desktop_pet_v1.address_recall import INDEPENDENT_VERSION
+                            parsed_cues['retrieval_routes']=INDEPENDENT_VERSION
                         if predecessors:
                             from model_packages.desktop_pet_v1.predecessor_reference import parse as parse_predecessors
-                            parsed_cues.update(parse_predecessors(completion_text(wire),event,predecessors,public=bool(visible_receipt.get("version"))))
+                            parsed_cues.update(parse_predecessors(completion_text(wire),event,predecessors,public=public_predecessors))
                         if segmented:
                             from model_packages.desktop_pet_v1.semantic_segments import bind as bind_segments
                             parsed_cues.update(bind_segments(completion_text(wire),event,parsed_cues))
@@ -400,7 +422,8 @@ class PetSemanticService:
                 return restored if restored is not None else self.gateway.prepare(**kwargs)
         result=run(session_binding=app.runtime.session.session_binding,
             current_position=app.runtime.session.position,operation_kind="semantic_measurement",
-            source_fact_ref=event.event_id,codec_contract=codec.request_version+graded_suffix+speech_use_suffix,
+            source_fact_ref=event.event_id,codec_contract=codec.request_version+graded_suffix+speech_use_suffix+
+                (':independent-retrieval-v1' if self.independent_retrieval else ''),
             messages=[{"role":"system","content":system},{"role":"user","content":user}],
             temperature=codec.temperature,require_json=codec.require_json,parse=parse,
             source_receipt_refs=tuple(dict.fromkeys((event.source_receipt_ref, *context_refs))))

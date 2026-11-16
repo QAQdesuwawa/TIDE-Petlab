@@ -1,6 +1,6 @@
 """Executable per-target options within the already authorized audience."""
 from copy import deepcopy
-from . import movement,shared_meal,spatial
+from . import meal_button,movement,shared_meal,spatial
 
 def _expand(base,*,scene,meal,owner,primary,audience):
     from .basic_actions import catalog as basics
@@ -41,6 +41,13 @@ def expand(base,*,scene,meal,owner,primary,audience,executable_keys=None,contact
                 result['candidates'].append({'key':'move_near@'+obj['ref'],'action_key':'move_near',
                     'target_ref':obj['ref'],'world_object':obj,'motion':motion,
                     'description':'走近公共物件「'+obj['label']+'」，在旁边停下'})
+            if not hands_occupied and executable_keys is not None and 'move_prop' in executable_keys:
+                from .prop_move import choices
+                result['candidates'].extend(choices(scene,obj))
+            if (not hands_occupied and executable_keys is not None
+                    and {meal_button.KEY,'move_near'} <= set(executable_keys)
+                    and obj['ref']==meal_button.REF and 'bounds' in obj):
+                result['candidates'].append(meal_button.choice(obj,owner))
     if contact is not None and scene is not None:
         from .social_contact import candidates
         result=deepcopy(result)

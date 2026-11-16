@@ -25,8 +25,9 @@ def with_input_snapshot(method):
   with input_snapshot():return method(*args,**kwargs)
  return scoped
 
-def is_npc_whisper(row):
+def is_npc_whisper(row, *, explicit_only=False):
  return bool(row and row['conversation']['kind']=='direct' and
+             (not explicit_only or row['conversation']['conversation_id'].startswith('petlab:whisper:')) and
              all(p['kind']=='npc' for p in row['participants']))
 
 def validate(app,row):

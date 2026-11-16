@@ -48,6 +48,12 @@ def staged_selection(selection):
 def content(user_ref, *, selection=None):
     key='play_tail' if selection is None else selected_action(selection)
     if key is None:raise ValueError('empty action selection has no body content')
+    if key=='move_prop':
+        from .prop_move import content as prop_content
+        return prop_content(user_ref,selection['definition'])
+    if key=='press_meal_button':
+        from .meal_button import content as button_content
+        return button_content(user_ref,selection['definition'])
     from .social_contact import KEYS as CONTACT_KEYS, content as contact_content
     if key in CONTACT_KEYS:return contact_content(user_ref,selection['definition'])
     if key in MEAL_KEYS:
@@ -108,6 +114,14 @@ def realized_contents(contents, outcome):
             from .social_contact import realized
             row=results.get(item.content_id,{})
             item=realized(item,row.get('contact_result'),row.get('status'))
+        if item.kind=='action' and 'prop_move' in item.parameters:
+            from .prop_move import realized
+            row=results.get(item.content_id,{})
+            item=realized(item,row.get('prop_move_result'),row.get('status'))
+        if item.kind=='action' and 'meal_button' in item.parameters:
+            from .meal_button import realized
+            row=results.get(item.content_id,{})
+            item=realized(item,row.get('meal_button_result'),row.get('status'))
         if item.kind=='action' and outcome.details.get('composite_version')=='desktop-pet-composite-v4-sequence':
             from .action_sequence import describe_stage
             bodies=[c.content_id for c in contents if c.kind=='action']

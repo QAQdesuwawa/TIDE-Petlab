@@ -39,7 +39,15 @@ def verify_context(app,event_id,value):
         if 'world_object' in row:
             from model_packages.desktop_pet_v1 import spatial
             obj=spatial.world_object(row['world_object'])
-            if target!=obj['ref'] or row['key']!='move_near@'+target or row.get('action_key')!='move_near':
+            if row.get('action_key')=='move_prop':
+                from model_packages.desktop_pet_v1.prop_move import content
+                content(target,row)
+            elif row.get('action_key')=='press_meal_button':
+                from model_packages.desktop_pet_v1.meal_button import content
+                if row.get('actor_ref')!=value['owner_ref']:
+                    raise ValueError('meal button actor differs')
+                content(target,row)
+            elif target!=obj['ref'] or row['key']!='move_near@'+target or row.get('action_key')!='move_near':
                 raise ValueError('world movement candidate differs from its object')
         elif target!=value['target_ref']:
             from petlab_app.destinations import audience
@@ -52,6 +60,8 @@ def verify_context(app,event_id,value):
             if policy not in (None,'owner-scene-v1'):raise ValueError('unknown output target policy')
             readers=output_readers(app,event_id) if policy else audience(app,event_id)
             if target not in readers:raise ValueError('action target outside authorized audience')
+        if row.get('action_key') in ('move_prop','press_meal_button'):
+            continue
         if 'social_contact' in row:
             from model_packages.desktop_pet_v1.social_contact import verify_binding
             bound=verify_binding(row['social_contact'])
@@ -73,7 +83,7 @@ def verify_context(app,event_id,value):
     return value
 
 
-def fields(value,*,compact=False):
+def fields(value,*,compact=False,explicit_targets=False):
     value=seq.validate_offer(value)
     if compact:
         from model_packages.desktop_pet_v1.social_contact import KINDS
@@ -85,10 +95,14 @@ def fields(value,*,compact=False):
             if code not in value['allowed_keys']:continue
             key=row.get('action_key',code)
             label=labels.get(key,row['description'])
-            if code in ('move_near','move_away',*meal.KEYS[1:]):
+            target_bound=key in ('move_near','move_away',*meal.KEYS[1:]) or 'social_contact' in row
+            if (target_bound if explicit_targets else code in ('move_near','move_away',*meal.KEYS[1:])):
                 label+='（'+row.get('target_ref',value['target_ref'])+'）'
             choices.setdefault(label,[]).append(code)
-        return {'可选动作序列':choices}
+        result={'可选动作序列':choices}
+        if explicit_targets and any(code.startswith('move_near') for code in value['allowed_keys']):
+            result['动作对象']='走近编码只移动到括号内的对象。私语所需的靠近由播放处理。'
+        return result
     options=[]
     for row in value['catalog']['candidates']:
         if row['key'] not in value['allowed_keys']:continue

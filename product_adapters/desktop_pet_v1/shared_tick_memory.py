@@ -37,6 +37,8 @@ def select(app,grant):
         context=replace(context,metadata={**context.metadata,
             'desktop_pet_memory_evidence':'desktop-pet-memory-batch-values-v3'})
         from model_packages.desktop_pet_v1 import grounded_recall
+        # v9 intentionally keeps Tick on the unfiltered CX67 operator,
+        # even when the most recent event was accepted under older settings.
         if getattr(app,'memory_recall_version',None) in (grounded_recall.VERSION,'desktop-pet-declared-form-recall-v4','desktop-pet-source-bound-reference-recall-v5','desktop-pet-owner-bound-reference-recall-v6','desktop-pet-hierarchical-property-recall-v7','desktop-pet-property-address-recall-v8'):
             from . import EVENT_JOURNAL_KEY
             from model_packages.desktop_pet_v1.events import PetEvent
@@ -48,7 +50,8 @@ def select(app,grant):
                 parsed=parsed or {'version':grounded_recall.VERSION,'cues':[]}
                 from model_packages.desktop_pet_v1.recall_model import select
                 model=select(parsed.get('version'))
-                meta=model.metadata(app.runtime,PetEvent.from_record(source['event']),parsed)
+                recall_metadata=getattr(model,'numeric_metadata',model.metadata)
+                meta=recall_metadata(app.runtime,PetEvent.from_record(source['event']),parsed)
                 context=replace(context,metadata={**context.metadata,**meta})
 
         candidates,inputs=prepare_indexed_input(session=session,model_runtime=runtime,context=context,

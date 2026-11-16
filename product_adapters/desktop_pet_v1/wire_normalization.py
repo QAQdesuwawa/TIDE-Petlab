@@ -31,6 +31,35 @@ def normalize(text):
         'normalized_sha256':digest(normalized),'changes':changes}
 
 
+def default_shared_memory_claim(text, validated_share, *, private=False):
+    """Use the explicit, audience-validated share when its duplicate field is omitted."""
+    if validated_share is None:
+        return text, None
+    body = json.loads(text)
+    field = 'reported_used_memory_ids'
+    if field in body:
+        return text, None
+    spoken = [validated_share['memory_id']]
+    body[field] = {'speech': spoken, 'thought': []} if private else spoken
+    return json.dumps(body, ensure_ascii=False), {
+        'field': field, 'reason': 'omitted_with_validated_share',
+    }
+
+
+def default_empty_memory_claims(text, *, aliases, private=False, optional=False):
+    """Supply the codec shape and distinguish omission from an explicit claim."""
+    if aliases and not optional:
+        return text, None
+    body = json.loads(text)
+    field = 'reported_used_memory_ids'
+    if not isinstance(body, dict) or field in body:
+        return text, None
+    body[field] = {'speech': [], 'thought': []} if private else []
+    return json.dumps(body, ensure_ascii=False), {
+        'field': field, 'reason': 'omitted_optional_self_report' if optional else 'omitted_with_no_delivered_memory',
+    }
+
+
 def separate_absent_memory_claims(text, *, aliases, private=False, numbered=True):
     """Keep references from absent channels as audit, never as actual use."""
     body = json.loads(text)

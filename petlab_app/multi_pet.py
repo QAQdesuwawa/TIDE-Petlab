@@ -292,8 +292,9 @@ class MultiPetWorkspace:
   origin=row['origin'];sender=self.participants.get(event.sender_participant_id)
   if sender is None or origin.get('participant_id')!=event.sender_participant_id or origin.get('kind')!=sender.kind:raise ValueError('source sender identity differs')
   if sender.kind=='npc' and (not event.sender_action_id or origin.get('action_id')!=event.sender_action_id):raise ValueError('NPC source lacks committed action')
+  from .human_interaction import optional_observation
   requires_reply=(sender.kind=='human' and origin.get('opening_policy')!=OPEN_INVITATION_POLICY
-    and row.get('human_content',{}).get('semantic_key') not in {'drag_contact','scene_departure','witnessed_pointer'})
+    and not optional_observation(row.get('human_content',{})))
   policy='required' if requires_reply else 'eligible'
   for delivery in route_committed_event(event):
    alias=self.aliases.get(delivery.recipient_participant_id)

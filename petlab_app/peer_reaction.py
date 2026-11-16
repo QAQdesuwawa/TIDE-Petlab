@@ -36,9 +36,9 @@ def is_peer(app,event_id):
  from .screen_perception import VERSIONS as SCENE_FACTS
  from .participant_input import OPEN_INVITATION_VERSION,NPC_VERSIONS,OBSERVED_VERSIONS
  source=app._product()['sources'].get(event_id,{})
- from .human_interaction import VERSION as HUMAN_VERSION
+ from .human_interaction import VERSION as HUMAN_VERSION, optional_observation
  version=source.get('evidence',{}).get('input_source',{}).get('version')
- contact=version==HUMAN_VERSION and any(c.get('semantic_key') in {'drag_contact','witnessed_pointer','scene_departure'} for c in source.get('event',{}).get('contents',()))
+ contact=version==HUMAN_VERSION and any(optional_observation(c) for c in source.get('event',{}).get('contents',()))
  return source.get('origin')=='input' and source.get('evidence',{}).get('response_policy')=='eligible' and (version in NPC_VERSIONS or version in {DESKTOP_VERSION,*SCENE_FACTS,OBSTRUCTION,OPEN_INVITATION_VERSION,*OBSERVED_VERSIONS} or contact)
 
 def has_pending_qualification(app):

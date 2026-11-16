@@ -100,10 +100,14 @@ def compose(keys,value,other_contents,*,audience,allow_thought=False,speech_timi
             from .social_contact import KEYS as CONTACT_KEYS, VERSION as CONTACT_VERSION
             contact_approach=(semantic_key in CONTACT_KEYS and semantic_key.startswith('accept_')
                               and by_key[key].get('physical_contract')==CONTACT_VERSION)
-            if not contact_approach and (semantic_key not in ('offer_bowl','accept_bowl') or by_key[key].get('physical_contract')!=meal_space.VERSION):
+            prop_approach=semantic_key in ('move_prop','press_meal_button') and required==movement.arrival_definition()
+            if not prop_approach and not contact_approach and (semantic_key not in ('offer_bowl','accept_bowl') or by_key[key].get('physical_contract')!=meal_space.VERSION):
                 raise ValueError('unexpected action approach prerequisite')
-            description='走到接触对象身旁' if semantic_key=='accept_kiss' else '走到交接对象身旁'
-            prep=replace(movement.content(target,{'key':'move_near','description':description,'motion':required}),
+            description='走到道具旁' if prop_approach else '走到接触对象身旁' if semantic_key=='accept_kiss' else '走到交接对象身旁'
+            approach={'key':'move_near','description':description,'motion':required}
+            if prop_approach:
+                approach['world_object']=by_key[key]['world_object']
+            prep=replace(movement.content(target,approach),
                 content_id='action:'+str(index)+':approach',recipient_refs=tuple(audience))
             children[prep.content_id]={'kind':'action','key':'move_near','after':[] if previous is None else [previous]}
             items.append(prep);previous=prep.content_id

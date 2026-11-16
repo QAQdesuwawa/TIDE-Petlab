@@ -30,7 +30,28 @@ def public_value(value):
     if isinstance(value,(tuple,list)):return [public_value(v) for v in value]
     return value
 
-def project(packet, *, memory_evidence=False,shared_bodies=False,optional_context=False,independent_children=False,current_time=False,subtype_references=False,speaker_framing=False,conversation_context=False,shared_metadata=False,grouped_metadata=False,body_context=None,action_sequence_context=None,contextual=False,intention_time_labels=False,property_owners=False,property_owner_events=None,free_action_intents=False,scene_facts=False,concise=False,compact_actions=False,memory_occurrences=None,world_sources=False):
+def _environment_material(row, *, world_observation_scope=False):
+    attrs = row.get('内容属性')
+    if attrs:
+        # Recipient fields provide the scope. Content.private is an ownership
+        # flag and does not distinguish public delivery from NPC whispers.
+        row = {**row, '内容属性':[
+            {key:value for key,value in item.items() if key != '可见性'}
+            if item.get('可见性') == '公开' and ('对象' in item or '可见受众' in item)
+            else item for item in attrs]}
+    if '环境来源' in row or row.get('本轮来源') == '本地前台窗口观察':
+        body = row.get('正文', '')
+        if body.startswith('[用户交互] 现场观察：'):
+            row = {**row, '正文':body.removeprefix('[用户交互] ')}
+            if '记录含义' in row:
+                row['记录含义'] = '本地观察记录采样时的状态。'
+    if world_observation_scope and '环境来源' in row and any(
+            '当时采样坐标' in item for item in row.get('当时的环境证据', ())):
+        from .environment_delivery import WORLD_OBSERVATION_SCOPE
+        row = {**row, '记录含义': WORLD_OBSERVATION_SCOPE}
+    return row
+
+def project(packet, *, memory_evidence=False,shared_bodies=False,optional_context=False,independent_children=False,current_time=False,subtype_references=False,speaker_framing=False,conversation_context=False,shared_metadata=False,grouped_metadata=False,body_context=None,action_sequence_context=None,contextual=False,intention_time_labels=False,property_owners=False,property_owner_events=None,property_evidence=None,free_action_intents=False,scene_facts=False,concise=False,compact_actions=False,memory_occurrences=None,world_sources=False,explicit_action_targets=False,processing_ms=None,conversation_processing_ms=None,information_acquisition=False,environment_material=False,world_observation_scope=False):
     sections={}
     owner=packet.output_identity.speaker_participant_id
     bodies={}
@@ -51,12 +72,14 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
                 keys={'pet_persona_voice':{'语气','文风'},
                       'pet_persona_habits':{'本人常用表达（供参考）'}}.get(card.kind,{'name','background'})
                 fields={k:v for k,v in fields.items() if k in keys}
-            elif lane=='current_input':fields={k:public_value(v) for k,v in fields.items() if k in {'说话者','对象','接收者','父级回应对象','本次观察者','正文','内容属性','事实时序','触发来源','本轮来源','当前事实','已发生事实','内容归属注解','本轮指代参照'}}
+            elif lane=='current_input':fields={k:public_value(v) for k,v in fields.items() if k in {'说话者','对象','接收者','父级回应对象','本次观察者','正文','内容属性','事实时序','触发来源','本轮来源','当前事实','已发生事实','内容归属注解','本轮指代参照','片段材料'}}
             elif lane=='conversation' and conversation_context and card.kind=='witnessed_conversation_context':
                 fields={k:public_value(v) for k,v in fields.items() if k in {'上下文范围','已见的同会话前文'}}
                 if memory_occurrences is not None and '已见的同会话前文' in fields:
                     from .event_timeline import chronological_context
-                    fields=chronological_context(fields)
+                    fields=chronological_context(fields,processing_ms=conversation_processing_ms)
+                if conversation_processing_ms is not None and not fields.get('已见的同会话前文'):
+                    continue
             elif lane=='conversation' and card.kind=='actual_execution_progress':
                 fields={k:public_value(v) for k,v in fields.items() if k=='最近一次执行的实际进度'}
             elif lane=='conversation':
@@ -100,7 +123,7 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
                                       else '按已获准候选形成本轮动作序列；讲话、表情与私有独白是并行子项。')
                     field='action_intents' if free_action_intents else 'actions'
                     fields['output_fields']=list(dict.fromkeys([*fields.get('output_fields',[]),field]))
-                    if not free_action_intents:fields.update(sequence_fields(action_sequence_context,compact=compact_actions))
+                    if not free_action_intents:fields.update(sequence_fields(action_sequence_context,compact=compact_actions,explicit_targets=explicit_action_targets))
                     if subtype_references and guidance is not None:
                         # Validate the old source references, replace only the
                         # single-action common role for this versioned contract.
@@ -120,10 +143,10 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
             if lane=='memory':
                 if property_owners:
                     from .property_owner_delivery import annotate
-                    fields=annotate(fields,card.provenance,owner=owner,events=property_owner_events)
+                    fields=annotate(fields,card.provenance,owner=owner,events=property_owner_events,evidence=property_evidence)
                 if memory_occurrences is not None and card.provenance.get('selected_memory_ids'):
                     from .event_timeline import chronological_memory
-                    fields=chronological_memory(fields,card.provenance['selected_memory_ids'],memory_occurrences)
+                    fields=chronological_memory(fields,card.provenance['selected_memory_ids'],memory_occurrences,processing_ms=processing_ms)
                 def event_time(row):
                     if not isinstance(row,dict):return row
                     row=dict(row);position=row.pop('位置',None)
@@ -142,7 +165,10 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
                             row['记录含义']='已记录的非话语事件：发生范围与完成情况以事件正文和内容属性中的执行记录为据。'
                     if position and position.get('domain')=='tide.wall-clock-ms':
                         from datetime import datetime,timezone
-                        row['发生时间']=datetime.fromtimestamp(position['coordinate']/1000,tz=timezone.utc).isoformat()
+                        if processing_ms is None:
+                            row['发生时间']=datetime.fromtimestamp(position['coordinate']/1000,tz=timezone.utc).isoformat()
+                        else:
+                            row['距处理时刻（秒）']=(processing_ms-position['coordinate'])/1000
                     if shared_bodies and '正文' in row:
                         key=model_data_fingerprint({k:row.get(k) for k in ('说话者','对象','接收者','正文','内容属性')})
                         marker=row.get('记忆标记')
@@ -150,9 +176,14 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
                             row.pop('正文');row['相同正文参照']=bodies[key]
                         elif marker is not None:bodies[key]=marker
                     if '相关记忆（按发生顺序）' in row:row['相关记忆（按发生顺序）']=[event_time(x) for x in row['相关记忆（按发生顺序）']]
+                    if information_acquisition:
+                        from .speaker_view import acquisition_view
+                        row=acquisition_view(row,owner=owner)
                     if speaker_framing:
                         from .speaker_view import frame_event
                         row=frame_event(row,owner=owner,historical=True,world_sources=world_sources)
+                    if environment_material:
+                        row=_environment_material(row,world_observation_scope=world_observation_scope)
                     return row
                 fields=event_time(fields)
                 if shared_metadata:
@@ -161,9 +192,14 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
                 if grouped_metadata:
                     from .memory_metadata import compact_grouped_fields
                     fields=compact_grouped_fields(fields)
+            if information_acquisition and lane=='current_input':
+                from .speaker_view import acquisition_view
+                fields=acquisition_view(fields,owner=owner)
             if speaker_framing and lane=='current_input':
                 from .speaker_view import frame_event
                 fields=frame_event(fields,owner=owner,historical=False,world_sources=world_sources)
+            if environment_material and lane=='current_input':
+                fields=_environment_material(fields)
             if not fields:fields={'内容参照':'本栏目沿其他已交付事实理解。'}
             rows.append(replace(card,fields=fields))
         sections[lane]=tuple(rows)

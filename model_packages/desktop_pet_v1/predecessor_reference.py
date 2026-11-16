@@ -53,6 +53,24 @@ class PublicPredecessorCodec(PredecessorCodec):
             '单独告诉角色的话需要实际的私下来源。再输出 predecessor_status 和 predecessor_refs。'
             '每个指代选择最直接的一条；独立话题或无法定位时填写 []。')
 
+
+class VisiblePeerPredecessorCodec(PredecessorCodec):
+    def __init__(self,base,text):
+        super().__init__(base,text)
+        self.request_version+=':witnessed-action-reference-v1'
+
+    def build_request(self,*,event,recall_hint):
+        system,user=self.base.build_request(event=event,recall_hint=recall_hint)
+        system+=(
+            '\n【前序来源】predecessor_refs 用于定位当前原话所承接的已发生事实。可引用此前说过的话，'
+            '也可引用双方实际目睹的动作。当前问句若指向一个动作所涉及的对象，即使问的是该对象的新属性，'
+            '也可引用能够定位同一对象的已发生片段。引用只说明指向，不给未知属性填答案。'
+            '只选能解释这处承接的来源。与前文无关、仅主题类似或无法定位时填 []。'
+            '每项包含 reference_id（前序编号）、evidence_text（当前原话的唯一连续片段）、'
+            'reference_text（前序原文的唯一连续片段）。最多 16 项，每段最多 256 字。')
+        return system,HEADER.lstrip() + self.text + '\n\n' + user
+
+
 def parse(raw,event,sources,*,public=False):
     data=json.loads(_strip_fences(raw))
     items=data.get('predecessor_refs',[])

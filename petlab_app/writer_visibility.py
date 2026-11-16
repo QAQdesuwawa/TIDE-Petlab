@@ -140,6 +140,20 @@ def receipt(visibility):
  return {**visibility,'fingerprint':fp(visibility)}
 
 
+def memory_contents(app,memory,visibility):
+ """Keep the original fact and project only its deliverable children."""
+ event=memory.event
+ contents=event.visible_contents(app.owner_ref)
+ if visibility is None:return contents
+ check={**visibility,'audience':list(visibility['audience']),'excluded':[]}
+ if (filter_memories(app,(memory,),check,lane='memory')
+     and set(check['audience'])==set(visibility['audience'])):return contents
+ if event.owner_ref!=app.owner_ref:return ()
+ readers=set(visibility['audience'])
+ return tuple(c for c in contents if not c.private and c.kind!='thought'
+              and readers<=set(c.recipient_refs)|{app.owner_ref,event.actor_ref})
+
+
 def speech_audience(destination,visibility):
  """One sealed cap used by assembly, candidate checks and publication."""
  original=list(destination['audience'])

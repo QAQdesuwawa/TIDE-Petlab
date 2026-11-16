@@ -97,15 +97,19 @@ def restore_desktop_outcome(playback_dir,journal,state,prepared):
     authorization=prepared.authorization
     context={'version':VERSION,'target_ref':authorization.target_ref,
         'session_binding':prepared.request.session_binding_fingerprint,'authorization_ref':authorization.fingerprint}
+    window_closed=row.get('termination')=={'reason':'window_closed','cause_ref':None} and row.get('interrupted') is True
+    normally_finished=row.get('termination')=={'reason':None,'cause_ref':None} and row.get('interrupted') is False
     if (row.get('version')!='petlab-desktop-playback-v1' or row.get('action_id')!=journal.parent_id
             or row.get('execution_context')!=context or row.get('composite_plan_fingerprint')!=plan.fingerprint
-            or row.get('termination')!={'reason':'window_closed','cause_ref':None} or row.get('interrupted') is not True
+            or not (window_closed or normally_finished)
             or row.get('renderer') not in {'win32-premultiplied-alpha-v1','tk-color-key-v1'}
             or 'qualification_takeover' in row or 'obstruction' in row):
         raise ExecutionUncertain('desktop playback receipt differs from dispatched execution')
     start,end=row['started_at_wall_ms'],row['finished_at_wall_ms']
     children=row['child_results']
-    details={'adapter':'tk-sprite-v1','interrupted':True,'renderer':row['renderer'],
+    if normally_finished:
+        children=_recover_unrendered_approach(row,state)
+    details={'adapter':'tk-sprite-v1','interrupted':row['interrupted'],'renderer':row['renderer'],
         'child_results':children,'occurred_at_wall_ms':end}
     for key in ('action_results','gaze_results','presentation_sources'):
         if row.get(key):details[key]=row[key]
@@ -115,7 +119,7 @@ def restore_desktop_outcome(playback_dir,journal,state,prepared):
     validate_outcome(plan,outcome)
     rendered={item['content_id']:item['at_unix_ms'] for item in row['speech_rendered']}
     if (type(start) is not int or type(end) is not int or not prepared.position.position.coordinate<=start<=end
-            or not outcome.completed_content_ids or len(rendered)!=len(row['speech_rendered'])
+            or len(rendered)!=len(row['speech_rendered'])
             or rendered!={key:children[key]['started_at_ms'] for key in outcome.completed_content_ids
                          if plan.children[key]['kind']=='speech'}):
         raise ExecutionUncertain('desktop playback timing or rendered speech differs')
@@ -125,6 +129,25 @@ def restore_desktop_outcome(playback_dir,journal,state,prepared):
                 (began<start or state['children'][key]['phase']!='dispatched'))):
             raise ExecutionUncertain('desktop child differs from dispatch or playback interval')
     return outcome
+
+
+def _recover_unrendered_approach(row,state):
+    """Interpret the older target-loss receipt without rewriting playback evidence."""
+    children=dict(row['child_results'])
+    key='whisper:approach'
+    move=children.get(key,{})
+    dispatched=state['children'].get(key,{})
+    target=dispatched.get('prepared',{}).get('content',{}).get('parameters',{}).get('movement',{}).get('target_ref')
+    if (target and dispatched['phase']=='dispatched'
+            and state['plan'].children[key]['kind']=='action'
+            and move.get('status')=='interrupted' and move.get('reason')=='target_unavailable'
+            and move.get('cause_ref')==target and key not in row.get('action_results',{})
+            and key not in row['completed_content_ids']
+            and type(move.get('started_at_ms')) is int
+            and type(move.get('ended_at_ms')) is int
+            and row['started_at_wall_ms']<=move['started_at_ms']<=move['ended_at_ms']<=row['finished_at_wall_ms']):
+        children[key]={**move,'status':'cancelled','started_at_ms':None}
+    return children
 
 
 def reconcile(product,parent_id):

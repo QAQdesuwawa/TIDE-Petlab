@@ -66,10 +66,12 @@ class RigFrame:
             if self in _cache:
                 _cache.move_to_end(self);return _cache[self]
             from .rig_expression_pose import compose,endpoint
-            data=render(self.rig['parts'],self.rig['textures'],compose(self.pose,endpoint(self.rig,self.code)),
+            from .shared_meal_animation import side_hold_pose
+            pose=side_hold_pose(self.rig,compose(self.pose,endpoint(self.rig,self.code)))
+            data=render(self.rig['parts'],self.rig['textures'],pose,
                         size=(self.width,self.height),expression=self.code).bgra
             from .rig_motion_marks import behind_limbs
-            data=behind_limbs(data,self.rig,self.pose,(self.width,self.height))
+            data=behind_limbs(data,self.rig,pose,(self.width,self.height))
             if len(data)<=_limit:
                 while _cache and _bytes+len(data)>_limit:
                     _,old=_cache.popitem(last=False);_bytes-=len(old)
@@ -83,7 +85,7 @@ def load_rig(root, binding_name, size, *, allow_views=True, _sources=None):
     root=Path(root).resolve();path=(root/binding_name).resolve()
     if path.parent!=root:raise ValueError('rig binding outside asset directory')
     binding=json.loads(path.read_text('utf8'))
-    if set(binding)-{'view_registration','pose_basis','idle','expression_regions','expression_pose','facing','gait','input_feedback','visibility_bridges','gaze_part','gaze_layout','body_regions','views','view_transition'}!={'version','canvas','textures','parts','base_pose'} or binding['version']!='petlab-cutout-binding-v1':
+    if set(binding)-{'view_registration','pose_basis','idle','expression_regions','expression_pose','facing','gait','input_feedback','visibility_bridges','gaze_part','gaze_layout','body_regions','views','view_transition','meal_side_hold'}!={'version','canvas','textures','parts','base_pose'} or binding['version']!='petlab-cutout-binding-v1':
         raise ValueError('invalid cutout binding')
     cw,ch=binding['canvas']
     if any(type(n) is not int or n<=0 for n in (cw,ch)):raise ValueError('invalid rig canvas')
@@ -168,6 +170,9 @@ def load_rig(root, binding_name, size, *, allow_views=True, _sources=None):
         for rows in bridges.values():
             prepare_pose({'parts':parts},{'duration_ms':100,'states':{'normal':rows}})
         rig['visibility_bridges']=deepcopy(bridges)
+    if 'meal_side_hold' in binding:
+        from .shared_meal_animation import validate_side_hold
+        rig['meal_side_hold']=validate_side_hold(binding['meal_side_hold'])
     if 'gait' in binding:
         _channels(binding['gait'],known)
         rig['gait']=deepcopy(binding['gait'])
@@ -223,6 +228,9 @@ def append(frames, root, binding_name, declarations):
     # Appending another action family must not replace the standing rig while
     # leaving existing action frames attached to a different orientation family.
     rig=existing if existing is not None and existing.get('_binding_key')==key else load_rig(root,binding_name,size)
+    from .shared_meal_animation import PROP, install_prop
+    if any(c['part']==PROP for row in declarations.values() for c in row['channels']):
+        install_prop(rig)
     base=rig['base'];idle=rig['idle']
     known={p['id']:{'x','y','angle','opacity',*p.get('deformers',{})} for p in rig['parts']}
     result=dict(frames);clips={};mapping={}

@@ -564,6 +564,22 @@
       "parent": "body"
     }
   ],
+  "meal_side_hold": {
+    "left_arm": {
+      "x": 14,
+      "y": -5,
+      "angle": 30
+    },
+    "right_arm": {
+      "x": 0,
+      "y": -4,
+      "angle": 33
+    },
+    "shared_rice_bowl": {
+      "x": -30,
+      "y": -1
+    }
+  },
   "base_pose": {
     "body": {
       "scale_x": 1.2213827086755262,

@@ -38,6 +38,8 @@ class _Playback:
     movement_results: dict = field(default_factory=dict)
     movement_landing: list[int] | None = None
     meal_results: dict = field(default_factory=dict)
+    prop_move_results: dict = field(default_factory=dict)
+    meal_button_results: dict = field(default_factory=dict)
     movement_visuals: dict = field(default_factory=dict)
     presentation_sources: dict = field(default_factory=dict)
     composite: object = None
@@ -272,8 +274,8 @@ class DesktopExecutor(ExecutionContexts):
                     whole_bytes=whole_manifest.read_bytes()
                     whole=json.loads(whole_bytes)
                     from .whole_frame_renderer import build_whole_frames
-                    activity_path=asset_dir/'activities.json'
-                    activity_declaration=json.loads(activity_path.read_text(encoding='utf-8')) if activity_path.exists() else None
+                    from .shared_meal_animation import read_activities
+                    activity_declaration=read_activities(asset_dir)
                     self.expression_frames=build_whole_frames(alpha_frames,whole,asset_dir,self.base_frame_count,
                         defer_motion=bool(activity_declaration and activity_declaration.get('rig_binding')))
                     from .whole_frame_renderer import emotion_motion_clips
@@ -414,7 +416,8 @@ class DesktopExecutor(ExecutionContexts):
             current=getattr(self,'rendering_action',None) if self._sprite_active else None
             walking=current is not None and current.semantic_key in ('move_near','stroll','move_away','relocate')
             if self.expression_frames:
-                activity=current is not None and current.semantic_key in self.activity_clips
+                activity=current is not None and (current.semantic_key in self.activity_clips
+                                                  or current.semantic_key in ('move_prop','press_meal_button'))
                 self.alpha_surface.frames=(self.original_alpha_frames if self._sprite_active and not activity and not walking
                                            else self.expression_frames[self.expression_code])
             self.current_gaze_direction=None
@@ -836,14 +839,14 @@ class DesktopExecutor(ExecutionContexts):
             # The transfer already committed. Show its local follow-through,
             # never a second independently selected/settled action.
             now=time.monotonic();receiving=value['holder_ref']==self.meal_owner
-            DesktopExecutor._begin_pose_transition(self,registered=True)
-            # Acceptance already played the reaching gesture. Continue into
-            # holding; the offering pose here would look like another handoff.
-            frames=([self.activity_clips['eat_rice']['frames'][0]] if receiving
-                    else [self.activity_clips['accept_bowl']['frames'][-1]])
-            target=previous['holder_ref'] if receiving else value['holder_ref']
-            self.meal_pose_target=target
-            self.meal_settle={'start':now,'until':now+.35,'frames':frames,'target_ref':target}
+            activity=self.activity_clips.get('eat_rice' if receiving else 'accept_bowl')
+            if activity:
+                DesktopExecutor._begin_pose_transition(self,registered=True)
+                # Continue into the held pose once the real handoff has finished.
+                frames=[activity['frames'][0 if receiving else -1]]
+                target=previous['holder_ref'] if receiving else value['holder_ref']
+                self.meal_pose_target=target
+                self.meal_settle={'start':now,'until':now+.35,'frames':frames,'target_ref':target}
         pose=None
         if value is not None and value['portions'] and value['holder_ref']==self.meal_owner:
             pose='offer_bowl' if value['offer'] is not None else 'hold_bowl'
@@ -864,8 +867,9 @@ class DesktopExecutor(ExecutionContexts):
         if getattr(self,'phone_activity_id',None) is not None and self.visual_clip==self.manifest['visual_only_clip']:
             clip=self.activity_clips['read_web']
         elif self.meal_pose is not None and self.visual_clip==self.manifest['visual_only_clip']:
-            activity=self.activity_clips['eat_rice' if self.meal_pose=='hold_bowl' else self.meal_pose]
-            clip={'frames':[activity['frames'][-1 if self.meal_pose=='offer_bowl' else 0]],'durations_ms':[1000]}
+            activity=self.activity_clips.get('eat_rice' if self.meal_pose=='hold_bowl' else self.meal_pose)
+            if activity:
+                clip={'frames':[activity['frames'][-1 if self.meal_pose=='offer_bowl' else 0]],'durations_ms':[1000]}
         if getattr(self,'resting_pose',None)=='lie_down' and self.meal_pose is None and getattr(self,'phone_activity_id',None) is None:
             clip={'frames':[self.activity_clips['lie_down']['frames'][-1]],'durations_ms':[1000]}
         settle=getattr(self,'meal_settle',None)
@@ -1163,8 +1167,13 @@ class DesktopExecutor(ExecutionContexts):
         if not contents:raise ValueError("execution contents are empty")
         for content in contents:
             if content.kind not in ({'action','speech','expression','thought'} if composite is not None else {'action','speech'}):raise ValueError("desktop content is not deliverable")
-            if content.kind=="action" and content.semantic_key not in self.bindings and content.semantic_key not in self.activity_clips and content.semantic_key not in ('move_near','stroll','move_away','relocate'):
-                raise ValueError("selected action has no configured visual asset")
+            if content.kind=="action" and content.semantic_key not in ('move_near','stroll','move_away','relocate'):
+                if content.semantic_key=='move_prop' and not callable(getattr(self,'move_playground_prop',None)):
+                    raise ValueError("selected prop action has no desktop host")
+                if content.semantic_key=='press_meal_button' and not callable(getattr(self,'press_meal_button',None)):
+                    raise ValueError("selected button action has no desktop host")
+                try:self._action_clip(content)
+                except KeyError:raise ValueError("selected action has no configured visual asset") from None
         if composite is not None:
             if late_speech is None:composite.validate_contents(contents)
             else:
@@ -1293,11 +1302,13 @@ class DesktopExecutor(ExecutionContexts):
                 'reason':row.get('reason'),'cause_ref':row.get('cause_ref'),
                 **({'gaze_result':task.gaze_results[c.content_id]} if c.content_id in task.gaze_results else {}),
                 **({'meal_result':task.meal_results[c.content_id]} if c.content_id in task.meal_results else {}),
+                **({'prop_move_result':task.prop_move_results[c.content_id]} if c.content_id in getattr(task,'prop_move_results',{}) else {}),
+                **({'meal_button_result':task.meal_button_results[c.content_id]} if c.content_id in getattr(task,'meal_button_results',{}) else {}),
                 **({'contact_result':task.contact_results[c.content_id]} if c.content_id in getattr(task,'contact_results',{}) else {}),
                 **({'movement_result':task.movement_results[c.content_id]} if c.content_id in task.movement_results else {})})
             task.visible_phases.add(key)
         if items:
-            if task.visible_observer is not None:task.visible_observer({'version':'petlab-visible-effect-v3-object' if any('meal_result' in r or 'contact_result' in r for r in items) else 'petlab-visible-effect-v2-spatial' if any('gaze_result' in r or 'movement_result' in r for r in items) else 'petlab-visible-effect-v1','action_id':task.action_id,'items':items})
+            if task.visible_observer is not None:task.visible_observer({'version':'petlab-visible-effect-v3-object' if any({'meal_result','contact_result','prop_move_result','meal_button_result'}&r.keys() for r in items) else 'petlab-visible-effect-v2-spatial' if any('gaze_result' in r or 'movement_result' in r for r in items) else 'petlab-visible-effect-v1','action_id':task.action_id,'items':items})
             if local is not None:local(task.action_id,items)
 
     def _stop_movement_child(self,task,identity,*,reason,cause_ref):
@@ -1310,7 +1321,8 @@ class DesktopExecutor(ExecutionContexts):
         self.rendering_action=None
         self.set_activity_badge()
         stamp=time.time_ns()//1_000_000
-        started=None if row is None else row.get('started_at_ms')
+        # Turning to prepare a route is not a rendered movement frame.
+        started=row['started_at_ms'] if row is not None and task.action_frames.get(identity) else None
         task.child_results[identity]={'status':'interrupted' if started is not None else 'cancelled',
             'started_at_ms':started,'ended_at_ms':stamp,'reason':reason,'cause_ref':cause_ref}
         affected={identity}
@@ -1411,7 +1423,7 @@ class DesktopExecutor(ExecutionContexts):
             if content.semantic_key in ('move_near','stroll','move_away','relocate'):
                 from .movement_playback import play
                 play(self,task,index)
-            else:self._play_frame(task,index,content.semantic_key if content.semantic_key in self.activity_clips else self.bindings[content.semantic_key],0)
+            else:self._play_frame(task,index,self._action_clip(content),0)
         elif content.kind=='expression':
             from model_packages.desktop_pet_v1.face_expression import validate
             self._apply_presentation(task,content)
@@ -1482,7 +1494,11 @@ class DesktopExecutor(ExecutionContexts):
             if content.semantic_key in ('move_near','stroll','move_away','relocate'):
                 from .movement_playback import play
                 play(self,task,index)
-            else:self._play_frame(task,index,content.semantic_key if content.semantic_key in self.activity_clips else self.bindings[content.semantic_key],0)
+            else:self._play_frame(task,index,self._action_clip(content),0)
+
+    def _action_clip(self,content):
+        key='wave_hand' if content.semantic_key in ('move_prop','press_meal_button') else content.semantic_key
+        return key if key in self.activity_clips else self.bindings[key]
 
     def _play_frame(self,task,content_index,clip_name,frame_index):
         if self.closed or task.done.is_set():return
@@ -1527,6 +1543,19 @@ class DesktopExecutor(ExecutionContexts):
                 self.interrupt_activity(reason='source_expired',cause_ref=task.action_id+'#source-guard')
                 return
             if frame_index==len(clip["frames"]):
+                if 'prop_move' in content.parameters:
+                    move=getattr(self,'move_playground_prop',None)
+                    if move is None:raise ExecutionCancelled('prop host unavailable')
+                    try:
+                        task.prop_move_results[content.content_id]=move(self.scene_snapshot(),content.parameters['prop_move'])
+                    except ValueError as error:
+                        raise ExecutionCancelled(str(error)) from error
+                if 'meal_button' in content.parameters:
+                    try:
+                        task.meal_button_results[content.content_id]=self.press_meal_button(
+                            self.scene_snapshot(),content.parameters['meal_button'])
+                    except ValueError as error:
+                        raise ExecutionCancelled(str(error)) from error
                 if 'social_contact' in content.parameters:
                     from .social_contact_playback import finish as contact_finish
                     contact_finish(self,task,content,'completed')
@@ -1548,7 +1577,7 @@ class DesktopExecutor(ExecutionContexts):
                 if 'meal' in content.parameters:
                     task.meal_results[content.content_id]=self.meal_host.finish(task.action_id+'#'+content.content_id,content.parameters['meal'],status='completed',frames=task.action_frames[content.content_id])
                     self.update_meal_pose(self.meal_host.snapshot())
-                    if clip_name=='accept_bowl' and self.meal_pose=='hold_bowl':
+                    if clip_name=='accept_bowl' and self.meal_pose=='hold_bowl' and 'eat_rice' in self.activity_clips:
                         # Publish the committed held pose before a following speech
                         # or expression can repaint the last empty-hand action frame.
                         self._show_frame(self.activity_clips['eat_rice']['frames'][0])
@@ -1568,6 +1597,16 @@ class DesktopExecutor(ExecutionContexts):
                 if 'social_contact' in content.parameters:
                     self.facing_target=content.parameters['social_contact']['target']
                     self.gaze_target=self.facing_target
+                if 'prop_move' in content.parameters:
+                    from model_packages.desktop_pet_v1.prop_move import check
+                    try:check(self.scene_snapshot(),content.parameters['prop_move'])
+                    except ValueError as error:raise ExecutionCancelled(str(error)) from error
+                    self.facing_target=self.gaze_target=content.parameters['prop_move']['object']['ref']
+                if 'meal_button' in content.parameters:
+                    from model_packages.desktop_pet_v1.meal_button import REF,check
+                    try:check(self.scene_snapshot(),content.parameters['meal_button'])
+                    except ValueError as error:raise ExecutionCancelled(str(error)) from error
+                    self.facing_target=self.gaze_target=REF
             index=clip["frames"][frame_index]
             if clip.get('authored_transition'):
                 # This sequence already contains the artist's intermediate
@@ -1639,7 +1678,13 @@ class DesktopExecutor(ExecutionContexts):
                     row=task.child_results.get(content_id)
                     if row is None:
                         task.child_results[content_id]={'status':'cancelled','started_at_ms':None,'ended_at_ms':end,'reason':reason,'cause_ref':cause_ref}
-                    elif row['status']=='running':row.update(status='interrupted',ended_at_ms=end,reason=reason,cause_ref=cause_ref)
+                    elif row['status']=='running':
+                        if (content_id in task.movement_results
+                                and not task.action_frames.get(content_id)):
+                            row.update(status='cancelled',started_at_ms=None,ended_at_ms=end,
+                                       reason=reason,cause_ref=cause_ref)
+                        else:
+                            row.update(status='interrupted',ended_at_ms=end,reason=reason,cause_ref=cause_ref)
             if task.composite is not None:DesktopExecutor._notify_visible(self,task)
             action_results={key:{'status':'interrupted' if interrupted else 'completed','rendered_frames':count}
                             for key,count in task.action_frames.items()}
@@ -1649,6 +1694,10 @@ class DesktopExecutor(ExecutionContexts):
                     if key in task.movement_visuals:action_results[key]['locomotion']=task.movement_visuals[key]
             for key,value in task.meal_results.items():
                 if key in action_results:action_results[key]['meal_result']=value
+            for key,value in getattr(task,'prop_move_results',{}).items():
+                if key in action_results:action_results[key]['prop_move_result']=value
+            for key,value in getattr(task,'meal_button_results',{}).items():
+                if key in action_results:action_results[key]['meal_button_result']=value
             for key,value in getattr(task,'contact_results',{}).items():
                 if key in action_results:action_results[key]['contact_result']=value
             if interrupted and task.composite is None:

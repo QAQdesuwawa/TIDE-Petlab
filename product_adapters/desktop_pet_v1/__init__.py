@@ -139,7 +139,8 @@ class SinglePetRuntime:
             verify_input_reference(self,event,measurement_payload)
             from model_packages.desktop_pet_v1.recall_model import select
             grounded_recall=select(measurement_payload.get('pet_memory_recall',{}).get('version'))
-            recall_context=(grounded_recall.metadata(self,event,measurement_payload[grounded_recall.KEY])
+            recall_metadata=getattr(grounded_recall,'numeric_metadata',grounded_recall.metadata)
+            recall_context=(recall_metadata(self,event,measurement_payload[grounded_recall.KEY])
                 if grounded_recall.KEY in measurement_payload else {})
             relation_context={}
             from model_packages.desktop_pet_v1.relation_package import META

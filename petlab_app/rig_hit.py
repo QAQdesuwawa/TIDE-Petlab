@@ -35,12 +35,15 @@ def prepare(rig, declaration, texture_specs):
 def hit(frame,x,y,*,only_part=None):
     from .rig_view_blend import ViewBlendFrame
     if isinstance(frame,ViewBlendFrame):return frame.hit(x,y)
-    rig=frame.rig;transforms=matrices(rig['parts'],frame.pose)
+    from .shared_meal_animation import side_hold_pose
+    rig=frame.rig
+    pose=side_hold_pose(rig,frame.pose)
+    transforms=matrices(rig['parts'],pose)
     parts={p['id']:p for p in rig['parts']};visibility={}
     def visible(identity):
         if identity not in visibility:
             parent=parts[identity].get('parent')
-            visibility[identity]=frame.pose.get(identity,{}).get('opacity',1)*(visible(parent) if parent else 1)
+            visibility[identity]=pose.get(identity,{}).get('opacity',1)*(visible(parent) if parent else 1)
         return visibility[identity]
     for part in sorted(rig['parts'],key=lambda p:p['order'],reverse=True):
         if only_part is not None and part['id']!=only_part:continue
@@ -48,7 +51,7 @@ def hit(frame,x,y,*,only_part=None):
         local=np.linalg.solve(transforms[part['id']],np.array([x,y,1.]))[:2]
         texture=rig['textures'][part.get('expressions',{}).get(frame.code,part['texture'])]
         px,py=local+part['anchor']
-        px,py=deform_coordinates(part,frame.pose,texture,np.asarray(px),np.asarray(py))
+        px,py=deform_coordinates(part,pose,texture,np.asarray(px),np.asarray(py))
         px,py=float(px),float(py)
         if not 0<=px<texture.width or not 0<=py<texture.height:continue
         if part.get('clip_polygon') and not _inside(px,py,part['clip_polygon']):continue

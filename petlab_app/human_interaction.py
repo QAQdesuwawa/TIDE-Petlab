@@ -4,6 +4,12 @@ from model_packages.desktop_pet_v1.events import Content, Interaction
 VERSION='pet-participant-human-interaction-v1'
 
 
+def optional_observation(item):
+    key=item.get('semantic_key')
+    return (key in {'drag_contact','scene_departure','witnessed_pointer'}
+            or key=='place_meal' and item.get('parameters',{}).get('input_kind')=='desktop_button')
+
+
 def content(source):
     event=source['event']
     item=Content.from_record(source['human_content'])

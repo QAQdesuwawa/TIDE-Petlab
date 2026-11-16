@@ -6,11 +6,12 @@ from model_packages.desktop_pet_v1 import action_sequence, spatial
 
 LEGACY_VERSION = 'petlab-independent-writer-output-v1'
 EXPRESSION_SEGMENTS_VERSION = 'petlab-independent-writer-output-v2'
-VERSION = 'petlab-independent-writer-output-v3'
-VERSIONS = (LEGACY_VERSION, EXPRESSION_SEGMENTS_VERSION, VERSION)
+WIRE_MARKER_VERSION = 'petlab-independent-writer-output-v3'
+VERSION = 'petlab-independent-writer-output-v4'
+VERSIONS = (LEGACY_VERSION, EXPRESSION_SEGMENTS_VERSION, WIRE_MARKER_VERSION, VERSION)
 
 
-def recover(text, context, *, scene, human_ref, expressions, gaze_independent, version=VERSION):
+def recover(text, context, *, scene, human_ref, expressions, gaze_independent, version=VERSION, displayed_targets=False):
     body = json.loads(text)
     if not isinstance(body, dict):
         raise ValueError('writer output must be an object')
@@ -19,9 +20,16 @@ def recover(text, context, *, scene, human_ref, expressions, gaze_independent, v
     if actions is None:
         actions = []
     rejected_actions, adjustments = [], []
-    if version == VERSION and body.get('type') == 'json_object':
+    if version in (WIRE_MARKER_VERSION, VERSION) and body.get('type') == 'json_object':
         body.pop('type')
         adjustments.append({'field': 'type', 'reason': 'response_format_marker', 'original': 'json_object'})
+    aliases = {}
+    if version == VERSION and displayed_targets:
+        from .sequence_delivery import fields
+
+        choices = fields(offer, compact=True, explicit_targets=True)['可选动作序列']
+        aliases = {label: codes[0] for label, codes in choices.items()
+                   if len(codes) == 1 and label not in offer['allowed_keys']}
     keys = []
     if not isinstance(actions, list):
         adjustments.append({'field': 'actions', 'reason': 'invalid_action_array'})
@@ -33,7 +41,11 @@ def recover(text, context, *, scene, human_ref, expressions, gaze_independent, v
             reason = 'after_unavailable_action'
         else:
             try:
-                keys = action_sequence.validate_keys([*keys, key], offer)
+                code = aliases.get(key, key) if isinstance(key, str) else key
+                keys = action_sequence.validate_keys([*keys, code], offer)
+                if code != key:
+                    adjustments.append({'field': 'actions', 'index': index,
+                                        'reason': 'matched_displayed_label', 'original': key})
                 continue
             except ValueError:
                 reason = 'outside_frozen_candidates' if key not in offer['allowed_keys'] else 'invalid_action_sequence'
@@ -76,7 +88,7 @@ def recover(text, context, *, scene, human_ref, expressions, gaze_independent, v
         return result
 
     expression = body.get('expression')
-    if version in (EXPRESSION_SEGMENTS_VERSION, VERSION) and isinstance(expression, (dict, list)) and body.get('expressions') is None:
+    if version in (EXPRESSION_SEGMENTS_VERSION, WIRE_MARKER_VERSION, VERSION) and isinstance(expression, (dict, list)) and body.get('expressions') is None:
         body['expressions'] = expression if isinstance(expression, list) else [expression]
         adjustments.append({'field': 'expression', 'reason': 'expression_segments_in_scalar_field'})
     if body.get('expressions') is not None:
@@ -102,7 +114,7 @@ def recover(text, context, *, scene, human_ref, expressions, gaze_independent, v
             body['speech'] = None
             adjustments.append({'field': 'speech', 'reason': 'invalid_or_unavailable_timing'})
     if scene is not None and body.get('gaze_target') is not None:
-        targets = spatial.targets(scene)
+        targets = spatial.gaze_targets(scene)
         gaze = body['gaze_target']
         if ((gaze not in targets and gaze != human_ref)
                 or (not gaze_independent and body.get('speech') is None)):

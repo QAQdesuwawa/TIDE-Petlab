@@ -11,14 +11,26 @@ from petlab_app.writer_visibility import allowed
 VERSION='desktop-pet-witnessed-conversation-delivery-v1'
 KIND='witnessed_conversation_context'
 
-def typed_row(actor,owner,contents):
+def typed_row(actor,owner,contents,*,information_acquisition=False):
     labels={'speech':'本角色已经说过的话' if actor==owner else '对方已经说过的话',
         'action':'实际动作阶段','expression':'已显示表情'}
-    return {'实际说话或行动者':actor,'已发生内容':[{'内容身份':labels[c.kind],'原文':c.description} for c in contents]}
+    parts=[{'内容身份':labels[c.kind],'原文':c.description} for c in contents]
+    if information_acquisition:
+        from .speaker_view import received_fragment
+        for part,content in zip(parts,contents):
+            part['角色取得方式']=received_fragment(content.kind,own_output=actor==owner)
+    return {'实际说话或行动者':actor,'已发生内容':parts}
 
 
-def card_for(app,event,*,readers,typed=False,timeline=False,public_human=False):
-    context=build(app,event,public_human=True) if public_human else build(app,event)
+def card_for(app,event,*,readers,typed=False,timeline=False,public_human=False,precommit=False,scoped_reply=False,covered_contents=None,information_acquisition=False):
+    reply_conversation=None
+    if scoped_reply and readers and set(readers)=={event.actor_ref} and event.actor_ref!=app.user_ref:
+        from petlab_app.destinations import _input
+        destination=_input(app,event.event_id)
+        if (destination is not None and destination['conversation']['kind']=='direct'
+                and set(destination['audience'])=={event.actor_ref}):
+            reply_conversation=destination['conversation']
+    context=build(app,event,public_human=public_human,reply_conversation=reply_conversation)
     if context is None:return None
     readers_from_source=readers is None
     if readers_from_source:
@@ -46,9 +58,16 @@ def card_for(app,event,*,readers,typed=False,timeline=False,public_human=False):
                 excluded.append({'event_id':ref['event_id'],'reason':'outside_output_audience',
                                  'excluded_content_ids':removed})
                 contents=public
+            if covered_contents:
+                covered=covered_contents.get(ref['event_id'], ())
+                duplicates=[c.content_id for c in contents if c.content_id in covered]
+                if duplicates:
+                    excluded.append({'event_id':ref['event_id'],'reason':'already_in_memory',
+                                     'excluded_content_ids':duplicates})
+                    contents=tuple(c for c in contents if c.content_id not in covered)
             if not contents:continue
             content_ids[ref['event_id']]=[c.content_id for c in contents]
-            row=typed_row(prior.actor_ref,event.owner_ref,contents)
+            row=typed_row(prior.actor_ref,event.owner_ref,contents,information_acquisition=information_acquisition)
             if timeline:
                 from .event_timeline import describe
                 row['事实时序'],row['父事件']=describe(app,prior)
@@ -67,7 +86,7 @@ def card_for(app,event,*,readers,typed=False,timeline=False,public_human=False):
     source_ids=[r['event_id'] for r in refs]
     return WriterCard(card_id='conversation:'+event.event_id+':witnessed',lane='conversation',kind=KIND,
         source_id=event.event_id,fields=fields,
-        source_receipt_refs=(context['fingerprint'],*(r['fact_fingerprint'] for r in refs)) if readers_from_source else
+        source_receipt_refs=(context['fingerprint'],*(r['fact_fingerprint'] for r in refs)) if readers_from_source or precommit else
             (context['fingerprint'],app.runtime.memory_instance(event.event_id).fact.fingerprint,*(r['fact_fingerprint'] for r in refs)),
         provenance={'version':VERSION if not typed else 'desktop-pet-witnessed-conversation-delivery-v2-typed','status':status,'context_fingerprint':context['fingerprint'],
             'source_event_ids':source_ids,'source_count':len(refs),'excluded':excluded,
@@ -81,9 +100,43 @@ LEGACY_DIRECT_RECENT_VERSION='desktop-pet-witnessed-direct-dialogue-v1'
 RESIDUAL_DIRECT_RECENT_VERSION='desktop-pet-witnessed-direct-dialogue-v2'
 REQUIRED_DIRECT_RECENT_VERSION='desktop-pet-witnessed-direct-dialogue-v3'
 DIRECT_RECENT_VERSION='desktop-pet-witnessed-direct-dialogue-v4-public-input'
+IDLE_RECENT_VERSION='desktop-pet-idle-recent-context-v1'
 
 
-def direct_card_for(app,event,*,readers,version):
+def idle_recent_card(app,event_id,*,before_ordinal,readers,source_ref,excluded_ids,information_acquisition=False):
+    """Bounded continuity at the sealed Tick, independent of recall scores."""
+    from petlab_app.writer_visibility import allowed
+    audience=set(readers)
+    if not audience:return None
+    excluded=set(excluded_ids)
+    rows=[];refs=[];ids=[];visited=0
+    for fact in reversed(app.runtime._history().facts()):
+        if fact.accepted_runtime_ordinal>=before_ordinal:continue
+        visited+=1
+        if visited>16:break
+        if fact.fact_id in excluded:continue
+        memory=app.runtime.memory_instance(fact.fact_id)
+        event=memory.event
+        if event.owner_ref!=app.owner_ref or event.scope_ref!=app.definition.scope_ref:continue
+        contents=tuple(c for c in event.visible_contents(app.owner_ref)
+                       if not c.private and c.kind in ('speech','action','expression'))
+        if not contents:continue
+        app._verify_source(event)
+        if not allowed(app,memory,readers):
+            contents=tuple(c for c in contents if audience<=set(c.recipient_refs)|{app.owner_ref,event.actor_ref})
+        if not contents:continue
+        row=typed_row(event.actor_ref,app.owner_ref,contents,information_acquisition=information_acquisition)
+        if len(json.dumps([row,*rows],ensure_ascii=False,separators=(',',':')))>2048:break
+        rows.insert(0,row);refs.insert(0,fact.fingerprint);ids.insert(0,event.event_id)
+    if not rows:return None
+    return WriterCard(card_id='conversation:'+event_id+':idle_recent',lane='conversation',kind=KIND,
+        source_id=event_id,fields={'上下文范围':'本轮之前已发生的近期可见互动。','已见的同会话前文':rows},
+        source_receipt_refs=(source_ref,*refs),
+        provenance={'version':IDLE_RECENT_VERSION,'status':'delivered','source_event_ids':ids,
+                    'source_count':len(ids),'formal_recall':False,'state_commit_authority':False})
+
+
+def direct_card_for(app,event,*,readers,version,covered_contents=None,information_acquisition=False):
     from .predecessor_reference import build as predecessor_sources
     sources,_=predecessor_sources(app,event)
     rows=[]
@@ -93,7 +146,23 @@ def direct_card_for(app,event,*,readers,version):
         if not allowed(app,memory,readers):
             continue
         speaker='用户' if memory.event.event_kind=='peer_input' else '角色'
-        rows.append({'说话者':speaker,'原文':original})
+        row={'说话者':speaker,'原文':original}
+        if information_acquisition:
+            from .speaker_view import received_fragment
+            row['角色取得方式']=received_fragment('speech',own_output=speaker=='角色')
+        if covered_contents is not None:
+            prior=memory.event
+            covered=covered_contents.get(prior.event_id, ())
+            speech=tuple(c for c in prior.visible_contents(event.owner_ref) if c.kind=='speech'
+                         and not c.private and (speaker=='用户' or event.actor_ref in c.recipient_refs))
+            if '\n'.join(c.description for c in speech)==original:
+                unique=[c.description for c in speech if c.content_id not in covered]
+                if not unique:
+                    continue
+                row['原文']='\n'.join(unique)
+            from .event_timeline import describe
+            row['事实时序']=describe(app,prior)[0]
+        rows.append(row)
         refs.append(ref)
     if not rows:
         return None
@@ -114,7 +183,7 @@ def reserve_direct_context(packet):
     return _view(packet,{**packet.sections,'conversation':tuple(card for card in cards if card is not recent)}),recent
 
 
-def fit_direct_context(assembly,card):
+def fit_direct_context(assembly,card,*,processing_ms=None):
     from dataclasses import replace
     from hashlib import sha256
     from agents.responder import _PACKET_LANE_TITLES,_packet_material_record,_render_packet_card
@@ -122,6 +191,9 @@ def fit_direct_context(assembly,card):
 
     fields=thaw_model_data(card.fields)
     rows=fields['已见的同会话前文']
+    if processing_ms is not None:
+        from .event_timeline import relative_context_row
+        rows=[relative_context_row(row,processing_ms) for row in rows]
     sources=list(card.provenance['source_event_ids'])
     record=_packet_material_record(card)
     # The immediately preceding user/assistant exchange is admitted together.

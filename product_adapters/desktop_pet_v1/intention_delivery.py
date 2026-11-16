@@ -103,5 +103,11 @@ def annotation(app,memory,*,reader_ref,snapshot=None):
            '当前进度':PHASE_LABELS[latest[0]['phase'] if latest else 'formed'],
            '实际效果':effects}
     if plan is not None:value['已编排计划（不代表已执行）']=plan
+    planned_note=next((proof.get('metacognition') for row in reversed(chain[1:])
+        if row['phase']=='planned' and row['attempt_id']==attempt
+        for proof in (proofs[row['evidence_ref']],)),None)
+    if planned_note is not None:
+        value['编排时的私人判断']={k:planned_note[k] for k in ('basis','purpose','intended_targets')
+                                  if k in planned_note}
     if latest and latest[1].get('reason') in REASON_LABELS:value['结束原因']=REASON_LABELS[latest[1]['reason']]
     return {'version':VERSION,**value},tuple(refs)

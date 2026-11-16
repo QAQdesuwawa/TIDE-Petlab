@@ -357,6 +357,9 @@ class SinglePetApplication:
         # The result accompanies this one formal event; holds are not extra effects.
         from product_adapters.desktop_pet_v1.settlement_view import KEY as SETTLEMENT_KEY
         source['reaction']=thaw_model_data(shadow.session.profile[SETTLEMENT_KEY]['reaction'])
+        from model_packages.desktop_pet_v1.address_recall import INDEPENDENT_VERSION
+        if event.event_kind=='peer_input' and measurement.get('pet_memory_recall',{}).get('retrieval_routes')==INDEPENDENT_VERSION:
+            source['writer_numeric_recall']=thaw_model_data(settled.recall_execution.payload)
         if event.event_kind=='npc_output' and source['origin']=='execution':
             from product_adapters.desktop_pet_v1.settlement_audit import build as settlement_audit
             source['settlement_audit']=settlement_audit(event=event,settled=settled,fact=result.memory.fact)
@@ -370,12 +373,21 @@ class SinglePetApplication:
                 # without presenting the failed settlement as an actual result.
                 source.pop('reaction',None)
                 source.pop('settlement_audit',None)
+                source.pop('writer_numeric_recall',None)
                 self._publish_product(product)
             raise
         # Publish this read-only shortcut only after the formal commit succeeded.
         self._live_input_products=(event.event_id,live_products[0]) if live_products else None
         from model_packages.desktop_pet_v1.declaration_sources import register_committed
         register_committed(self.runtime,event,measurement)
+        rag=getattr(self,'rag_memory',None)
+        if rag is not None:
+            try:
+                rag.prime_committed(result.memory)
+            except Exception:
+                # Index preparation is optional work after durable settlement.
+                import logging
+                logging.getLogger(__name__).exception('Could not queue committed memory indexing')
         return result
 
     def receive(self, *, event_id,scope_ref,actor_ref,contents,coordinate,measure,response_policy="required",admission_coordinate=None,admission_version=ADMISSION_VERSION,input_source=None):
@@ -552,6 +564,8 @@ class SinglePetApplication:
                 if composite is not None:
                     from model_packages.desktop_pet_v1.composite import validate_outcome
                     validate_outcome(composite,outcome)
+                    if not outcome.completed_content_ids:
+                        raise ExecutionCancelled('terminal playback confirms no effects')
                 realization_evidence=thaw_model_data(prepared.candidate.realization_evidence)
                 if live_inputs:realization_evidence['live_input_sources']=list(live_inputs)
                 delivery_prepared=prepared

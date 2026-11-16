@@ -5,7 +5,7 @@ from product_adapters.desktop_pet_v1.execution import ExecutionCancelled
 from . import movement_route
 
 
-def play(view,task,index,planned=None,started=None,orient_until=None,target_bounds=None,*,rerouted=frozenset(),detour_from=None):
+def play(view,task,index,planned=None,started=None,orient_until=None,target_bounds=None,*,rerouted=frozenset(),detour_from=None,walked=0.):
  if view.closed or task.done.is_set():return
  try:
   if task.is_cancelled is not None and task.is_cancelled():raise ExecutionCancelled('movement source expired')
@@ -29,7 +29,7 @@ def play(view,task,index,planned=None,started=None,orient_until=None,target_boun
   # the parent intention and its speech dependencies; all guards above and
   # collision checks below still apply to every frame.
   if not basic and target_bounds is not None and list(current_target)!=list(target_bounds):
-   planned=None;started=None
+   planned=None;started=None;walked=0.
   solid_approach=not basic and any(obj['ref']==target and 'bounds' in obj for obj in scene.get('objects',()))
   peer_approach=not basic and not target.startswith('world:') and content.parameters['movement'].get('version')==movement.STEP_VERSION
   routed_approach=solid_approach or peer_approach
@@ -71,7 +71,13 @@ def play(view,task,index,planned=None,started=None,orient_until=None,target_boun
         play(view,task,index)
        view._schedule(80,recheck)
        return
-     view._stop_movement_child(task,identity,reason='target_unavailable',cause_ref=target)
+     from .spatial_contact import blocker
+     own=next(row['bounds'] for row in scene['participants'] if row['ref']==scene['owner_ref'])
+     blocking_ref=blocker(scene,own[:2],include_objects=True)
+     # The listener passed the visibility check. An overlap at the walking
+     # origin prevents routing even when there is free space beside them.
+     reason='destination_occupied' if blocking_ref else 'target_unavailable'
+     view._stop_movement_child(task,identity,reason=reason,cause_ref=blocking_ref or target)
      return
     if peer_approach:
      # Preserve the existing occupied-destination receipt if the search
@@ -119,7 +125,9 @@ def play(view,task,index,planned=None,started=None,orient_until=None,target_boun
    started=time.monotonic()
   elapsed=(time.monotonic()-started)*1000
   stationary=all(point==planned['route'][0] for point in planned['route'])
-  progress=1.0 if stationary else elapsed/planned['duration_ms']
+  progress=1.0 if stationary else min(
+   elapsed/planned['duration_ms'],
+   movement_route.next_corner_fraction(planned['route'],walked,planned['route_px']))
   point,heading=movement_route.sample(planned['route'],progress,heading=planned['heading'])
   from .spatial_contact import blocker
   contact=blocker(scene,point,include_objects=True)
@@ -158,5 +166,6 @@ def play(view,task,index,planned=None,started=None,orient_until=None,target_boun
     view._notify_visible(task);view._maybe_finish_composite(task)
    else:view._next_content(task,index+1)
    return
-  view._schedule(16,lambda:play(view,task,index,planned,started,orient_until,target_bounds,rerouted=rerouted))
+  view._schedule(16,lambda:play(view,task,index,planned,started,orient_until,target_bounds,rerouted=rerouted,walked=progress))
  except Exception as error:view._failed(task,error)
+

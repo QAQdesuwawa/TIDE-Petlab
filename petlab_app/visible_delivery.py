@@ -9,6 +9,16 @@ from model_packages.desktop_pet_v1.events import Content
 
 VERSION='petlab-visible-children-v1'
 FRAGMENT_VERSION='petlab-visible-children-v2-fragments'
+OBJECT_VERSION='petlab-visible-children-v3-objects'
+OBJECT_FRAGMENT_VERSION='petlab-visible-children-v3-object-fragments'
+FRAGMENT_VERSIONS={FRAGMENT_VERSION,OBJECT_FRAGMENT_VERSION}
+OBJECT_VERSIONS={OBJECT_VERSION,OBJECT_FRAGMENT_VERSION}
+OBJECT_REF='visible_object_ref'
+_OBJECT_EFFECTS={
+ 'move_near':('movement_result','target_ref'),
+ 'move_prop':('prop_move_result','ref'),
+ 'press_meal_button':('meal_button_result','ref'),
+}
 KINDS={'speech','action','expression'}
 ENVELOPE_TEXT='[已发生的可见内容，按接收者投递]'
 
@@ -54,27 +64,41 @@ def expand_presentations(contents):
  return tuple(result)
 
 
+def _valid_object_ref(ref):
+ return (isinstance(ref,str) and ref.startswith('world:') and 6<len(ref)<=128
+         and ref.strip()==ref and '@' not in ref)
+
+
+def visible_parameters(content, *, completed):
+ if content.kind!='action':return content.parameters
+ if not completed or content.semantic_key not in _OBJECT_EFFECTS:return {}
+ result,field=_OBJECT_EFFECTS[content.semantic_key]
+ ref=content.parameters.get(OBJECT_REF) or content.parameters.get(result,{}).get(field)
+ return {OBJECT_REF:ref} if _valid_object_ref(ref) else {}
+
+
 def create(event,audience,*,public_physical=False):
- rows=[];bodies={}
+ rows=[];bodies={};has_objects=False
  for c in expand_presentations(outward(event,audience)):
   if public_physical and c.kind in {'action','expression'}:
    c=replace(c,recipient_refs=tuple(sorted(audience)))
   # Executed descriptions carry actual completion/interruption facts. Numeric
   # state, internal selection and renderer frames stay with the source owner.
-  params=dict(c.parameters) if c.kind in {'speech','expression'} else {}
+  params=visible_parameters(c,completed=c.parameters.get('execution_status','completed')=='completed')
+  has_objects=has_objects or OBJECT_REF in params
   item=replace(c,description=action_description(c),recipient_refs=tuple(x for x in c.recipient_refs if x in audience),parameters=params).to_record()
   digest=fp(item);bodies[digest]=item
   rows.append({'content_id':c.content_id,'kind':c.kind,'recipient_refs':item['recipient_refs'],'body_fingerprint':digest})
  if not rows:raise ValueError('execution has no outward visible contents')
- manifest={'version':VERSION,'parent_event_id':event.event_id,'actor_ref':event.actor_ref,
+ manifest={'version':OBJECT_VERSION if has_objects else VERSION,'parent_event_id':event.event_id,'actor_ref':event.actor_ref,
   'target_refs':list(event.target_refs),'items':rows}
  return manifest,bodies
 
 
 def validate_manifest(source):
- m=source['visible_manifest'];e=source['event'];fragment=m.get('version')==FRAGMENT_VERSION
+ m=source['visible_manifest'];e=source['event'];fragment=m.get('version') in FRAGMENT_VERSIONS
  fields={'version','parent_event_id','actor_ref','target_refs','items'}|({'segment_id','sequence','previous_segment_id'} if fragment else set())
- if (set(m)!=fields or m['version'] not in {VERSION,FRAGMENT_VERSION}
+ if (set(m)!=fields or m['version'] not in {VERSION,*FRAGMENT_VERSIONS,*OBJECT_VERSIONS}
   or (m.get('segment_id') if fragment else m['parent_event_id'])!=e['sender_action_id'] or m['actor_ref']!=e['sender_participant_id']
   or e['text']!=ENVELOPE_TEXT or not m['items'] or len({x['content_id'] for x in m['items']})!=len(m['items'])
   or not isinstance(m['target_refs'],list) or not set(m['target_refs']).issubset(e['member_snapshot_ids'])):
@@ -106,7 +130,7 @@ def expected_items(source,reader):
 
 def validate_projection(source,reader,value):
  m=validate_manifest(source);items=expected_items(source,reader)
- fragment=m['version']==FRAGMENT_VERSION
+ fragment=m['version'] in FRAGMENT_VERSIONS
  if (set(value)!=({'version','parent_event_id','target_refs','contents'}|({'segment_id','sequence'} if fragment else set())) or value['version']!=m['version']
   or fragment and (value.get('segment_id')!=m['segment_id'] or value.get('sequence')!=m['sequence'])
   or value['parent_event_id']!=m['parent_event_id'] or value['target_refs']!=m['target_refs']
@@ -114,9 +138,14 @@ def validate_projection(source,reader,value):
  result=[]
  for expected,body in zip(items,value['contents']):
   c=Content.from_record(body)
+  if c.kind=='action' and c.parameters:
+   if (m['version'] not in OBJECT_VERSIONS or expected.get('phase','completed')!='completed'
+       or c.semantic_key not in _OBJECT_EFFECTS or set(c.parameters)!={OBJECT_REF}
+       or not _valid_object_ref(c.parameters[OBJECT_REF])):
+    raise ValueError('invalid visible action object reference')
   if (fp(body)!=expected['body_fingerprint'] or c.content_id!=expected['content_id']
    or c.kind!=expected['kind'] or list(c.recipient_refs)!=expected['recipient_refs']
-   or c.private or c.kind not in KINDS or c.kind=='action' and c.parameters):
+   or c.private or c.kind not in KINDS):
    raise ValueError('visible child differs from committed manifest')
   result.append(c)
  return tuple(result)
@@ -128,20 +157,22 @@ def project(root,source,reader):
  m=validate_manifest(source);items=expected_items(source,reader)
  if not items:return None
  value={'version':m['version'],'parent_event_id':m['parent_event_id'],'target_refs':m['target_refs'],
-  **({'segment_id':m['segment_id'],'sequence':m['sequence']} if m['version']==FRAGMENT_VERSION else {}),
+  **({'segment_id':m['segment_id'],'sequence':m['sequence']} if m['version'] in FRAGMENT_VERSIONS else {}),
   'contents':[_read(root/'visible-contents'/(x['body_fingerprint']+'.json')) for x in items]}
  validate_projection(source,reader,value)
  return value
 
 
 
-def source_context(app,event):
+def source_context(app,event,*,interaction_sources=False):
  """Read only this retained input's recipient artifact, never the full history."""
- from .participant_input import VISIBLE_VERSION,SPEECH_VERSIONS,validate
+ from .participant_input import HUMAN_INTERACTION_VERSION,VISIBLE_VERSION,SPEECH_VERSIONS,validate
  from .session import PRODUCT_KEY
  source=app.runtime.session.profile.get(PRODUCT_KEY,{}).get('sources',{}).get(event.event_id,{})
  receipt=source.get('evidence',{}).get('input_source',{})
- if receipt.get('version') not in {VISIBLE_VERSION,*SPEECH_VERSIONS}:return None
+ versions={VISIBLE_VERSION,*SPEECH_VERSIONS}
+ if interaction_sources:versions.add(HUMAN_INTERACTION_VERSION)
+ if receipt.get('version') not in versions:return None
  _,artifact=validate(app,receipt,event.contents,event_id=event.event_id,return_artifact=True)
  if receipt['version']==VISIBLE_VERSION:return artifact['visible']
  original=artifact['source']['event']
@@ -150,8 +181,8 @@ def source_context(app,event):
          'delivery_scope':artifact['delivery']['delivery_scope']}
 
 
-def presentation_fields(app,event,fields):
- context=source_context(app,event)
+def presentation_fields(app,event,fields,*,interaction_sources=False):
+ context=source_context(app,event,interaction_sources=interaction_sources)
  if context is None:return fields
  attrs=[{('可见受众' if k=='对象' else k):v for k,v in row.items()} for row in fields.get('内容属性',())]
  if 'speech_audience' in context:

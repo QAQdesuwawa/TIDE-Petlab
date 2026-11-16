@@ -69,7 +69,10 @@ class DesktopPetPackage(CxSixSevenFullV2Package):
         if grounded_recall.KEY in measurement:
             expected=grounded_recall.make_cue(event,measurement[grounded_recall.KEY])
             from framework.model_api import thaw_model_data
-            if thaw_model_data(context.metadata.get(grounded_recall.KEY,{}).get('cue'))!=expected:
+            from .address_recall import CONTENT_CUE_KEY,INDEPENDENT_VERSION
+            actual=(context.metadata.get(CONTENT_CUE_KEY) if expected.get('retrieval_routes')==INDEPENDENT_VERSION
+                    else context.metadata.get(grounded_recall.KEY,{}).get('cue'))
+            if thaw_model_data(actual)!=expected:
                 raise ValueError('recall cue differs from actual event evidence')
         calibration=measurement.get('local_calibration_reference')
         from .peer_opening import KEY as SPEECH_USE, matches

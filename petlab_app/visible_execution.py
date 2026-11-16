@@ -10,10 +10,11 @@ import queue,threading
 from framework.model_api import model_data_fingerprint as fp,thaw_model_data
 from model_packages.desktop_pet_v1.events import Content
 from .multi_pet import _immutable,_read,_key,_signed,_verify
-from .visible_delivery import KINDS,ENVELOPE_TEXT
+from .visible_delivery import (
+ KINDS,ENVELOPE_TEXT,FRAGMENT_VERSION,OBJECT_FRAGMENT_VERSION,OBJECT_REF,visible_parameters,
+)
 
 VERSION='petlab-visible-execution-checkpoint-v1'
-MANIFEST='petlab-visible-children-v2-fragments'
 EFFECT='petlab-visible-effect-v1'
 
 
@@ -124,13 +125,15 @@ class VisibleExecutionPublisher:
    for content in expand_presentations((Content.from_record(item['content']),)):
     expanded.append({**item,'content':content.to_record()})
   if len({i['content']['content_id'] for i in expanded})!=len(expanded):raise ValueError('visible projection identity collision')
-  audience=set(descriptor.active_member_ids)-{owner};items=[]
+  audience=set(descriptor.active_member_ids)-{owner};items=[];has_objects=False
   for item in expanded:
    c=Content.from_record(item['content'])
    if c.kind not in KINDS or c.private:raise ValueError('checkpoint contains a nonvisible child')
    recipients=tuple(meta.get('physical_observers',tuple(r for r in descriptor.active_member_ids if r!=owner))) if (meta.get('public_physical_envelope') or 'physical_observers' in meta) and c.kind in {'action','expression'} else tuple(r for r in c.recipient_refs if r in audience)
    if not recipients:continue
-   c=replace(c,recipient_refs=recipients,parameters={} if c.kind=='action' else c.parameters)
+   params=visible_parameters(c,completed=item['phase']=='completed')
+   has_objects=has_objects or OBJECT_REF in params
+   c=replace(c,recipient_refs=recipients,parameters=params)
    body=c.to_record();digest=fp(body)
    _immutable(w.root/'visible-contents'/(digest+'.json'),body)
    items.append({'content_id':c.content_id,'kind':c.kind,'recipient_refs':list(recipients),'body_fingerprint':digest,
@@ -139,7 +142,7 @@ class VisibleExecutionPublisher:
   segment=parent+'#visible:'+row['fingerprint']
   from product_adapters.desktop_pet_v1.audience_delivery import visible_targets
   targets=visible_targets([meta['target_ref']],meta.get('speech_to'),items)
-  manifest={'version':MANIFEST,'parent_event_id':parent,'segment_id':segment,'actor_ref':owner,
+  manifest={'version':OBJECT_FRAGMENT_VERSION if has_objects else FRAGMENT_VERSION,'parent_event_id':parent,'segment_id':segment,'actor_ref':owner,
    'target_refs':targets,'items':items,'sequence':row['sequence'],
    'previous_segment_id':None if row['previous'] is None else parent+'#visible:'+row['previous']}
   from model_packages.cx_six_seven_v1.multi_participant.events import canonical_npc_output_event_id,commit_message_event
@@ -168,7 +171,8 @@ class VisibleExecutionPublisher:
    if c.content_id+'::ended' in seen:continue
    start=seen.get(c.content_id+'::started',{}).get('started_at_ms',event.position.coordinate)
    status=c.parameters.get('execution_status','completed') if c.kind=='action' else 'completed'
-   remaining.append({'content':replace(c,parameters={} if c.kind=='action' else c.parameters).to_record(),
+   params=visible_parameters(c,completed=status=='completed')
+   remaining.append({'content':replace(c,parameters=params).to_record(),
     'phase':status,'started_at_ms':start,'at_ms':event.position.coordinate,
     'reason':c.parameters.get('interruption_reason'),'cause_ref':c.parameters.get('cause_ref')})
   self.save(meta,remaining,evidence_kind='committed_execution',commit_ref=source['evidence']['commit_receipt']['fingerprint'])
@@ -202,7 +206,7 @@ class Recorder:
   if state['source']['prepared_fingerprint']!=self.prepared.fingerprint:raise ValueError('visible effect has no sealed parent')
   actual=[];keys=set()
   for row in value['items']:
-   extras={'gaze_result','movement_result','meal_result','contact_result'} if value['version']=='petlab-visible-effect-v3-object' else {'gaze_result','movement_result'} if value['version']=='petlab-visible-effect-v2-spatial' else set()
+   extras={'gaze_result','movement_result','meal_result','contact_result','prop_move_result','meal_button_result'} if value['version']=='petlab-visible-effect-v3-object' else {'gaze_result','movement_result'} if value['version']=='petlab-visible-effect-v2-spatial' else set()
    if set(row)!=({'content','phase','started_at_ms','at_ms','reason','cause_ref'}|(set(row)&extras)):raise ValueError('visible effect fields differ')
    c=Content.from_record(row['content']);identity=c.content_id;child=state['children'].get(identity,{})
    if c.private or c.kind not in KINDS:raise ValueError('private or invisible child cannot be published')
@@ -234,7 +238,6 @@ class Recorder:
    if c.kind=='action' and c.semantic_key in ('move_near','stroll','move_away','relocate'):
     from model_packages.desktop_pet_v1.movement import realized
     visible=realized(c,row.get('movement_result'),status=row['phase'],reason=row['reason'],cause_ref=row.get('cause_ref'))
-    visible=replace(visible,parameters={})
    elif 'movement_result' in row:raise ValueError('movement result has no selected movement')
    else:visible=display_content(c,row['phase'],row['reason'])
    if 'meal' in c.parameters and row['phase']!='started':
@@ -245,14 +248,23 @@ class Recorder:
     from model_packages.desktop_pet_v1.social_contact import realized
     visible=replace(realized(c,row.get('contact_result'),row['phase']),parameters={})
    elif 'contact_result' in row:raise ValueError('contact result has no completed body action')
+   if 'prop_move' in c.parameters:
+    from model_packages.desktop_pet_v1.prop_move import realized
+    visible=realized(c,row.get('prop_move_result'),row['phase'])
+   elif 'prop_move_result' in row:raise ValueError('prop result has no selected action')
+   if 'meal_button' in c.parameters:
+    from model_packages.desktop_pet_v1.meal_button import realized
+    visible=realized(c,row.get('meal_button_result'),row['phase'])
+   elif 'meal_button_result' in row:raise ValueError('button result has no selected action')
    from .visible_delivery import action_description
-   visible=replace(visible,description=action_description(c,visible.description))
+   params=visible_parameters(visible,completed=row['phase']=='completed')
+   visible=replace(visible,description=action_description(c,visible.description),parameters=params)
    plan=self.prepared.composite_plan()
    if c.kind=='action' and plan.version=='desktop-pet-composite-v4-sequence':
     from model_packages.desktop_pet_v1.action_sequence import describe_stage,body_order
     bodies=body_order(plan.children)
     visible=describe_stage(visible,bodies.index(c.content_id))
-   actual.append({**{k:v for k,v in row.items() if k not in {'gaze_result','movement_result','meal_result','contact_result'}},'content':visible.to_record()})
+   actual.append({**{k:v for k,v in row.items() if k not in {'gaze_result','movement_result','meal_result','contact_result','prop_move_result','meal_button_result'}},'content':visible.to_record()})
   self.publisher.save(self.meta,actual)
 
 

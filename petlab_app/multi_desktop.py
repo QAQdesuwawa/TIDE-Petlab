@@ -100,7 +100,7 @@ def community_configurations(configuration,cast,workspace_root,count):
 
 
 class MultiDesktop:
- def __init__(self,root,*,configuration,workspace_root,asset_dir,count=None,cast=None,world_objects=(),screen=None):
+ def __init__(self,root,*,configuration,workspace_root,asset_dir,count=None,cast=None,world_objects=(),screen=None,playground=False):
   self.root=root;root.withdraw()
   self.configurations=(multi_configurations(configuration,workspace_root=workspace_root,count=count) if cast is None else
                        community_configurations(configuration,cast,workspace_root,count))
@@ -118,17 +118,20 @@ class MultiDesktop:
     view_assets=self.asset_dir if pack is None else self.asset_dir.parent/pack
     declared=preflight_visual_capabilities(view_assets,native=sys.platform=='win32') if cfg.expression_codes else None
     action_options={}
-    if cast is not None:
+    if cast is not None or playground:
      from model_packages.desktop_pet_v1.movement import KEYS
-     clips=json.loads((view_assets/'activities.json').read_text(encoding='utf8'))['clips']
+     from .shared_meal_animation import read_activities
+     clips=read_activities(view_assets)['clips']
      from model_packages.desktop_pet_v1.social_contact import KEYS as CONTACT_KEYS
      action_options={'executable_action_keys':sorted(set(clips)|set(KEYS)|set(CONTACT_KEYS))}
+     if playground and 'wave_hand' in clips:
+      action_options['executable_action_keys'].extend(('move_prop','press_meal_button'))
     actor=ProcessDesktopActor(configuration=cfg,session_path=local/'session.json',trace_dir=local/'providers',checkpoint_storage_mode='delta-v1',visual_capabilities=declared,defer_startup=True,multi_workspace={'root':str(self.workspace.root),'alias':alias},**action_options)
     self.actors[alias]=actor
     surface=tk.Toplevel(root)
     view=DesktopExecutor(surface,asset_dir=view_assets,trace_dir=local/'playback',speech_presenter=lambda text:None)
-    if cast is not None:
-     if set(clips)|set(CONTACT_KEYS)!=set(view.activity_clips):raise ValueError('community clips differ from loaded playback')
+    if cast is not None or playground:
+     if cast is not None and set(clips)|set(CONTACT_KEYS)!=set(view.activity_clips):raise ValueError('community clips differ from loaded playback')
      view.executable_action_keys=frozenset(action_options['executable_action_keys'])
     if cfg.expression_codes:
      view.set_expression('normal')
@@ -160,24 +163,35 @@ class MultiDesktop:
     window.view.contact_peers={w.configuration.definition.owner_ref:w.view for w in self.windows.values()}
     if self.meal is not None:window.context_menu.insert_command(0,label='开饭：给 '+window.configuration.definition.name+' 一碗饭',command=lambda owner=owner:self.start_meal(owner))
    self._scene_signatures={}
+   if playground:
+    from .desktop_playground import PlaygroundWindow
+    self.playground=PlaygroundWindow(self)
+    for window in self.windows.values():
+     window.view.move_playground_prop=self.playground.move_from_actor
+     window.view.press_meal_button=self.playground.press_from_actor
    for actor in self.actors.values():actor.activate()
    self._refresh_scene()
    self._close_alarm=root.after(100,self._observe_closed)
   except Exception:
    self.close();self.join();raise
- def start_meal(self,owner):
+ def start_meal(self,owner,*,from_button=False):
   if self.meal is None:raise ValueError('shared bowl requires at least two pets')
   # One actual menu interaction, routed to both owners through the same inbox.
   if any(w.closed or w._needs_ingress_recovery() for w in self.windows.values()):return
-  for window in self.windows.values():
-   window.product.note_participant_activity()
-   window.view.interrupt_activity(reason='user_contact',cause_ref='meal:new-scene')
-  self.meal.start(owner)
-  self._publish_meal()
-  from model_packages.desktop_pet_v1.shared_meal import placement
-  value=self.meal.snapshot();content=placement(value)
-  self.workspace.submit_human(event_id='meal:placement:'+value['interaction_id'],conversation='public',
+  if from_button:
+   current=self.meal.snapshot()
+   if current is not None and current['portions']>0:return False
+  else:
+   for window in self.windows.values():
+    window.product.note_participant_activity()
+    window.view.interrupt_activity(reason='user_contact',cause_ref='meal:new-scene')
+  value=self.meal.start(owner)
+  from model_packages.desktop_pet_v1.shared_meal import placement, placement_event_id
+  content=placement(value,from_button=from_button)
+  self.workspace.submit_human(event_id=placement_event_id(value['interaction_id']),conversation='public',
    text=content.as_text(),at=wall_clock_ms(),addressed=content.recipient_refs,input_content=content)
+  self._publish_meal()
+  return True
  def _publish_meal(self):
   if self.meal is None:return
   value=self.meal.snapshot();signature=None if value is None else value['fingerprint']
@@ -300,9 +314,10 @@ def main():
  parser.add_argument('--count',type=int,default=None,help='New workspace pet count; omitted restores the saved cast')
  parser.add_argument('--cast',type=Path,help='Measured four-role workspace.json used to create a separate desktop cast')
  parser.add_argument('--world',type=Path,help='Optional JSON list of public desktop objects with ref, label and point')
+ parser.add_argument('--playground',action='store_true',help='Show the meal button and four draggable desktop props')
  args=parser.parse_args();configuration=load_configuration(args.config)
  objects=() if args.world is None else json.loads(args.world.read_text(encoding='utf8'))
- root=tk.Tk();host=MultiDesktop(root,configuration=configuration,workspace_root=args.workspace,asset_dir=args.assets,count=args.count,cast=args.cast,world_objects=objects)
+ root=tk.Tk();host=MultiDesktop(root,configuration=configuration,workspace_root=args.workspace,asset_dir=args.assets,count=args.count,cast=args.cast,world_objects=objects,playground=args.playground)
  try:root.mainloop()
  finally:host.close();host.join()
 if __name__=='__main__':main()

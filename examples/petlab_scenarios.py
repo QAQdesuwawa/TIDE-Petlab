@@ -53,12 +53,13 @@ class OfflineFixture:
         if self.current_question is None:raise ValueError('fixture question not selected')
         values=[];used=[]
         for requested in self.current_question['properties']:
-            matches=[(card,prop) for card in cards for prop in card.get('语义属性',[])
+            matches=[(card,prop) for card in cards
+                     for prop in card.get('语义属性',[])+card.get('话语语义（说话者的说法）',{}).get('语义标签',[])
                      if prop['owner']==requested['owner'] and prop['path']==requested['path']
                      and prop['kind']=='assertion']
             if not matches:raise ValueError('required property absent from delivered cards')
-            # Use actual delivered source chronology, never the fixture's expected answer.
-            card,prop=max(matches,key=lambda pair:pair[0]['发生时间'])
+            # Writer delivers these rows in occurrence order.
+            card,prop=matches[-1]
             values.append(prop['value']);used.append(card['记忆标记'])
         return {'speech':'；'.join(values),'reported_used_memory_ids':list(dict.fromkeys(used)),
                 **({'actions':[]} if '可选动作序列：' in prompt else {})}

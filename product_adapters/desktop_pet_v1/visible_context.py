@@ -24,7 +24,7 @@ def _artifact(app,source):
  return json.loads(raw)
 
 
-def build(app,event,*,limit_chars=2048,max_events=16,public_human=False):
+def build(app,event,*,limit_chars=2048,max_events=16,public_human=False,reply_conversation=None):
  if type(limit_chars)is not int or limit_chars<=0 or type(max_events)is not int or not 1<=max_events<=16:raise ValueError('conversation context budget invalid')
  if event.event_kind!='peer_input':return None
  sources=app.runtime.session.profile['desktop_pet_product_v1']['sources']
@@ -53,7 +53,8 @@ def build(app,event,*,limit_chars=2048,max_events=16,public_human=False):
    if prior_artifact is None or prior_artifact['conversation']!=conversation:continue
   elif source['origin']=='execution':
    dest=source['evidence']['fact']['model_payload']['execution_receipt']['realization_evidence'].get('participant_destination')
-   if dest is None or thaw_model_data(dest['conversation'])!=conversation or event.actor_ref not in dest['audience']:continue
+   if (dest is None or thaw_model_data(dest['conversation']) not in (conversation,reply_conversation)
+       or event.actor_ref not in dest['audience']):continue
   else:continue
   contents=tuple(c for c in prior.visible_contents(event.owner_ref) if not c.private and c.kind in ('speech','expression','action')
     and (source['origin']!='execution' or event.actor_ref in c.recipient_refs))

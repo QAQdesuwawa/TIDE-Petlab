@@ -132,7 +132,8 @@ def open_application(*,definition,session_path,action_verifier,initial_coordinat
         restore_runtime_expression_state(app.runtime.session.profile,session_binding=app.runtime.session.session_binding)
         app.definition=definition
         from model_packages.desktop_pet_v1.address_semantics import VERSION as ADDRESS_RECALL_VERSION
-        if memory_recall_version == ADDRESS_RECALL_VERSION:
+        from model_packages.desktop_pet_v1.address_recall import INDEPENDENT_CONFIG
+        if memory_recall_version in (ADDRESS_RECALL_VERSION, INDEPENDENT_CONFIG):
             from interaction_extensions.local_memory_source import register
             from model_packages.desktop_pet_v1.memory_direct_readout import prevalidate_committed_sources
             runtime = app.runtime

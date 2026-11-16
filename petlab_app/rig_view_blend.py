@@ -65,9 +65,10 @@ class ViewBlendFrame(RigFrame):
     @property
     def bgra(self):
         from .rig_expression_pose import compose,endpoint
+        from .shared_meal_animation import side_hold_pose
         layers=[];poses=[]
         for f,selected in zip(self.endpoints,self.layer_selection()):
-            pose=compose(f.pose,endpoint(f.rig,f.code));d={}
+            pose=side_hold_pose(f.rig,compose(f.pose,endpoint(f.rig,f.code)));d={}
             render(f.rig['parts'],f.rig['textures'],pose,size=(f.width,f.height),expression=f.code,layers=d,selected_parts=selected)
             layers.append(d);poses.append(pose)
         return self.composite(layers,poses).bgra

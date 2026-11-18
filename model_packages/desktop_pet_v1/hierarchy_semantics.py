@@ -45,6 +45,52 @@ def validate(event,parsed):
  if model_data_fingerprint(expected['properties'])!=model_data_fingerprint(parsed.get('properties')):raise ValueError('stored property source differs')
  return expected['properties']
 
+SPEECH_EVIDENCE_SUFFIX=':attributed-speech-evidence-v2'
+SPEECH_REPORT_PATH=('话语','关于他人的说法')
+
+
+def _speaker_role(event):
+ return 'current_npc' if event.actor_ref==event.owner_ref else 'user'
+
+
+def speech_evidence_instruction(event):
+ speaker=_speaker_role(event)
+ return (
+ '\n【话语的证据归属】话语片段直接证明说话者作了这次表达。'
+ '话语若描述别人先前做过的事，按说话者的说法归档。'
+ f'本次说话者的 owner 标签是 {speaker}，转述属性用此标签。'
+ 'path 用「话语 / 关于他人的说法」后接主题，value 为 null，'
+ 'evidence_text 摘录本次说法。询问仍保留其所问对象。'
+ '原始话语和实际执行片段各自提供自己的证据，前序参照只用于理解当前话语。'
+)
+
+
+def scope_speech_reports(event, properties):
+ """Keep a cross-person assertion grounded as an attributed utterance."""
+ from .semantic import evidence_parts
+
+ speaker=_speaker_role(event)
+ speech_spans=[]
+ offset=0
+ for content,text in zip(event.contents,evidence_parts(event)):
+  end=offset+len(text)
+  if content.kind=='speech':speech_spans.append((offset,end))
+  offset=end+1
+ result=[]
+ conversions=[]
+ for row in properties:
+  start,end=row['span']
+  if (row['kind']=='assertion' and row['owner'] not in (speaker,'unresolved')
+      and any(left<=start<end<=right for left,right in speech_spans)):
+   conversions.append(thaw_model_data(row))
+   path=tuple(row['path'])
+   if path[:2]!=SPEECH_REPORT_PATH:
+    topic=path[1:] if path[:1]==SPEECH_REPORT_PATH[:1] else path
+    path=(*SPEECH_REPORT_PATH,*topic[:6])
+   row={**row,'owner':speaker,'path':list(path),'value':None}
+  if row not in result:result.append(row)
+ return result,conversions
+
 
 class HierarchyCodec:
  memory_recall_version=RECALL_VERSION

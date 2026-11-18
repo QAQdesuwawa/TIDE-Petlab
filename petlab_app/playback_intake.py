@@ -3,6 +3,48 @@ from concurrent.futures import ThreadPoolExecutor
 from .multi_pet import _key,_immutable,_read,_verify
 
 
+def prefetch_world_for_writer(link, source_ref):
+    """Start one actual scene receipt while Writer owns the current position."""
+    app=link.product.application
+    saved=getattr(app,'_writer_world_intake',None)
+    if saved is not None:
+        if writer_world_input(app,saved[0]) is not None:return False
+        app._writer_world_intake=None
+    from .desktop_routines import next_world
+    world=next_world(link)
+    if world is None:return False
+    intake=PlaybackIntake(link,None)
+    intake.take_world(world)
+    intake.pool.shutdown(wait=False)
+    intake.pool=None
+    if not hasattr(link.product.semantic,'_prefetched'):link.product.semantic._prefetched={}
+    link.product.semantic._prefetched[intake.event.event_id]=(intake.work,intake.future)
+    app._writer_world_intake=(source_ref,intake)
+    return True
+
+
+def writer_world_input(app, source_ref):
+    saved=getattr(app,'_writer_world_intake',None)
+    if saved is None or saved[0]!=source_ref:return None
+    intake=saved[1]
+    from product_adapters.desktop_pet_v1 import EVENT_JOURNAL_KEY
+    if intake.event.event_id in app.runtime.session.profile.get(EVENT_JOURNAL_KEY,{}):return None
+    app._verify_source(intake.event)
+    return intake
+
+
+def for_action(link, action_id, is_cancelled=lambda:False):
+    app=link.product.application
+    saved=getattr(app,'_writer_world_intake',None)
+    if saved is not None and saved[1].action_id==action_id:
+        app._writer_world_intake=None
+        intake=saved[1]
+        intake.cancelled=is_cancelled
+        link.product.semantic._prefetched.pop(intake.event.event_id,None)
+        return intake
+    return PlaybackIntake(link,action_id,is_cancelled)
+
+
 def _same_reply_slot(app, publisher, action_id, row, *, reference=None):
     from .destinations import destination
     parent=getattr(app,'_prefetch_reply_source',None)
@@ -20,6 +62,33 @@ def _same_reply_slot(app, publisher, action_id, row, *, reference=None):
             raise ValueError('speech takeover differs from sealed playback destination')
         return tuple(meta.get('speech_to',(target['primary'],)))==(target['primary'],)
     return True
+
+
+def _bound_speech_ids(product, action_id, opening_source, target):
+    """Bind selected speech children to one dispatched Writer and direct listener."""
+    publisher=getattr(product,'visible_execution_publisher',None)
+    if publisher is None:return None
+    path=publisher.directory(action_id)/'source.json'
+    if not path.is_file():return None
+    meta=_verify(_read(path))
+    if meta['parent_action_id']!=action_id or meta['target_ref']!=target:
+        raise ValueError('opening revision and playback target differ')
+    if 'speech_to' not in meta:return None
+    if tuple(meta['speech_to'])!=(target,):return []
+    from product_adapters.desktop_pet_v1.composite_journal import ParentJournal
+    state=ParentJournal(product.gateway.trace_dir/'parents',action_id).state()
+    source=state.get('source',{})
+    if not source:return None
+    if source['prepared_fingerprint']!=meta['prepared_fingerprint']:
+        raise ValueError('opening revision and dispatched candidate differ')
+    if source['source_event_id']!=opening_source:return []
+    # Late candidates with their own Writer have no prepared child here.
+    bound=[]
+    for key,row in state['children'].items():
+        content=row.get('prepared',{}).get('content',{})
+        if content.get('kind')=='speech' and target in content['recipient_refs']:
+            bound.append(key)
+    return bound
 
 
 def _human_followup(app,row,reference,*,allow_invitation=False):
@@ -44,8 +113,10 @@ class PlaybackIntake:
         self.link=link;self.product=link.product;self.app=self.product.application
         self.action_id=action_id;self.cancelled=is_cancelled
         self.pool=None;self.future=None;self.row=None;self.proof=None;self.error=None;self.closed=False
+        self.world=None
         self.output_work=None;self.output_future=None
         self.on_speech_hold=None
+        self.on_takeover=None
         self.prefetch_writer=True
         self.detachable=bool(getattr(link,'_defer_playback_settlement',False))
     def __enter__(self):return self
@@ -53,6 +124,35 @@ class PlaybackIntake:
         try:self.finish()
         finally:
             if self.pool is not None:self.pool.shutdown(wait=not self.detachable)
+    def _measure(self,args):
+        self.event=self.app.accept_input(scope_ref=self.app.definition.scope_ref,
+            actor_ref=args['input_source']['actor_ref'],**args)
+        self.work=self.product.semantic.prepare(self.event)
+        self.pool=ThreadPoolExecutor(max_workers=1,thread_name_prefix='pet-playback-provider')
+        self.future=self.pool.submit(self.work.transport)
+    def take_world(self,world):
+        from .screen_perception import prepare_input
+        self.world=world
+        self._measure(prepare_input(self.app,world[1]))
+    def poll_next(self,*,admit=True):
+        """After a settled input, admit the next input during the same playback.
+
+        Never replace in-flight transport, failed work, or output settlement.
+        Completed inputs already own durable source/assessment bindings.
+        """
+        if (admit and self.closed and self.error is None and self.future is not None
+                and self.future.done() and self.output_work is None and not self.cancelled()
+                and self.app._product()['executions'].get(self.action_id,{}).get('status')=='started'):
+            callbacks=(self.on_speech_hold,self.on_takeover,self.prefetch_writer,self.detachable)
+            completed=(*getattr(self,'settled_inputs',()),self.event.event_id)
+            if self.pool is not None:self.pool.shutdown(wait=False)
+            link,action,cancelled=self.link,self.action_id,self.cancelled
+            self.__init__(link,action,cancelled)
+            self.on_speech_hold,self.on_takeover,self.prefetch_writer,self.detachable=callbacks
+            self.settled_inputs=completed
+            for name in ('event','work','active_delivery'):
+                self.__dict__.pop(name,None)
+        return self.poll(admit=admit)
     def poll(self,*,admit=True):
         if self.closed:return self.proof
         if getattr(self.link,'_following_effect',None) is not None:return None
@@ -62,21 +162,24 @@ class PlaybackIntake:
                 if self.row is None or notice is not None:
                     self.link._refresh()
                     if notice is not None:notice()
-            if self.row is None and admit and not self.cancelled():
+            if self.future is None and admit and not self.cancelled():
                 from .delivery_admission import current_input,retained_delivery,source_delivery
-                if not self.link._pending:return None
-                try:
-                    source=getattr(self.app,'_prefetch_reply_source',None)
-                    active=source_delivery(self.link,source)
-                    latest=retained_delivery(self.link,source,active)
-                except FileNotFoundError:
-                    self.closed=True
-                    return None
+                active=latest=None
+                if self.link._pending:
+                    try:
+                        source=getattr(self.app,'_prefetch_reply_source',None)
+                        active=source_delivery(self.link,source)
+                        latest=retained_delivery(self.link,source,active)
+                    except FileNotFoundError:
+                        self.closed=True
+                        return None
                 self.active_delivery=active
+                from .visible_measurement import measured_parent
                 self.row=next((r for r in self.link._pending
                     if ((r['sender_kind']=='npc' and (r.get('visible') or r['delivery']['delivery_scope']=='addressed'))
                         or _human_followup(self.app,r,active,allow_invitation=True))
                     and current_input(r,latest,getattr(self.link,'_human_frontier',None))
+                    and not measured_parent(self.link,r,include_inflight=True)
                     and not self.link._covered_start(r)
                     and 'participant:'+_key(r['delivery']['delivery_id']) not in self.app._product()['sources']
                     and not (self.link.local/'failed'/(_key(r['delivery']['delivery_id'])[:24]+'.json')).exists()),None)
@@ -85,29 +188,46 @@ class PlaybackIntake:
                     if gate is not None and not gate(self.row):self.closed=True;return None
                     from .participant_input import prepare
                     args=prepare(self.app,self.row,self.link.workspace)
-                    self.event=self.app.accept_input(scope_ref=self.app.definition.scope_ref,
-                        actor_ref=args['input_source']['actor_ref'],**args)
-                    self.work=self.product.semantic.prepare(self.event)
-                    if self.on_speech_hold is not None and (_human_followup(self.app,self.row,self.active_delivery) or _same_reply_slot(
-                            self.app,getattr(self.product,'visible_execution_publisher',None),
-                            self.action_id,self.row,reference=self.active_delivery)):
-                        self.on_speech_hold()
-                    self.pool=ThreadPoolExecutor(max_workers=1,thread_name_prefix='pet-playback-provider')
-                    self.future=self.pool.submit(self.work.transport)
+                else:
+                    from .desktop_routines import next_world
+                    world=next_world(self.link)
+                    if world is None:return None
+                    self.take_world(world)
+                if self.row is not None:self._measure(args)
             if self.future is not None and self.future.done():
                 self.future.result();payload=self.work.finish()
                 self.app.settle_received(self.event.event_id,measure=lambda _:payload)
-                if _human_followup(self.app,self.row,self.active_delivery):
+                required_followup=self.row is not None and _human_followup(self.app,self.row,self.active_delivery)
+                if required_followup or (self.row is not None and _same_reply_slot(
+                        self.app,getattr(self.product,'visible_execution_publisher',None),
+                        self.action_id,self.row,reference=self.active_delivery)):
                     from .destinations import destination
-                    target=destination(self.app,self.app._prefetch_reply_source)
-                    self.proof={'parent_action_id':self.action_id,'playback_target_ref':target['primary'],
-                        'event_id':self.event.event_id,'delivery_id':self.row['delivery']['delivery_id'],
-                        'input_fact':self.app.runtime.memory_instance(self.event.event_id).fact.fingerprint,
-                        'actor_ref':self.event.actor_ref,'kind':'required_human_followup'}
+                    from .execution_inputs import speech_revision
+                    source=getattr(self.app,'_prefetch_reply_source',None)
+                    target=destination(self.app,source) if source is not None else None
+                    entry=self.app._product()['executions'].get(self.action_id,{})
+                    if target is not None and entry.get('status')=='started':
+                        revision=speech_revision(self.app,self.event.event_id,target['primary'],opening_source=source)
+                        if revision is not None:
+                            self.proof={**revision,'parent_action_id':self.action_id,
+                                'playback_target_ref':target['primary'],'event_id':self.event.event_id,
+                                'delivery_id':self.row['delivery']['delivery_id'],'actor_ref':self.event.actor_ref}
+                            if revision['cause']=='opening_support_reversed':
+                                ids=_bound_speech_ids(self.product,self.action_id,source,target['primary'])
+                                if ids is not None:self.proof['bound_speech_ids']=ids
+                            if self.on_takeover is not None:
+                                self.on_takeover(self.proof)
+                if required_followup:
                     self.closed=True
                     if self.detachable:
                         self.link._settled_playback_followup=(self.action_id,self.event.event_id,self.row)
-                    if self.on_speech_hold is not None:
+                    if self.app._product()['executions'][self.action_id]['status']=='executed':
+                        from threading import get_ident
+                        prior=getattr(self.app,'_recovery_projection',None)
+                        self.app._recovery_projection=(self.action_id,self.event.event_id,get_ident())
+                        try:self._prefetch_followup(True)
+                        finally:self.app._recovery_projection=prior
+                    elif self.on_speech_hold is not None:
                         self._prefetch_followup(admit)
                     return self.proof
                 from .peer_reaction import assess,react
@@ -117,6 +237,21 @@ class PlaybackIntake:
                     self.app._recovery_projection=(self.action_id,self.event.event_id,get_ident())
                 try:grant=assess(self.app,self.event.event_id)
                 finally:self.app._recovery_projection=prior
+                if self.world is not None:
+                    if grant['eligible']:
+                        from .execution_inputs import remember
+                        if self.app._product()['executions'][self.action_id]['status']=='executed':
+                            self.app._recovery_projection=(self.action_id,self.event.event_id,get_ident())
+                        try:remember(self.app,self.action_id,self.event.event_id)
+                        finally:self.app._recovery_projection=prior
+                    else:
+                        from .screen_perception import settlement_receipt
+                        path,material=self.world
+                        outcome=react(self.product,self.event.event_id,executor=None)
+                        _immutable(path.parent/'settled'/path.name,
+                                   settlement_receipt(self.event.event_id,material,outcome))
+                    self.closed=True
+                    return None
                 identity=self.row['delivery']['delivery_id']
                 if grant['eligible']:
                     from .execution_inputs import remember
@@ -134,14 +269,6 @@ class PlaybackIntake:
                             elif executed:
                                 self._prefetch_followup(True)
                     finally:self.app._recovery_projection=prior
-                    from .delivery_admission import can_interrupt_peer_reply
-                    if can_interrupt_peer_reply(self.row) and _same_reply_slot(
-                            self.app,getattr(self.product,'visible_execution_publisher',None),self.action_id,self.row,reference=getattr(self,'active_delivery',None)):
-                        from .destinations import destination
-                        playback_target=destination(self.app,getattr(self.app,'_prefetch_reply_source',None))['primary']
-                        self.proof={'parent_action_id':self.action_id,'playback_target_ref':playback_target,'event_id':self.event.event_id,'delivery_id':identity,
-                                    'grant_fingerprint':grant['fingerprint'],
-                                    'actor_ref':self.row['projection']['sender_participant_id']}
                 else:
                     react(self.product,self.event.event_id,executor=None)
                     _immutable(self.link.local/'accepted'/(_key(identity)[:24]+'.json'),
@@ -213,7 +340,7 @@ def finish_pending(link):
     if work.output_future is not None and not work.output_future.done():
         # Settle the already received supplement on the owner thread. The
         # preceding actual effect is sealed and its transport can keep running.
-        if work.row.get('response_policy')=='eligible' and _human_followup(
+        if work.row is not None and _human_followup(
                 work.app,work.row,work.active_delivery,allow_invitation=True):
             work.poll(admit=False)
         return False

@@ -212,6 +212,7 @@ class DesktopPetWindow:
         self.dialog.bind("<Escape>",lambda event:self.hide_dialog())
         self.dialog.protocol("WM_DELETE_WINDOW",self.hide_dialog)
         self.speech_bubble=PetSpeechBubble(root,position=self._position_surface)
+        self.view.speech_preview_presenter=self.speech_bubble.preview_speech
         self.action_hint=PetActionHint(root)
         self.view.action_hint_presenter=lambda emoji,ref,eyes:self.results.put(
             ('action_hint',{'emoji':emoji,'request_ref':ref,'eye_pose':eyes}))
@@ -415,9 +416,14 @@ class DesktopPetWindow:
         """Acknowledge a local send using the last settled visual state."""
         if self.closed or getattr(self,'_drag_origin',None) is not None:
             return
-        if getattr(self.view,'active',None) is None:
+        active=getattr(self.view,'active',None)
+        if active is None:
             self.view.select_presentation_target(self.configuration.definition.user_ref,pending=True)
             self.view.show_eye_hint('open','input-listening:'+uuid.uuid4().hex)
+        elif getattr(active,'speech_progress',None):
+            # A listening cue may coexist with a sentence already being shown.
+            self.view.show_eye_hint('open','input-listening:'+uuid.uuid4().hex)
+            return
         self.speech_bubble.show_typing()
 
     def _submit(self,content,coordinate,policy,*,queue_while_busy=False):
@@ -476,14 +482,14 @@ class DesktopPetWindow:
             # replay the retained interaction or enqueue semantic ingress.
             target=self.view.hit_body_region(event.x,event.y)
             self.view.set_phone_activity(None)
+            self.view.pointer_control_active=True
             self.view.interrupt_activity(reason='user_contact',cause_ref='tk-press:'+uuid.uuid4().hex)
             self.view.start_body_feedback(target)
             self._drag_moved=False
             self._recovery_drag_origin=(event.x_root,event.y_root,self.root.winfo_x(),self.root.winfo_y())
             return
-        # End old speech and its temporary face together at real new contact.
+        # Pointer contact owns the body, not independently authorized speech.
         visible_body_target=self.view.hit_body_region(event.x,event.y)
-        self.hide_speech()
         self.view.clear_gaze()
         self.view.select_presentation_target(self.configuration.definition.user_ref,pending=True)
         self.view.restore_settled_expression()
@@ -496,6 +502,7 @@ class DesktopPetWindow:
         # the actual UI callback, not a committed semantic input event.
         cause_ref=gesture if gesture is not None else 'tk-press:'+__import__('uuid').uuid4().hex
         try:
+            self.view.pointer_control_active=True
             self.view.set_phone_activity(None)
             self.view.interrupt_activity(reason='user_contact',cause_ref=cause_ref)
             self.view.start_body_feedback(self._press_body_target)
@@ -503,6 +510,7 @@ class DesktopPetWindow:
             # No backend press has been delivered yet. A failed visual effect
             # must not leave a captured gesture that blocks the next contact.
             self.mouse.cancel();self._press_body_target=None;self._drag_moved=False
+            self.view.pointer_control_active=False
             self.view.finish_visual_feedback(cancelled=True)
             raise
         self._drag_origin=(event.x_root,event.y_root,self.root.winfo_x(),self.root.winfo_y())
@@ -561,10 +569,12 @@ class DesktopPetWindow:
         capture=getattr(self,'contact_capture',None)
         if capture is not None:capture.cut(wall_clock_ms(),ended=True)
         if getattr(self,'_recovery_drag_origin',None) is not None:
+            self.view.pointer_control_active=False
             if self._drag_moved:self.view.finish_visual_feedback(cancelled=True)
             self._recovery_drag_origin=None;self._desired_position=None;self._drag_moved=False
             return
         if self._drag_origin is None:return
+        self.view.pointer_control_active=False
         self.speech_bubble.stop_contact();self.speech_bubble.stop_typing()
         start_x,start_y,*_=self._drag_origin
         was_dragging=self._drag_moved
@@ -810,7 +820,8 @@ class DesktopPetWindow:
                 current=(result.get('input_generation')==getattr(self.product,'_input_generation',None)
                     and result.get('speech_generation')==self._speech_generation)
             else:current=result==self._speech_generation
-            if current:self.speech_bubble.show_typing()
+            if current and not getattr(getattr(self.view,'active',None),'speech_progress',None):
+                self.speech_bubble.show_typing()
         else:
             if kind in {"armed","done","tick_done","job_error"}:
                 self._pending_ui_jobs=max(0,self._pending_ui_jobs-1)

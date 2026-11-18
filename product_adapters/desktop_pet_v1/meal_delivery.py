@@ -10,8 +10,9 @@ TIMELINE_VERSION='desktop-pet-meal-delivery-v4-receipt-timeline'
 PLACEMENT_SOURCE_VERSION='desktop-pet-meal-delivery-v5-placement-source'
 VERSION='desktop-pet-meal-delivery-v6-action-stage'
 EMPTY_SCENE_VERSION='desktop-pet-meal-delivery-v7-empty-scene'
+MULTIPLE_VERSION='desktop-pet-meal-delivery-v8-independent-bowls'
 PLACEMENT_VERSIONS=(PLACEMENT_SOURCE_VERSION,VERSION)
-TIMELINE_VERSIONS=(TIMELINE_VERSION,*PLACEMENT_VERSIONS)
+TIMELINE_VERSIONS=(TIMELINE_VERSION,*PLACEMENT_VERSIONS,MULTIPLE_VERSION)
 VERSIONS=(INPUT_SCOPE_VERSION,AVAILABILITY_VERSION,*TIMELINE_VERSIONS)
 
 
@@ -21,6 +22,12 @@ def text(context,*,version=None,contents=()):
         if context is not None:
             raise ValueError('empty meal card cannot carry a bowl')
         return heading+'本地现场确认桌面当前没有饭碗。'
+    if version==MULTIPLE_VERSION:
+        rows=shared_meal.bowls(context)
+        return (heading+'现场各饭碗分别记录，交接及吃饭按对应物件结算。\n'
+                +'\n'.join(f"物件 {row['interaction_id']} · 持有人 {row['holder_ref']} · 剩 {row['portions']} 份"
+                           +(f" · 正递给 {row['offer']['target_ref']}" if row['offer'] else '')
+                           for row in rows))
     if version is None:
         value=heading+shared_meal.card(context)
     elif version in VERSIONS:
@@ -79,6 +86,7 @@ def timeline(app,identities,context,*,covered_contents=None):
     from .visible_context import _artifact
 
     sources=app._product()['sources']
+    meal_ids={row['interaction_id'] for row in shared_meal.bowls(context)}
     rows={}
     for identity in dict.fromkeys(identities):
         source=sources[identity]
@@ -89,7 +97,7 @@ def timeline(app,identities,context,*,covered_contents=None):
             is_press=item.semantic_key==PRESS_KEY or item.parameters.get('input_kind')=='desktop_button'
             if item.kind=='interaction' and item.semantic_key=='place_meal':
                 meal=item.parameters.get('meal_scene')
-                if source['origin']!='input' or not meal or meal['interaction_id']!=context['interaction_id']:
+                if source['origin']!='input' or not meal or meal['interaction_id'] not in meal_ids:
                     continue
                 artifact=_artifact(app,source)
                 if artifact is None:
@@ -149,7 +157,10 @@ def augment(delivery,context,*,budget_chars,version=None,contents=(),history=(),
     out=thaw_model_data(delivery)
     out['user']+=text(context,version=version,contents=contents)+timeline_text(history,processing_ms=processing_ms)
     if len(out['system'])+len(out['user'])>budget_chars:raise ValueError('meal scene exceeds Writer budget')
-    if context is not None:out['meal_scene_fingerprint']=shared_meal.validate(context)['fingerprint']
+    if version==MULTIPLE_VERSION:
+        out['meal_scene_fingerprint']=fp(context)
+    elif context is not None:
+        out['meal_scene_fingerprint']=shared_meal.validate(context)['fingerprint']
     if version is not None:out['meal_scene_delivery_version']=version
     out['prompt_fingerprint']=hashlib.sha256((out['system']+'\0'+out['user']).encode()).hexdigest()
     out['fingerprint']=fp({k:v for k,v in out.items() if k!='fingerprint'})

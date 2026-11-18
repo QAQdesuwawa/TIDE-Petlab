@@ -233,10 +233,17 @@ class RagMemoryService:
         key=memory.fact.fingerprint
         if key not in self._address_cache:
             from .relation_annotations import _measurement
-            from model_packages.desktop_pet_v1.hierarchy_semantics import validate
-            parsed=_measurement(self.application.runtime.session.profile,memory).get('pet_memory_recall',{})
-            self._address_cache[key]=(validate(memory.event,parsed) if parsed.get('version') in
+            from model_packages.desktop_pet_v1.hierarchy_semantics import scope_speech_reports,validate
+            from petlab_app.participant_input import VISIBLE_VERSION
+            app=self.application
+            parsed=_measurement(app.runtime.session.profile,memory).get('pet_memory_recall',{})
+            event=memory.event
+            properties=(validate(event,parsed) if parsed.get('version') in
                 ('desktop-pet-hierarchical-property-recall-v7','desktop-pet-property-address-recall-v8') else [])
+            source=app.runtime.session.profile['desktop_pet_product_v1']['sources'].get(event.event_id,{})
+            if event.event_kind=='npc_output' or source.get('evidence',{}).get('input_source',{}).get('version')==VISIBLE_VERSION:
+                properties,_=scope_speech_reports(event,properties)
+            self._address_cache[key]=properties
         return self._address_cache[key]
 
     def _address_documents(self,documents,memories,basis,*,require_topic=False):
@@ -841,8 +848,8 @@ class RagMemoryService:
                 from .relation_annotations import _measurement
                 parsed=_measurement(app.runtime.session.profile,memory).get('pet_memory_recall',{})
                 if parsed.get('version') in ('desktop-pet-hierarchical-property-recall-v7','desktop-pet-property-address-recall-v8'):
-                    from model_packages.desktop_pet_v1.hierarchy_semantics import validate
-                    fields['语义属性']=[{k:thaw_model_data(v) for k,v in p.items() if k!='span'} for p in validate(event,parsed)]
+                    fields['语义属性']=[{k:thaw_model_data(v) for k,v in p.items() if k!='span'}
+                        for p in self._address_properties(memory)]
             if environment_evidence:
                 from .environment_delivery import FIELD as ENVIRONMENT_FIELD, evidence
                 environment = evidence(app, event, contents)

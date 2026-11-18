@@ -11,7 +11,7 @@ from petlab_app.writer_visibility import allowed
 VERSION='desktop-pet-witnessed-conversation-delivery-v1'
 KIND='witnessed_conversation_context'
 
-def typed_row(actor,owner,contents,*,information_acquisition=False):
+def typed_row(actor,owner,contents,*,information_acquisition=False,played_facts=None):
     labels={'speech':'本角色已经说过的话' if actor==owner else '对方已经说过的话',
         'action':'实际动作阶段','expression':'已显示表情'}
     parts=[{'内容身份':labels[c.kind],'原文':c.description} for c in contents]
@@ -19,10 +19,25 @@ def typed_row(actor,owner,contents,*,information_acquisition=False):
         from .speaker_view import received_fragment
         for part,content in zip(parts,contents):
             part['角色取得方式']=received_fragment(content.kind,own_output=actor==owner)
-    return {'实际说话或行动者':actor,'已发生内容':parts}
+    row = {'实际说话或行动者':actor,'已发生内容':parts}
+    if played_facts is not None:
+        for part,content in zip(parts,contents):
+            part.update(played_facts.get(content.content_id, {}))
+        if actor != owner:
+            row['内容接收者'] = owner
+    return row
 
 
-def card_for(app,event,*,readers,typed=False,timeline=False,public_human=False,precommit=False,scoped_reply=False,covered_contents=None,information_acquisition=False):
+def _played_facts(app, event, enabled):
+    if not enabled:
+        return None
+    from petlab_app.played_material import child_facts
+
+    source = app.runtime.session.profile['desktop_pet_product_v1']['sources'][event.event_id]
+    return child_facts(app, source, include_audience=True)
+
+
+def card_for(app,event,*,readers,typed=False,timeline=False,public_human=False,precommit=False,scoped_reply=False,covered_contents=None,information_acquisition=False,played_context=False):
     reply_conversation=None
     if scoped_reply and readers and set(readers)=={event.actor_ref} and event.actor_ref!=app.user_ref:
         from petlab_app.destinations import _input
@@ -67,7 +82,12 @@ def card_for(app,event,*,readers,typed=False,timeline=False,public_human=False,p
                     contents=tuple(c for c in contents if c.content_id not in covered)
             if not contents:continue
             content_ids[ref['event_id']]=[c.content_id for c in contents]
-            row=typed_row(prior.actor_ref,event.owner_ref,contents,information_acquisition=information_acquisition)
+            row=typed_row(prior.actor_ref,event.owner_ref,contents,information_acquisition=information_acquisition,
+                          played_facts=_played_facts(app,prior,played_context))
+            from .visible_context import played_continuations
+            continuation=played_continuations(app,app._product()['sources'][ref['event_id']],
+                                             before_ms=event.position.coordinate,readers=readers)
+            if continuation:row['同父输出后续已播话语']=continuation
             if timeline:
                 from .event_timeline import describe
                 row['事实时序'],row['父事件']=describe(app,prior)
@@ -101,9 +121,13 @@ RESIDUAL_DIRECT_RECENT_VERSION='desktop-pet-witnessed-direct-dialogue-v2'
 REQUIRED_DIRECT_RECENT_VERSION='desktop-pet-witnessed-direct-dialogue-v3'
 DIRECT_RECENT_VERSION='desktop-pet-witnessed-direct-dialogue-v4-public-input'
 IDLE_RECENT_VERSION='desktop-pet-idle-recent-context-v1'
+IDLE_V9_RECENT_VERSION='desktop-pet-idle-recent-context-v2-empty-recall'
+IDLE_V9_TIMED_VERSION='desktop-pet-idle-recent-context-v3-occurrence-time'
+IDLE_V9_VERSIONS={IDLE_V9_RECENT_VERSION,IDLE_V9_TIMED_VERSION}
 
 
-def idle_recent_card(app,event_id,*,before_ordinal,readers,source_ref,excluded_ids,information_acquisition=False):
+def idle_recent_card(app,event_id,*,before_ordinal,readers,source_ref,excluded_ids,
+                     information_acquisition=False,version=IDLE_RECENT_VERSION,played_context=False):
     """Bounded continuity at the sealed Tick, independent of recall scores."""
     from petlab_app.writer_visibility import allowed
     audience=set(readers)
@@ -122,21 +146,29 @@ def idle_recent_card(app,event_id,*,before_ordinal,readers,source_ref,excluded_i
                        if not c.private and c.kind in ('speech','action','expression'))
         if not contents:continue
         app._verify_source(event)
-        if not allowed(app,memory,readers):
+        if (version in IDLE_V9_VERSIONS
+                or not allowed(app,memory,readers)):
+            # Actual recipients (plus the originator) bound every fragment.
+            # Historical owner-local receipt reach alone cannot grant an audience.
             contents=tuple(c for c in contents if audience<=set(c.recipient_refs)|{app.owner_ref,event.actor_ref})
         if not contents:continue
-        row=typed_row(event.actor_ref,app.owner_ref,contents,information_acquisition=information_acquisition)
+        row=typed_row(event.actor_ref,app.owner_ref,contents,information_acquisition=information_acquisition,
+                      played_facts=_played_facts(app,event,played_context))
+        if version==IDLE_V9_TIMED_VERSION:
+            from .event_timeline import describe
+            timing,_=describe(app,event,world_observations=True)
+            row['事实时序']={'原发生时间':timing['原发生时间']}
         if len(json.dumps([row,*rows],ensure_ascii=False,separators=(',',':')))>2048:break
         rows.insert(0,row);refs.insert(0,fact.fingerprint);ids.insert(0,event.event_id)
     if not rows:return None
     return WriterCard(card_id='conversation:'+event_id+':idle_recent',lane='conversation',kind=KIND,
         source_id=event_id,fields={'上下文范围':'本轮之前已发生的近期可见互动。','已见的同会话前文':rows},
         source_receipt_refs=(source_ref,*refs),
-        provenance={'version':IDLE_RECENT_VERSION,'status':'delivered','source_event_ids':ids,
+        provenance={'version':version,'status':'delivered','source_event_ids':ids,
                     'source_count':len(ids),'formal_recall':False,'state_commit_authority':False})
 
 
-def direct_card_for(app,event,*,readers,version,covered_contents=None,information_acquisition=False):
+def direct_card_for(app,event,*,readers,version,covered_contents=None,information_acquisition=False,played_context=False):
     from .predecessor_reference import build as predecessor_sources
     sources,_=predecessor_sources(app,event)
     rows=[]
@@ -150,18 +182,23 @@ def direct_card_for(app,event,*,readers,version,covered_contents=None,informatio
         if information_acquisition:
             from .speaker_view import received_fragment
             row['角色取得方式']=received_fragment('speech',own_output=speaker=='角色')
-        if covered_contents is not None:
+        if covered_contents is not None or played_context:
             prior=memory.event
-            covered=covered_contents.get(prior.event_id, ())
+            covered=(covered_contents or {}).get(prior.event_id, ())
             speech=tuple(c for c in prior.visible_contents(event.owner_ref) if c.kind=='speech'
                          and not c.private and (speaker=='用户' or event.actor_ref in c.recipient_refs))
             if '\n'.join(c.description for c in speech)==original:
-                unique=[c.description for c in speech if c.content_id not in covered]
+                unique=tuple(c for c in speech if c.content_id not in covered)
                 if not unique:
                     continue
-                row['原文']='\n'.join(unique)
-            from .event_timeline import describe
-            row['事实时序']=describe(app,prior)[0]
+                if played_context:
+                    row={'说话者':speaker, **typed_row(prior.actor_ref,event.owner_ref,unique,
+                        information_acquisition=information_acquisition,played_facts=_played_facts(app,prior,True))}
+                else:
+                    row['原文']='\n'.join(c.description for c in unique)
+            if covered_contents is not None:
+                from .event_timeline import describe
+                row['事实时序']=describe(app,prior)[0]
         rows.append(row)
         refs.append(ref)
     if not rows:

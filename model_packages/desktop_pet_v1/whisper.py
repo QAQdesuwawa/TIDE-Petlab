@@ -2,7 +2,7 @@
 from dataclasses import replace
 from framework.model_api import thaw_model_data,model_data_fingerprint as fp
 from . import spatial,movement
-from .composite import CompositePlan
+from .composite import CompositePlan,DEPENDENCY_VERSION
 VERSION='desktop-pet-whisper-v1'
 APPROACH='whisper:approach'
 
@@ -20,7 +20,11 @@ def validate(ctx):
  if c['movement']!=movement.arrival_definition():raise ValueError('whisper movement differs')
  return c
 
-def compose(contents,children,ctx,*,finish_speech_before_departure=False):
+def compose(contents,children,ctx,*,finish_speech_before_departure=False,dependency_contract=None):
+ if dependency_contract not in (None,DEPENDENCY_VERSION):raise ValueError('unknown whisper dependency contract')
+ separate=dependency_contract==DEPENDENCY_VERSION or any('requires' in row for row in children.values())
+ if separate and any(row.get('after') and 'requires' not in row for row in children.values()):
+  raise ValueError('unclassified whisper input dependencies')
  c=validate(ctx);contents=tuple(contents)
  if not any(x.kind=='speech' for x in contents):
   return contents,CompositePlan.create(children) if children else None
@@ -34,7 +38,14 @@ def compose(contents,children,ctx,*,finish_speech_before_departure=False):
   if item.kind=='speech' and item.recipient_refs!=(target,):raise ValueError('whisper speech must have exactly one recipient')
   row=rows.setdefault(item.content_id,{'kind':item.kind,'key':item.semantic_key if item.kind=='action' else 'selected_presentation' if item.kind=='expression' else 'reply' if item.kind=='speech' else 'inner_monologue','after':[]})
   if item.kind in {'speech','action'} and not row['after']:row['after']=[APPROACH]
+  if separate:
+   row.setdefault('requires',[])
+   if item.kind=='speech':
+    row['after']=list(dict.fromkeys((*row['after'],APPROACH)))
+    row['requires']=list(dict.fromkeys((*row['requires'],APPROACH)))
  rows[APPROACH]={'kind':'action','key':'move_near','after':[]}
+ if separate:
+  for row in rows.values():row.setdefault('requires',[])
  if finish_speech_before_departure:
   from .audience_motion import finish_private_speech
   finish_private_speech(contents,rows,APPROACH)
@@ -58,9 +69,10 @@ def wrap(payload,control,ctx):
  from .events import Content
  base=thaw_model_data(payload)
  children=base.get('action_sequence',{}).get('children',control.get('composite',{}).get('children',{}))
- from .audience_motion import CURRENT_PRIVATE, EXPLICIT_WHISPER_ONLY
+ from .audience_motion import CURRENT_PRIVATE, EXPLICIT_WHISPER_ONLY, SINGLE_NPC_PROXIMITY
  items,plan=compose(tuple(Content.from_record(r) for r in base['contents']),children,ctx,
-  finish_speech_before_departure=control.get('audience_motion_policy')in (CURRENT_PRIVATE, EXPLICIT_WHISPER_ONLY))
+  dependency_contract=control.get('dependency_contract'),
+  finish_speech_before_departure=control.get('audience_motion_policy')in (CURRENT_PRIVATE, EXPLICIT_WHISPER_ONLY, SINGLE_NPC_PROXIMITY))
  return {**base,'contents':[r.to_record() for r in items],
          'whisper_plan':None if plan is None else thaw_model_data(plan.children)}
 

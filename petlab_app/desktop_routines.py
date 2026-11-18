@@ -52,6 +52,19 @@ def pending(link):
                          key=lambda p: (p.stat().st_mtime_ns, p.name)))
 
 
+def next_world(link):
+    from .screen_perception import WORLD_VERSION, _identity
+
+    app = link.product.application
+    for path in pending(link):
+        material = _read(path)
+        if (material.get('version') == WORLD_VERSION
+                and material['sampled_at_ms'] >= app.runtime.session.position.position.coordinate
+                and _identity(app, material) not in app._product()['sources']):
+            return path, material
+    return None
+
+
 def pump(link, path, *, executor, is_cancelled, on_reply_ready):
     product = link.product
     app = product.application

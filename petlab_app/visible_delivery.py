@@ -107,7 +107,7 @@ def validate_manifest(source):
   if type(m['sequence']) is not int or m['sequence']<0 or (m['sequence']==0)!=(m['previous_segment_id'] is None):raise ValueError('visible fragment sequence differs')
   origin=source['origin']
   if (origin.get('parent_action_id')!=m['parent_event_id'] or origin.get('event_fingerprint')!=fp(m)
-      or origin.get('evidence_kind') not in {'physical_execution_checkpoint','committed_execution'}
+      or origin.get('evidence_kind') not in {'physical_execution_checkpoint','committed_execution','physical_execution_episode'}
       or not m['segment_id'].startswith(m['parent_event_id']+'#visible:')
       or m['segment_id'].split('#visible:')[-1]!=origin.get('commit_fingerprint')):raise ValueError('visible fragment provenance differs')
  for item in m['items']:
@@ -118,7 +118,7 @@ def validate_manifest(source):
    or not isinstance(item['body_fingerprint'],str) or len(item['body_fingerprint'])!=64
    or any(c not in '0123456789abcdef' for c in item['body_fingerprint'])):
    raise ValueError('visible source item invalid')
-  if fragment and (item['phase'] not in ({'started','completed','interrupted'} if item['kind'] in {'action','expression'} else {'completed'})
+  if fragment and (item['phase'] not in ({'started','completed','interrupted'} if item['kind'] in {'action','expression'} else {'completed','interrupted'} if item['kind']=='speech' else {'completed'})
       or type(item['at_ms']) is not int or type(item['started_at_ms']) is not int
       or not item['started_at_ms']<=item['at_ms']<=e['committed_at_ms']):raise ValueError('visible fragment time/phase differs')
  return m

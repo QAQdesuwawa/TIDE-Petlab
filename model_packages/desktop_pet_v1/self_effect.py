@@ -2,7 +2,7 @@
 class SelfEffectCodec:
  def __init__(self,base,parent_text='',*,private_thought=False):
   self.base=base;self.parent_text=parent_text;self.private_thought=private_thought
-  self.request_version=base.request_version+(':self-effect-v3-private-thought' if private_thought else ':self-effect-v2')
+  self.request_version=base.request_version+(':self-effect-v4-private-thought' if private_thought else ':self-effect-v4')
  def __getattr__(self,name):return getattr(self.base,name)
  def build_request(self,*,event,recall_hint):
   system,user=self.base.build_request(event=event,recall_hint=recall_hint)
@@ -11,5 +11,7 @@ class SelfEffectCodec:
    from .semantic import RESOURCE_ROOT
    definition=RESOURCE_ROOT.joinpath('thought.md').read_text(encoding='utf-8')
    if definition not in system:system+='\n'+definition
-  if self.parent_text:user+='\n【已结算的触发事件：来源参照】\n'+self.parent_text
+  if self.parent_text:
+   system+='【已结算的触发事件】中的同一份原文供指代和因果参照。属性与本次新增作用的证据仍取自本次量测对象。'
+   user+='\n【已结算的触发事件：指代与因果参照】\n'+self.parent_text
   return system,user

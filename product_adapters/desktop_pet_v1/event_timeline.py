@@ -11,7 +11,7 @@ def age_seconds(processing_ms, occurred_at):
     return (processing_ms - occurrence_ms) / 1000
 
 
-def describe(app, event, *, world_observations=False):
+def occurrence(app, event, *, world_observations=False):
     from .visible_context import _artifact
     source = app._product()['sources'][event.event_id]
     artifact = _artifact(app, source)
@@ -26,6 +26,11 @@ def describe(app, event, *, world_observations=False):
         receipt = source.get('evidence', {}).get('input_source', {})
         if receipt.get('version') == VERSION or (world_observations and receipt.get('version') == WORLD_VERSION):
             at = receipt['material']['sampled_at_ms']
+    return at,parent
+
+
+def describe(app, event, *, world_observations=False):
+    at,parent=occurrence(app,event,world_observations=world_observations)
     return {'原发生时间': iso(at), '本角色接收时间': iso(event.position.coordinate),
             '时间含义': '本轮处理这条已发生的记录；接收与处理不表示事情此刻重新发生。'}, parent
 

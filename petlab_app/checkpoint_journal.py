@@ -188,6 +188,12 @@ class CheckpointJournal:
         if FRAMEWORK_HISTORY_PROFILE_KEY not in profile:
             fallback_history=_reconcile(history,self.material['history'],('history',),patches)
         if ordinal!=self.material['terminal_runtime_ordinal']:patches.append(['set',['terminal_runtime_ordinal'],ordinal])
+        if not patches:
+            # Idle host polls may request a checkpoint without changing state.
+            # No durable event or ordinal exists to append in that case.
+            self.material={**self.material,'profile':updated};self._sync_history()
+            self.last_write_bytes=0
+            return
         row={'version':VERSION,'base':self.base,'sequence':self.sequence+1,'previous':self.previous,'patches':patches}
         row['fingerprint']=model_data_fingerprint(row)
         encoded=(json.dumps(row,ensure_ascii=False,allow_nan=False,separators=(',',':'))+'\n').encode('utf-8')

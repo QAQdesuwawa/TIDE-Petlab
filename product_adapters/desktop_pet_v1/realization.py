@@ -320,13 +320,13 @@ class PetRealizationService:
         readers=participant_audience(self.application,event_id)
         return audience_specs(specs,external_readers=any(ref!=role.owner_ref for ref in readers))
 
-    def packet(self,event_id,*,writer_request_id,writer_version=None,visual_capabilities=_CURRENT_VISUAL,content_view_version=CONTENT_VIEW_VERSION,rag_context=None,relation_version=_CURRENT_VISUAL,visibility=None,_expression_out=None,conversation_context=False,intention_snapshot=None,timeline_enabled=False,direct_recent_context=None,persona_audience_version=None,carry_takeover_memory=False,scoped_reply_context=False,fragment_memory=False,strongest_memory=False,coherent_history=False,fragment_sources=False,interaction_sources=False,environment_evidence=False,environment_timeline=False,world_acquisition=False):
+    def packet(self,event_id,*,writer_request_id,writer_version=None,visual_capabilities=_CURRENT_VISUAL,content_view_version=CONTENT_VIEW_VERSION,rag_context=None,relation_version=_CURRENT_VISUAL,visibility=None,_expression_out=None,conversation_context=False,intention_snapshot=None,timeline_enabled=False,direct_recent_context=None,persona_audience_version=None,carry_takeover_memory=False,scoped_reply_context=False,fragment_memory=False,strongest_memory=False,coherent_history=False,fragment_sources=False,interaction_sources=False,environment_evidence=False,environment_timeline=False,world_acquisition=False,played_context=False,execution_frontier=None):
         if relation_version is _CURRENT_VISUAL:
             from .memory_relations import CURRENT_VERSION as RELATION_VERSION
             relation_version=RELATION_VERSION if self.memory_links else None
         writer_version=self._version(event_id) if writer_version is None else writer_version
         capabilities=self.visual_capabilities if visual_capabilities is _CURRENT_VISUAL else visual_capabilities
-        if writer_version in {codec.IDLE_VERSION,codec.IDLE_DISPLAY_VERSION,codec.OPTIONAL_IDLE_VERSION}:return self._idle_packet(event_id,writer_request_id,writer_version=writer_version,visual_capabilities=capabilities,content_view_version=content_view_version,relation_version=relation_version,visibility=visibility,intention_snapshot=intention_snapshot,persona_audience_version=persona_audience_version,fragment_sources=fragment_sources,environment_evidence=environment_evidence)[:2]
+        if writer_version in {codec.IDLE_VERSION,codec.IDLE_DISPLAY_VERSION,codec.OPTIONAL_IDLE_VERSION}:return self._idle_packet(event_id,writer_request_id,writer_version=writer_version,visual_capabilities=capabilities,content_view_version=content_view_version,relation_version=relation_version,visibility=visibility,intention_snapshot=intention_snapshot,persona_audience_version=persona_audience_version,fragment_sources=fragment_sources,environment_evidence=environment_evidence,played_context=played_context)[:2]
         if writer_version not in {codec.VERSION,codec.LEGACY_VERSION,codec.CONTINUOUS_VERSION,codec.BODY_VERSION,codec.SUMMARY_VERSION}:raise ValueError("unsupported pet writer version")
         app=self.application
         with app._lock:
@@ -523,14 +523,17 @@ class PetRealizationService:
                 from .conversation_delivery import DIRECT_RECENT_VERSION,card_for,progress_card
                 context_card=card_for(app,source.event,readers=participant_audience(app,event_id),typed=conversation_context=='typed',timeline=timeline_enabled,
                     public_human=direct_recent_context==DIRECT_RECENT_VERSION,scoped_reply=scoped_reply_context,
-                    covered_contents=delivered,information_acquisition=fragment_sources)
+                    covered_contents=delivered,information_acquisition=fragment_sources,played_context=played_context)
                 if context_card is not None:lanes['conversation'].append(context_card)
                 progress=progress_card(app,source.event,readers=participant_audience(app,event_id))
-                if progress is not None:lanes['conversation'].append(progress)
+                if progress is not None and (execution_frontier is None or progress.source_id!=execution_frontier['action_id']):lanes['conversation'].append(progress)
+            if execution_frontier is not None:
+                from .execution_frontier import card as frontier_card
+                lanes['conversation'].append(frontier_card(execution_frontier))
             if direct_recent_context:
                 from .conversation_delivery import direct_card_for
                 recent=direct_card_for(app,source.event,readers=participant_audience(app,event_id),version=direct_recent_context,
-                                       covered_contents=delivered,information_acquisition=fragment_sources)
+                                       covered_contents=delivered,information_acquisition=fragment_sources,played_context=played_context)
                 if recent is not None:lanes['conversation'].append(recent)
             from .memory_relations import attach
             lanes['memory']=attach(lanes['memory'],application=app,event_id=event_id,version=relation_version)
@@ -542,7 +545,7 @@ class PetRealizationService:
             if _expression_out is not None:_expression_out.append(expression)
             return packet,authorization
 
-    def _idle_packet(self,event_id,writer_request_id,*,writer_version=codec.IDLE_DISPLAY_VERSION,visual_capabilities=_CURRENT_VISUAL,content_view_version=CONTENT_VIEW_VERSION,composite_context_version=None,relation_version=_CURRENT_VISUAL,visibility=None,intention_snapshot=None,persona_audience_version=None,direct_recent_context=None,fragment_sources=False,environment_evidence=False):
+    def _idle_packet(self,event_id,writer_request_id,*,writer_version=codec.IDLE_DISPLAY_VERSION,visual_capabilities=_CURRENT_VISUAL,content_view_version=CONTENT_VIEW_VERSION,composite_context_version=None,relation_version=_CURRENT_VISUAL,visibility=None,intention_snapshot=None,persona_audience_version=None,direct_recent_context=None,fragment_sources=False,environment_evidence=False,played_context=False):
         if relation_version is _CURRENT_VISUAL:
             from .memory_relations import CURRENT_VERSION as RELATION_VERSION
             relation_version=RELATION_VERSION if self.memory_links else None
@@ -553,14 +556,15 @@ class PetRealizationService:
         authorization=idle.authorize(app,event_id)
         role=PetDefinition.from_record(app.runtime.session.profile[DEFINITION_KEY])
         selection,memories=idle.recalled_memories(app,event_id)
-        from petlab_app.idle_targets import VERSION as TARGET_VERSION,visible_memories
+        from petlab_app.idle_targets import VERSION as TARGET_VERSION,SOURCE_VERSION,visible_memories
+        target_versions=(TARGET_VERSION,SOURCE_VERSION)
         target=participant_destination(app,event_id)
         excluded=[]
         if visibility is not None:
             from petlab_app.writer_visibility import filter_memories
             memories=filter_memories(app,memories,visibility,lane='numeric')
             excluded=[x['event_id'] for x in visibility['excluded']]
-        elif target is not None and target.get('addressing_policy')==TARGET_VERSION:
+        elif target is not None and target.get('addressing_policy') in target_versions:
             memories,excluded=visible_memories(app,target,memories)
         recall=SimpleNamespace(recalled_fact_ids=tuple(m.event.event_id for m in memories),fingerprint=selection.receipt['fingerprint'])
         def card(lane,kind,key,fields,refs):
@@ -596,22 +600,24 @@ class PetRealizationService:
                     if tick.row['behavior_selection'].get('catalog_version')=='desktop-pet-spatial-action-catalog-v1'
                     else '这是同一次行动中由包选定的自身活动，话语与它配合表达。实际完成或中断由播放回执确认。')},
                 (tick.row['fingerprint'],)))
-        if target is not None and target.get('addressing_policy')==TARGET_VERSION:
+        if target is not None and target.get('addressing_policy') in target_versions:
             from dataclasses import replace
             lanes['conversation'][0]=replace(lanes['conversation'][0],provenance={
-                'visibility_delivery_version':TARGET_VERSION,
+                'visibility_delivery_version':target['addressing_policy'],
                 'formal_recalled_ids':list(selection.recall.recalled_event_ids),
                 'delivered_memory_ids':list(recall.recalled_fact_ids),
                 'withheld_private_ids':excluded})
             lanes['conversation'].append(card('conversation','selected_relationship',event_id+':recipient',
                 {'交谈对象':target['primary'],'会话可见成员':target['conversation']['active_member_ids']},(target['fingerprint'],)))
-        from .conversation_delivery import IDLE_RECENT_VERSION,idle_recent_card
-        if direct_recent_context==IDLE_RECENT_VERSION and target is not None:
+        from .conversation_delivery import IDLE_RECENT_VERSION,IDLE_V9_VERSIONS,idle_recent_card
+        recent_fallback=(direct_recent_context in IDLE_V9_VERSIONS
+                         and not selection.recall.recalled_event_ids)
+        if target is not None and (direct_recent_context==IDLE_RECENT_VERSION or recent_fallback):
             tick,_=idle.source(app,event_id)
             recent=idle_recent_card(app,event_id,before_ordinal=tick.row['source_snapshot']['position']['runtime_ordinal'],
                 readers=visibility['audience'] if visibility is not None else target['audience'],
                 source_ref=tick.row['fingerprint'],excluded_ids=recall.recalled_fact_ids,
-                information_acquisition=fragment_sources)
+                information_acquisition=fragment_sources,version=direct_recent_context,played_context=played_context)
             if recent is not None:lanes['conversation'].append(recent)
         from .memory_relations import attach
         lanes['memory']=attach(lanes['memory'],application=app,event_id=event_id,version=relation_version)
@@ -623,12 +629,18 @@ class PetRealizationService:
         return packet,authorization,expression
 
     @with_input_snapshot
-    def _request(self,event_id,*,writer_request_id,writer_version=None,visual_capabilities=_CURRENT_VISUAL,content_view_version=_CURRENT_VISUAL,composite_context_version=_CURRENT_VISUAL,prompt_delivery_version=None,rag_context=_CURRENT_VISUAL,relation_version=_CURRENT_VISUAL,visibility_version=_CURRENT_VISUAL,scene_context=_CURRENT_VISUAL,reading_context=_CURRENT_VISUAL,body_context=_CURRENT_VISUAL,meal_scene_context=_CURRENT_VISUAL,body_delivery_version=_CURRENT_VISUAL,action_sequence_context=None,audience_envelope=_CURRENT_VISUAL,relationship_context=_CURRENT_VISUAL,audience_motion_version=_CURRENT_VISUAL,intention_snapshot=_CURRENT_VISUAL,input_layout_version=_CURRENT_VISUAL,pending_conversation=_CURRENT_VISUAL,wire_normalization_version=_CURRENT_VISUAL,scene_delivery_version=None,speech_behavior_version=_CURRENT_VISUAL,action_intent_version=_CURRENT_VISUAL,audience_contract=_CURRENT_VISUAL,direct_recent_context=_CURRENT_VISUAL,independent_output_validation=_CURRENT_VISUAL,persona_audience_version=_CURRENT_VISUAL,writer_adaptation_version=_CURRENT_VISUAL,parallel_speech_version=_CURRENT_VISUAL,metacognition_context=_CURRENT_VISUAL,action_target_labels=_CURRENT_VISUAL,meal_scene_delivery_version=None,meal_origin_event_id=_CURRENT_VISUAL,processing_ms=None):
+    def _request(self,event_id,*,writer_request_id,writer_version=None,visual_capabilities=_CURRENT_VISUAL,content_view_version=_CURRENT_VISUAL,composite_context_version=_CURRENT_VISUAL,prompt_delivery_version=None,rag_context=_CURRENT_VISUAL,relation_version=_CURRENT_VISUAL,visibility_version=_CURRENT_VISUAL,scene_context=_CURRENT_VISUAL,reading_context=_CURRENT_VISUAL,body_context=_CURRENT_VISUAL,meal_scene_context=_CURRENT_VISUAL,body_delivery_version=_CURRENT_VISUAL,action_sequence_context=None,audience_envelope=_CURRENT_VISUAL,relationship_context=_CURRENT_VISUAL,audience_motion_version=_CURRENT_VISUAL,intention_snapshot=_CURRENT_VISUAL,input_layout_version=_CURRENT_VISUAL,pending_conversation=_CURRENT_VISUAL,wire_normalization_version=_CURRENT_VISUAL,scene_delivery_version=None,speech_behavior_version=_CURRENT_VISUAL,action_intent_version=_CURRENT_VISUAL,audience_contract=_CURRENT_VISUAL,direct_recent_context=_CURRENT_VISUAL,independent_output_validation=_CURRENT_VISUAL,persona_audience_version=_CURRENT_VISUAL,writer_adaptation_version=_CURRENT_VISUAL,parallel_speech_version=_CURRENT_VISUAL,metacognition_context=_CURRENT_VISUAL,action_target_labels=_CURRENT_VISUAL,meal_scene_delivery_version=None,meal_origin_event_id=_CURRENT_VISUAL,processing_ms=None,execution_frontier=_CURRENT_VISUAL):
         if content_view_version is _CURRENT_VISUAL:
             from model_packages.desktop_pet_v1.content_view import DECLARED_MEMORY_VERSION,HIERARCHY_MEMORY_VERSION,RELATION_MEMORY_VERSION,QUERY_MEMORY_VERSION
             content_view_version=(QUERY_MEMORY_VERSION if getattr(self.application,'memory_recall_version',None)=='desktop-pet-grounded-retention-recall-v2' else HIERARCHY_MEMORY_VERSION if getattr(self.application,'memory_recall_version',None) in ('desktop-pet-hierarchical-property-recall-v7','desktop-pet-property-address-recall-v8') else DECLARED_MEMORY_VERSION if getattr(self.application,'memory_recall_version',None) in ('desktop-pet-declared-form-recall-v4','desktop-pet-source-bound-reference-recall-v5','desktop-pet-owner-bound-reference-recall-v6','desktop-pet-hierarchical-property-recall-v7') else CONTENT_VIEW_VERSION)
+        from . import execution_frontier as frontier_view
+        frontier_readers=participant_audience(self.application,event_id) if not self._idle(event_id) else ()
+        if execution_frontier is _CURRENT_VISUAL:
+            execution_frontier=frontier_view.build(self.application,event_id,frontier_readers) if not self._idle(event_id) else None
+        elif execution_frontier is not None:
+            execution_frontier=frontier_view.validate(self.application,execution_frontier,event_id,frontier_readers)
         new_delivery_request=prompt_delivery_version is None
-        from .current_turn_delivery import COHERENT_HISTORY_LAYOUTS, FRAGMENT_SOURCE_LAYOUTS, INTERACTION_SOURCE_LAYOUTS, ENVIRONMENT_LAYOUTS, ENVIRONMENT_TIMELINE_LAYOUTS, WORLD_ACQUISITION_LAYOUTS
+        from .current_turn_delivery import COHERENT_HISTORY_LAYOUTS, FRAGMENT_SOURCE_LAYOUTS, INTERACTION_SOURCE_LAYOUTS, ENVIRONMENT_LAYOUTS, ENVIRONMENT_TIMELINE_LAYOUTS, WORLD_ACQUISITION_LAYOUTS, PLAYED_CONTEXT_LAYOUTS
         environment_evidence=(input_layout_version in ENVIRONMENT_LAYOUTS
                               or (input_layout_version is _CURRENT_VISUAL and new_delivery_request))
         fragment_sources=(input_layout_version in FRAGMENT_SOURCE_LAYOUTS
@@ -639,6 +651,8 @@ class PetRealizationService:
                            or (input_layout_version is _CURRENT_VISUAL and new_delivery_request))
         coherent_history=(input_layout_version in COHERENT_HISTORY_LAYOUTS
                           or (input_layout_version is _CURRENT_VISUAL and new_delivery_request))
+        played_context=(input_layout_version in PLAYED_CONTEXT_LAYOUTS
+                        or (input_layout_version is _CURRENT_VISUAL and new_delivery_request))
         marker_default=writer_version is None and bool(getattr(self.application,'memory_recall_version',None))
         writer_version=self._version(event_id) if writer_version is None else writer_version
         marked=marker_default or writer_version.endswith(codec.MEMORY_MARKER_SUFFIX)
@@ -655,10 +669,17 @@ class PetRealizationService:
             raise ValueError('unknown persona audience projection')
 
         from .conversation_delivery import DIRECT_RECENT_VERSION,REQUIRED_DIRECT_RECENT_VERSION,LEGACY_DIRECT_RECENT_VERSION,RESIDUAL_DIRECT_RECENT_VERSION,IDLE_RECENT_VERSION
+        from .conversation_delivery import IDLE_V9_VERSIONS,IDLE_V9_TIMED_VERSION
+        from model_packages.desktop_pet_v1.address_recall import INDEPENDENT_CONFIG
         if direct_recent_context is _CURRENT_VISUAL:
-            direct_recent_context=((IDLE_RECENT_VERSION if self._idle(event_id) else DIRECT_RECENT_VERSION) if prompt_delivery_version is None and
-                getattr(self.application,'memory_recall_version',None)=='desktop-pet-property-address-recall-v8' else None)
-        if direct_recent_context not in (None,DIRECT_RECENT_VERSION,REQUIRED_DIRECT_RECENT_VERSION,LEGACY_DIRECT_RECENT_VERSION,RESIDUAL_DIRECT_RECENT_VERSION,IDLE_RECENT_VERSION):
+            direct_recent_context=None
+            memory_version=getattr(self.application,'memory_recall_version',None)
+            if prompt_delivery_version is None:
+                if memory_version=='desktop-pet-property-address-recall-v8':
+                    direct_recent_context=IDLE_RECENT_VERSION if self._idle(event_id) else DIRECT_RECENT_VERSION
+                elif memory_version==INDEPENDENT_CONFIG and self._idle(event_id):
+                    direct_recent_context=IDLE_V9_TIMED_VERSION
+        if direct_recent_context not in (None,DIRECT_RECENT_VERSION,REQUIRED_DIRECT_RECENT_VERSION,LEGACY_DIRECT_RECENT_VERSION,RESIDUAL_DIRECT_RECENT_VERSION,IDLE_RECENT_VERSION,*IDLE_V9_VERSIONS):
             raise ValueError('unsupported direct conversation delivery version')
         from .independent_output import VERSIONS as independent_output_versions, VERSION as independent_output_version
         if independent_output_validation is _CURRENT_VISUAL:
@@ -737,7 +758,7 @@ class PetRealizationService:
         capabilities=self.visual_capabilities if visual_capabilities is _CURRENT_VISUAL else visual_capabilities
         if not self.expression_codes or writer_version in {codec.LEGACY_VERSION,codec.IDLE_VERSION}:capabilities=None
         if writer_version in {codec.IDLE_VERSION,codec.IDLE_DISPLAY_VERSION,codec.OPTIONAL_IDLE_VERSION}:
-            packet,authorization,expression=self._idle_packet(event_id,writer_request_id,writer_version=writer_version,visual_capabilities=capabilities,content_view_version=content_view_version,composite_context_version=composite_context_version,relation_version=relation_version,visibility=visibility,intention_snapshot=intention_snapshot,persona_audience_version=persona_audience_version,direct_recent_context=direct_recent_context,fragment_sources=fragment_sources,environment_evidence=environment_evidence)
+            packet,authorization,expression=self._idle_packet(event_id,writer_request_id,writer_version=writer_version,visual_capabilities=capabilities,content_view_version=content_view_version,composite_context_version=composite_context_version,relation_version=relation_version,visibility=visibility,intention_snapshot=intention_snapshot,persona_audience_version=persona_audience_version,direct_recent_context=direct_recent_context,fragment_sources=fragment_sources,environment_evidence=environment_evidence,played_context=played_context)
         else:
             projected=[]
             from .current_turn_delivery import (
@@ -760,7 +781,7 @@ class PetRealizationService:
                 fragment_memory=fragment_layout if fragment_layout in memory_layouts else False,
                 strongest_memory=strongest_memory,
                 coherent_history=coherent_history,fragment_sources=fragment_sources,environment_evidence=environment_evidence,
-                environment_timeline=environment_timeline,world_acquisition=world_acquisition,
+                environment_timeline=environment_timeline,world_acquisition=world_acquisition,played_context=played_context,execution_frontier=execution_frontier,
                 interaction_sources=(input_layout_version in INTERACTION_SOURCE_LAYOUTS or input_layout_version is _CURRENT_VISUAL),
                 scoped_reply_context=input_layout_version is _CURRENT_VISUAL or input_layout_version in SCOPED_EVIDENCE_LAYOUTS)
             expression=projected[0]
@@ -803,13 +824,16 @@ class PetRealizationService:
         if meal_scene_context is _CURRENT_VISUAL:
             supplier=getattr(app,'meal_snapshot',None)
             meal_snapshot_known=callable(supplier)
-            meal_scene_context=(body_context['scene'] if body_context is not None else supplier() if callable(supplier) else None)
-        if meal_scene_context is not None:
-            meal_scene_context=shared_meal.validate(meal_scene_context)
-            if app.owner_ref not in meal_scene_context['participants']:raise ValueError('meal scene belongs to other participants')
+            live_meal=supplier() if meal_snapshot_known else None
+            meal_scene_context=(body_context['scene'] if body_context is not None and not isinstance(live_meal,(list,tuple))
+                                else live_meal)
+        meal_scene_context=shared_meal.validate_context(meal_scene_context,app.owner_ref)
+        multiple_bowls=len(shared_meal.bowls(meal_scene_context))>1
         from model_packages.desktop_pet_v1.meal_button import REF as MEAL_BUTTON_REF
         button_visible=scene_context is not None and any(obj['ref']==MEAL_BUTTON_REF for obj in scene_context.get('objects',()))
-        if new_delivery_request and button_visible:
+        if new_delivery_request and multiple_bowls:
+            meal_scene_delivery_version=meal_delivery.MULTIPLE_VERSION
+        elif new_delivery_request and button_visible:
             if meal_scene_context is not None:
                 meal_scene_delivery_version=meal_delivery.VERSION
             elif meal_snapshot_known:
@@ -819,7 +843,9 @@ class PetRealizationService:
             raise ValueError('empty meal delivery differs from visible scene')
         meal_input=()
         if meal_scene_delivery_version is not None and not empty_meal_scene:
-            if meal_scene_delivery_version not in meal_delivery.VERSIONS or meal_scene_context is None or not button_visible:
+            if meal_scene_delivery_version==meal_delivery.MULTIPLE_VERSION:
+                if not multiple_bowls:raise ValueError('multi-bowl delivery requires multiple bowls')
+            elif meal_scene_delivery_version not in meal_delivery.VERSIONS or meal_scene_context is None or not button_visible:
                 raise ValueError('meal delivery version differs from visible scene')
             if not self._idle(event_id):
                 meal_input=app.runtime.memory_instance(event_id).event.visible_contents(app.owner_ref)
@@ -837,6 +863,9 @@ class PetRealizationService:
             history_ids=[i for card in packet.packet.sections['memory'] for i in card.provenance['selected_memory_ids']]
             if meal_trigger is not None:history_ids.append(meal_trigger)
             if meal_origin_event_id is not None:history_ids.append(meal_origin_event_id)
+            if multiple_bowls:
+                history_ids.extend(origin for row in shared_meal.bowls(meal_scene_context)
+                                   if (origin:=meal_delivery.accepted_placement(app,row)) is not None)
             from .memory_delivery import covered_memory_contents
             meal_history=meal_delivery.timeline(app,history_ids,meal_scene_context,
                 covered_contents=covered_memory_contents(packet.packet.sections['memory']) if coherent_history else None)
@@ -861,8 +890,8 @@ class PetRealizationService:
         elif visibility is not None and visibility['version']==SCOPED_VERSION:
             raise ValueError('scoped memory requires enforced speech audience')
         from model_packages.desktop_pet_v1.audience_motion import VERSION as motion_contract
-        from model_packages.desktop_pet_v1.audience_motion import EXPLICIT_WHISPER_ONLY, SERIAL_POLICIES, SINGLE_POLICIES
-        if audience_motion_version is _CURRENT_VISUAL:audience_motion_version=EXPLICIT_WHISPER_ONLY
+        from model_packages.desktop_pet_v1.audience_motion import EXPLICIT_WHISPER_ONLY, SERIAL_POLICIES, SINGLE_NPC_PROXIMITY, SINGLE_POLICIES
+        if audience_motion_version is _CURRENT_VISUAL:audience_motion_version=SINGLE_NPC_PROXIMITY
         if audience_motion_version not in (None,motion_contract,'physical-audience-policy-v2','physical-audience-policy-v3','physical-audience-policy-v4',*SERIAL_POLICIES):
             raise ValueError('unknown audience movement contract')
         # New selections use physical prerequisites. Sealed old requests retain
@@ -872,15 +901,15 @@ class PetRealizationService:
         owner_cognition=visibility is not None and visibility['version'] in {OWNER_VERSION,*EXPERIENCE_VERSIONS}
         audience_reserve=0 if audience_envelope is None else audience_delivery.reserve(audience_envelope,automatic_approach=automatic_approach,owner_cognition=owner_cognition,thought_enabled=(self.private_thought if owner_cognition else True),version=audience_contract,concise=concise,schema_first=schema_first)
         independent_gaze=composite_context_version is None and body_context is None
-        from .current_turn_delivery import FACT_SCOPE_LAYOUTS, EVIDENCE_REVIEW_VERSION, CLAIM_READING_VERSION, TESTIMONY_FIRST_LAYOUTS, COHERENT_PERFORMANCE_VERSION, PROCESSING_TIME_LAYOUTS, OPEN_SCENE_VERSION, SOURCE_CONTINUITY_LAYOUTS, PRIVATE_JUDGMENT_LAYOUTS, SPEECH_EVIDENCE_LAYOUTS, WEIGHTED_SCENE_VERSION, COMPRESSED_SCENE_VERSION, STRONGEST_SCENE_VERSION, COHERENT_HISTORY_SCENE_VERSION, WITNESS_SCENE_VERSION, INVESTIGATOR_SCENE_VERSION, PROFILER_SCENE_VERSION, ROLE_PERSPECTIVE_SCENE_VERSION, EXPRESSION_ONLY_SCENE_VERSION, ACQUISITION_SCENE_VERSION, FRAGMENT_SOURCE_SCENE_VERSION, INTERACTION_SOURCE_SCENE_VERSION, ENVIRONMENT_SCENE_VERSION, ENVIRONMENT_TIMELINE_SCENE_VERSION, WORLD_ACQUISITION_SCENE_VERSION, WORLD_SCOPE_FACT_VERSION, WORLD_SCOPE_SCENE_VERSION, EXPRESSION_ONLY_LAYOUTS
+        from .current_turn_delivery import FACT_SCOPE_LAYOUTS, EVIDENCE_REVIEW_VERSION, CLAIM_READING_VERSION, TESTIMONY_FIRST_LAYOUTS, COHERENT_PERFORMANCE_VERSION, PROCESSING_TIME_LAYOUTS, OPEN_SCENE_VERSION, SOURCE_CONTINUITY_LAYOUTS, PRIVATE_JUDGMENT_LAYOUTS, SPEECH_EVIDENCE_LAYOUTS, WEIGHTED_SCENE_VERSION, COMPRESSED_SCENE_VERSION, STRONGEST_SCENE_VERSION, COHERENT_HISTORY_SCENE_VERSION, WITNESS_SCENE_VERSION, INVESTIGATOR_SCENE_VERSION, PROFILER_SCENE_VERSION, ROLE_PERSPECTIVE_SCENE_VERSION, EXPRESSION_ONLY_SCENE_VERSION, ACQUISITION_SCENE_VERSION, FRAGMENT_SOURCE_SCENE_VERSION, INTERACTION_SOURCE_SCENE_VERSION, ENVIRONMENT_SCENE_VERSION, ENVIRONMENT_TIMELINE_SCENE_VERSION, WORLD_ACQUISITION_SCENE_VERSION, WORLD_SCOPE_SCENE_VERSION, STATEMENT_SCOPE_SCENE_VERSION, COMPLETE_OUTPUT_SCENE_VERSION, INTEGRATED_EVIDENCE_SCENE_VERSION, EVIDENCE_CARRY_SCENE_VERSION, PLAYED_FACTS_SCENE_VERSION, PLAYED_FACTS_LAYOUTS, PLAYED_CONTEXT_SCENE_VERSION, ACQUISITION_BINDING_SCENE_VERSION, PLAIN_JSON_SCENE_VERSION, MEMORY_ARCHIVE_SCENE_VERSION, MEMORY_ARCHIVE_LAYOUTS, BEHAVIOR_EVIDENCE_SCENE_VERSION, FRAGMENT_BEHAVIOR_SCENE_VERSION, MEAL_ACCEPTANCE_SCENE_VERSION, MEAL_ACCEPTANCE_LAYOUTS, SEGMENTED_MEAL_ACCEPTANCE_VERSION, SEGMENTED_MEAL_ACCEPTANCE_SCENE_VERSION, SEGMENTED_MEAL_ACCEPTANCE_LAYOUTS, EXPRESSION_ONLY_LAYOUTS
         from petlab_app.participant_input import OBSERVED_VERSIONS, OPEN_INVITATION_VERSION
         input_receipt = app._product()['sources'].get(event_id, {}).get('evidence', {}).get('input_source', {})
         open_invitation = input_receipt.get('version') == OPEN_INVITATION_VERSION
         if input_layout_version is _CURRENT_VISUAL:
             input_layout_version = COHERENT_PERFORMANCE_VERSION
             if new_delivery_request:
-                input_layout_version = WORLD_SCOPE_SCENE_VERSION if open_invitation else WORLD_SCOPE_FACT_VERSION
-        if input_layout_version in PROCESSING_TIME_LAYOUTS and processing_ms is None:
+                input_layout_version = SEGMENTED_MEAL_ACCEPTANCE_SCENE_VERSION if open_invitation else SEGMENTED_MEAL_ACCEPTANCE_VERSION
+        if (input_layout_version in PROCESSING_TIME_LAYOUTS or direct_recent_context==IDLE_V9_TIMED_VERSION) and processing_ms is None:
             from petlab_app.product import wall_clock_ms
             processing_ms=wall_clock_ms()
         fact_scopes=input_layout_version in FACT_SCOPE_LAYOUTS
@@ -895,7 +924,7 @@ class PetRealizationService:
                                                             COHERENT_HISTORY_SCENE_VERSION, WITNESS_SCENE_VERSION,
                                                             INVESTIGATOR_SCENE_VERSION, PROFILER_SCENE_VERSION,
                                                             ROLE_PERSPECTIVE_SCENE_VERSION, EXPRESSION_ONLY_SCENE_VERSION,
-                                                            ACQUISITION_SCENE_VERSION, FRAGMENT_SOURCE_SCENE_VERSION, INTERACTION_SOURCE_SCENE_VERSION, ENVIRONMENT_SCENE_VERSION, ENVIRONMENT_TIMELINE_SCENE_VERSION, WORLD_ACQUISITION_SCENE_VERSION, WORLD_SCOPE_SCENE_VERSION) and open_invitation))
+                                                            ACQUISITION_SCENE_VERSION, FRAGMENT_SOURCE_SCENE_VERSION, INTERACTION_SOURCE_SCENE_VERSION, ENVIRONMENT_SCENE_VERSION, ENVIRONMENT_TIMELINE_SCENE_VERSION, WORLD_ACQUISITION_SCENE_VERSION, WORLD_SCOPE_SCENE_VERSION, STATEMENT_SCOPE_SCENE_VERSION, COMPLETE_OUTPUT_SCENE_VERSION, INTEGRATED_EVIDENCE_SCENE_VERSION, EVIDENCE_CARRY_SCENE_VERSION, PLAYED_FACTS_SCENE_VERSION, PLAYED_CONTEXT_SCENE_VERSION, ACQUISITION_BINDING_SCENE_VERSION, PLAIN_JSON_SCENE_VERSION, MEMORY_ARCHIVE_SCENE_VERSION, BEHAVIOR_EVIDENCE_SCENE_VERSION, FRAGMENT_BEHAVIOR_SCENE_VERSION, MEAL_ACCEPTANCE_SCENE_VERSION, SEGMENTED_MEAL_ACCEPTANCE_SCENE_VERSION) and open_invitation))
             interaction_mode = ('direct_user' if source_event is not None
                                 and source_event.actor_ref == app.definition.user_ref
                                 and not contextual_input else 'contextual')
@@ -923,6 +952,20 @@ class PetRealizationService:
                 for i in card.provenance['selected_memory_ids']}
             if input_layout_version in SPEECH_EVIDENCE_LAYOUTS:
                 property_evidence={i:(sources[i].get('measurement') or {}).get('pet_memory_recall') for i in owner_events}
+        played_sources = None
+        if input_layout_version in PLAYED_FACTS_LAYOUTS:
+            from petlab_app.played_material import child_facts
+
+            sources = app._product()['sources']
+            ids = dict.fromkeys((*owner_events, *(card.source_id for card in packet.packet.sections['current_input'])))
+            recorded = {identity: sources[identity] for identity in ids if identity in sources}
+            played_sources = ({identity: source['event'] for identity, source in recorded.items()},
+                              {identity: child_facts(app, source) for identity, source in recorded.items()})
+        archive_notes = None
+        if input_layout_version in MEMORY_ARCHIVE_LAYOUTS:
+            from .memory_archive_delivery import collect_notes
+
+            archive_notes = collect_notes(app, packet.packet.sections['memory'], sources, visibility)
         memory_occurrences=None
         if chronological:
             from .event_timeline import describe
@@ -939,7 +982,7 @@ class PetRealizationService:
             raise ValueError('unknown action target label contract')
         prompt_delivery=compile_delivery(packet.packet,budget_chars=scene_budget if scene_context is not None or reading_context is not None or body_context is not None or meal_scene_context is not None or pending_conversation is not None else self.budget_chars,
             input_layout_version=input_layout_version,property_owner_events=owner_events,property_evidence=property_evidence,delivery_version=prompt_delivery_version+material_suffix+("-stationary-v1" if stationary_choice else "")+(PERSONA_SUFFIX if layered_persona else ""),interaction_mode=interaction_mode,relationship_context=relationship_context,body_context=body_context if body_delivery_version is not None else None,action_sequence_context=action_sequence_context,free_action_intents=bool(action_intent_version),action_emoji=action_intent_version in action_intents.EMOJI_VERSIONS,action_eyes=action_intent_version in action_intents.EYE_VERSIONS,
-            action_capabilities=action_intent_version in action_intents.CAPABILITY_VERSIONS,memory_occurrences=memory_occurrences,parallel_speech=bool(parallel_speech_version),explicit_action_targets=bool(action_target_labels),processing_ms=processing_ms)
+            action_capabilities=action_intent_version in action_intents.CAPABILITY_VERSIONS,memory_occurrences=memory_occurrences,parallel_speech=bool(parallel_speech_version),explicit_action_targets=bool(action_target_labels),processing_ms=processing_ms,played_sources=played_sources,archive_notes=archive_notes)
         if marked != (prompt_delivery_version in {MARKER_VERSION,EVIDENCE_MARKER_VERSION,"desktop-pet-prompt-delivery-v12-optional-idle-markers","desktop-pet-prompt-delivery-v14-idle-opportunity-markers","desktop-pet-prompt-delivery-v16-independent-idle-children-markers","desktop-pet-prompt-delivery-v18-timed-idle-opportunity-markers","desktop-pet-prompt-delivery-v20-shared-event-bodies-markers","desktop-pet-prompt-delivery-v22-subtype-references-markers","desktop-pet-prompt-delivery-v24-query-reference-markers","desktop-pet-prompt-delivery-v26-speaker-framed-markers",CONVERSATION_MARKER_VERSION,METADATA_MARKER_VERSION,CONTINUITY_MARKER_VERSION,GROUPED_MARKER_VERSION,REQUIRED_MARKER_VERSION,ACTUAL_MARKER_VERSION,SITUATED_MARKER_VERSION,SITUATED_PAIR_MARKER_VERSION,RELATION_MARKER_VERSION,RELATION_PAIR_MARKER_VERSION}):raise ValueError("writer marker codec/delivery version mismatch")
         from .required_prompt import supplementary_budget
         configured_budget=full_budget
@@ -995,6 +1038,7 @@ class PetRealizationService:
                 carry_evidence_source=input_layout_version in SOURCE_CONTINUITY_LAYOUTS,
                 note_ages=note_ages)
             profile_facts['metacognition_context']=metacognition_context
+        if execution_frontier is not None:profile_facts['execution_frontier']=execution_frontier
         if pending_conversation is not None:profile_facts['pending_conversation']=pending_conversation
         if audience_envelope is not None:profile_facts['audience_envelope']=audience_envelope
         if speech_behavior_version:profile_facts['speech_behavior_version']=speech_behavior_version
@@ -1039,6 +1083,19 @@ class PetRealizationService:
             from model_packages.desktop_pet_v1.action_sequence import VERSION as SEQUENCE_VERSION
             private_control.pop('composite',None)
             private_control['action_sequence_contract']=SEQUENCE_VERSION
+            if input_layout_version in SEGMENTED_MEAL_ACCEPTANCE_LAYOUTS:
+                from model_packages.desktop_pet_v1.composite import DEPENDENCY_VERSION
+                private_control['dependency_contract']=DEPENDENCY_VERSION
+            if input_layout_version in MEAL_ACCEPTANCE_LAYOUTS and any(
+                row['key'] == shared_meal.HOLDER_TRANSFER_ACTION and 'meal' in row
+                for row in action_sequence_context['catalog']['candidates']
+            ):
+                private_control['meal_acceptance_contract'] = (shared_meal.ACCEPTANCE_V2
+                    if input_layout_version in SEGMENTED_MEAL_ACCEPTANCE_LAYOUTS else shared_meal.ACCEPTANCE_V1)
+                workspace = getattr(app, 'multi_workspace', None)
+                if workspace is not None and authorization.target_ref in workspace.aliases:
+                    profile_facts['meal_acceptance_addressee'] = workspace.definitions[
+                        workspace.aliases[authorization.target_ref]].name
             if input_layout_version in (current_layout,*ADJACENT_LAYOUTS):
                 if not action_intent_version:private_control['optional_action_validation']=(
                     'exact-codes-v1' if compact_actions else 'independent-unavailable-v2-code-objects')
@@ -1050,7 +1107,7 @@ class PetRealizationService:
         if writer_adaptation_version:
             private_control["writer_adaptation_version"]=writer_adaptation_version
         from petlab_app.destinations import is_npc_whisper
-        if is_npc_whisper(destination,explicit_only=audience_motion_version==EXPLICIT_WHISPER_ONLY):
+        if is_npc_whisper(destination,explicit_only=audience_motion_version in (EXPLICIT_WHISPER_ONLY,SINGLE_NPC_PROXIMITY)):
             from model_packages.desktop_pet_v1 import whisper
             if scene_context is None:raise ValueError('private NPC speech requires a current desktop scene')
             profile_facts['whisper_context']=whisper.context(scene_context,authorization.target_ref,
@@ -1062,6 +1119,8 @@ class PetRealizationService:
             if automatic_approach and scene_context is not None and not private_control.get('whisper_contract'):
                 from model_packages.desktop_pet_v1.audience_motion import VERSION as motion_version
                 private_control['audience_motion_contract']=motion_version
+                if audience_motion_version==SINGLE_NPC_PROXIMITY:
+                    private_control['audience_motion_human_ref']=app.user_ref
         request=RealizerRequest.create(session_binding=app.runtime.session.session_binding,
             current_position=app.runtime.session.position,authorization=authorization,
             control={"version":control_version,"selected_action_keys":[],"allow_speech":True,**private_control,
@@ -1275,7 +1334,8 @@ class PetRealizationService:
                             scene=request.readonly_facts.get('scene_context'),human_ref=app.user_ref,
                             expressions=allowed_expressions,gaze_independent=delivery.get('scene_delivery',{}).get('independent',False),
                             version=request.control['independent_output_validation'],
-                            displayed_targets=request.readonly_facts.get('action_target_labels')=='explicit-v1')
+                            displayed_targets=request.readonly_facts.get('action_target_labels')=='explicit-v1',
+                            align_meal_target=request.control.get('meal_acceptance_contract')=='bound-speech-v2')
                         if rejected:reading['unexecuted_action_proposals']=rejected
                         if adjustments:reading.setdefault('output_adjustments',[]).extend(adjustments)
                         if json.loads(text).get('speech') is None:
@@ -1422,8 +1482,22 @@ class PetRealizationService:
             if request.control.get('action_sequence_contract'):
                 from model_packages.desktop_pet_v1.action_sequence import compose,VERSION as SEQUENCE_VERSION
                 from model_packages.desktop_pet_v1.events import Content
+                from model_packages.desktop_pet_v1 import shared_meal
+                typed_contents = tuple(Content.from_record(c) for c in contents)
+                meal_contract = request.control.get('meal_acceptance_contract')
+                addressee = request.readonly_facts.get('meal_acceptance_addressee')
+                meal_target = None
+                if meal_contract:
+                    accepted = shared_meal.acceptance_speech(typed_contents, addressee=addressee, version=meal_contract)
+                    if accepted is not None and shared_meal.acceptance_addressed(
+                            accepted.description, target=request.target_ref,
+                            recipients=value.get('audience', {}).get('speech', accepted.recipient_refs),
+                            direct=value.get('speech_to'), addressee=addressee):
+                        meal_target = request.target_ref
                 items,declaration=compose(value['actions'],request.readonly_facts['action_sequence_context'],
-                    tuple(Content.from_record(c) for c in contents),audience=request.readonly_facts.get('participant_destination',{}).get('audience',(app.user_ref,)),allow_thought=request.control.get('allow_thought',False),speech_timing=value.get('speech_timing'),speech_timings=speech_timings,expression_timings=expression_timings)
+                    typed_contents,audience=request.readonly_facts.get('participant_destination',{}).get('audience',(app.user_ref,)),allow_thought=request.control.get('allow_thought',False),speech_timing=value.get('speech_timing'),speech_timings=speech_timings,expression_timings=expression_timings,meal_acceptance_target=meal_target,
+                    meal_acceptance_addressee=addressee,meal_acceptance_contract=meal_contract,
+                    dependency_contract=request.control.get('dependency_contract'))
                 payload={'contents':[c.to_record() for c in items],'action_sequence':declaration}
                 sequence_evidence={'action_sequence_contract':SEQUENCE_VERSION}
             if request.control.get('whisper_contract'):
@@ -1564,6 +1638,7 @@ class PetRealizationService:
             action_intent_version=prepared.request.readonly_facts.get('action_intent_version'),
             audience_contract=prepared.request.control.get('audience_contract'),
             pending_conversation=prepared.request.readonly_facts.get('pending_conversation'),
+            execution_frontier=prepared.request.readonly_facts.get('execution_frontier'),
             rag_context=prepared.request.readonly_facts.get('rag_context'),
             relation_version=prepared.request.readonly_facts.get('memory_relation_version'),
             visibility_version=prepared.request.readonly_facts.get('memory_visibility',{}).get('version'),

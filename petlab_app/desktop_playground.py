@@ -156,8 +156,7 @@ class PlaygroundWindow:
 
         def award():
             nonlocal meal
-            current=self.host.meal.snapshot()
-            if current is not None and current['portions']>0:
+            if any(row['portions'] for row in self.host.meal.snapshots()):
                 return False
             meal=self.host.meal.start(actor)
             return True

@@ -63,10 +63,14 @@ def attach(session, *, previous_state, previous_position, context, execution, ac
     return replace(session,profile=profile)
 
 
-def read_settlement(application,*,record=None,historical=False):
+def read_settlement(application,*,record=None,historical=False,pending_world_for=None):
     app=application
     with app._lock:
-        if not historical:app._require_ready()
+        if not historical:
+            from petlab_app.playback_intake import writer_world_input
+            world=(writer_world_input(app,pending_world_for)
+                   if pending_world_for is not None else None)
+            app._require_ready(world_event_id=None if world is None else world.event.event_id)
         session=app.runtime.session;binding=session.session_binding
         row=session.profile.get(KEY) if record is None else record
         if row is None:raise ValueError('current settlement source is unavailable in this archive')
@@ -109,10 +113,12 @@ def read_settlement(application,*,record=None,historical=False):
         return session,previous_state,previous_position,context,execution,acceptance
 
 
-def current_projection(application,*,record=None,historical=False,committed_remainders=None):
+def current_projection(application,*,record=None,historical=False,committed_remainders=None,
+                       pending_world_for=None):
     app=application
     with app._lock:
-        settled=read_settlement(app,record=record,historical=historical)
+        settled=read_settlement(app,record=record,historical=historical,
+                                pending_world_for=pending_world_for)
         return _projection_from_verified(app,settled,committed_remainders=committed_remainders)
 
 

@@ -51,8 +51,9 @@ def _environment_material(row, *, world_observation_scope=False):
         row = {**row, '记录含义': WORLD_OBSERVATION_SCOPE}
     return row
 
-def project(packet, *, memory_evidence=False,shared_bodies=False,optional_context=False,independent_children=False,current_time=False,subtype_references=False,speaker_framing=False,conversation_context=False,shared_metadata=False,grouped_metadata=False,body_context=None,action_sequence_context=None,contextual=False,intention_time_labels=False,property_owners=False,property_owner_events=None,property_evidence=None,free_action_intents=False,scene_facts=False,concise=False,compact_actions=False,memory_occurrences=None,world_sources=False,explicit_action_targets=False,processing_ms=None,conversation_processing_ms=None,information_acquisition=False,environment_material=False,world_observation_scope=False):
+def project(packet, *, memory_evidence=False,shared_bodies=False,optional_context=False,independent_children=False,current_time=False,subtype_references=False,speaker_framing=False,conversation_context=False,shared_metadata=False,grouped_metadata=False,body_context=None,action_sequence_context=None,contextual=False,intention_time_labels=False,property_owners=False,property_owner_events=None,property_evidence=None,free_action_intents=False,scene_facts=False,concise=False,compact_actions=False,memory_occurrences=None,world_sources=False,explicit_action_targets=False,processing_ms=None,conversation_processing_ms=None,information_acquisition=False,environment_material=False,world_observation_scope=False,statement_scope=False,integrated_evidence=False,played_sources=None,preserve_acquisition=False,archive_notes=None,explain_behavior=False,fragment_behavior=False):
     sections={}
+    played_events, played_facts = played_sources or ({}, {})
     owner=packet.output_identity.speaker_participant_id
     bodies={}
     idle_opportunity=independent_children and any('idle_opening_reference' in c.fields for c in packet.sections.get('form',()))
@@ -68,6 +69,7 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
         rows=[]
         for card in cards:
             fields=thaw_model_data(card.fields)
+            consumed=()
             if lane=='persona':
                 keys={'pet_persona_voice':{'语气','文风'},
                       'pet_persona_habits':{'本人常用表达（供参考）'}}.get(card.kind,{'name','background'})
@@ -75,7 +77,12 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
             elif lane=='current_input':fields={k:public_value(v) for k,v in fields.items() if k in {'说话者','对象','接收者','父级回应对象','本次观察者','正文','内容属性','事实时序','触发来源','本轮来源','当前事实','已发生事实','内容归属注解','本轮指代参照','片段材料'}}
             elif lane=='conversation' and conversation_context and card.kind=='witnessed_conversation_context':
                 fields={k:public_value(v) for k,v in fields.items() if k in {'上下文范围','已见的同会话前文'}}
-                if memory_occurrences is not None and '已见的同会话前文' in fields:
+                from .conversation_delivery import IDLE_V9_TIMED_VERSION
+                if card.provenance.get('version')==IDLE_V9_TIMED_VERSION:
+                    from .event_timeline import chronological_context
+                    if processing_ms is None:raise ValueError('timed idle context needs the Writer processing clock')
+                    fields=chronological_context(fields,processing_ms=processing_ms)
+                elif memory_occurrences is not None and '已见的同会话前文' in fields:
                     from .event_timeline import chronological_context
                     fields=chronological_context(fields,processing_ms=conversation_processing_ms)
                 if conversation_processing_ms is not None and not fields.get('已见的同会话前文'):
@@ -141,15 +148,21 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
             if concise and lane in {'current_input','conversation'}:
                 fields=visible_facts(fields)
             if lane=='memory':
+                if archive_notes is not None:
+                    from .memory_archive_delivery import inline_records
+
+                    fields,consumed=inline_records(fields,card,archive_notes,explain_behavior=explain_behavior)
                 if property_owners:
                     from .property_owner_delivery import annotate
-                    fields=annotate(fields,card.provenance,owner=owner,events=property_owner_events,evidence=property_evidence)
+                    fields=annotate(fields,card.provenance,owner=owner,events=property_owner_events,evidence=property_evidence,statement_scope=statement_scope,integrated_evidence=integrated_evidence,played_facts=played_facts if played_sources is not None else None,fragment_behavior=fragment_behavior)
                 if memory_occurrences is not None and card.provenance.get('selected_memory_ids'):
                     from .event_timeline import chronological_memory
                     fields=chronological_memory(fields,card.provenance['selected_memory_ids'],memory_occurrences,processing_ms=processing_ms)
                 def event_time(row):
                     if not isinstance(row,dict):return row
                     row=dict(row);position=row.pop('位置',None)
+                    if archive_notes is not None and '原事件指向' in row:
+                        row['父事件对象']=row.pop('原事件指向')
                     if intention_time_labels and '自身意图进度' in row and '语义属性' in row:
                         row['意图形成时的语义属性']=row.pop('语义属性')
                     if memory_evidence and '正文' in row:
@@ -192,15 +205,37 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
                 if grouped_metadata:
                     from .memory_metadata import compact_grouped_fields
                     fields=compact_grouped_fields(fields)
+            if explain_behavior and lane=='current_input':
+                from .memory_archive_delivery import behavior_definitions
+
+                definitions=behavior_definitions((fields,))
+                if definitions:
+                    fields={'本卡涉及的行为树定义':definitions,**fields}
             if information_acquisition and lane=='current_input':
                 from .speaker_view import acquisition_view
                 fields=acquisition_view(fields,owner=owner)
+            if (lane=='current_input' and '环境来源' not in fields
+                    and (played_facts.get(card.source_id) or (fragment_behavior and card.source_id in played_events))):
+                from .property_owner_delivery import evidence_view
+
+                fields=evidence_view(fields,played_events[card.source_id],None,None,owner=owner,
+                                     played_facts=played_facts.get(card.source_id),preserve_acquisition=preserve_acquisition,
+                                     fragment_behavior=fragment_behavior)
             if speaker_framing and lane=='current_input':
                 from .speaker_view import frame_event
                 fields=frame_event(fields,owner=owner,historical=False,world_sources=world_sources)
             if environment_material and lane=='current_input':
                 fields=_environment_material(fields)
+            if fragment_behavior and lane in {'memory','current_input'}:
+                from .memory_archive_delivery import attach_behavior_distinctions
+
+                fields=attach_behavior_distinctions(fields)
             if not fields:fields={'内容参照':'本栏目沿其他已交付事实理解。'}
+            if consumed:
+                refs=tuple(dict.fromkeys((*card.source_receipt_refs,
+                     *(ref for child in consumed for ref in child.source_receipt_refs))))
+                card=replace(card,source_receipt_refs=refs,
+                             subcards=tuple(child for child in card.subcards if child not in consumed))
             rows.append(replace(card,fields=fields))
         sections[lane]=tuple(rows)
     view=replace(packet,sections=sections)

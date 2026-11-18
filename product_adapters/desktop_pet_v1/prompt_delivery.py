@@ -63,10 +63,10 @@ DIALOGUE_AUTHOR_SUFFIX = '-dialogue-author-v1'
 COMPACT_ACTIONS_SUFFIX = '-compact-actions-v1'
 OCCURRENCE_SUFFIX = '-occurrence-v1'
 
-def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body_context=None,action_sequence_context=None,interaction_mode=None,relationship_context=None,input_layout_version=None,property_owner_events=None,property_evidence=None,free_action_intents=False,action_emoji=False,action_eyes=False,action_capabilities=False,memory_occurrences=None,parallel_speech=False,explicit_action_targets=False,processing_ms=None):
+def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body_context=None,action_sequence_context=None,interaction_mode=None,relationship_context=None,input_layout_version=None,property_owner_events=None,property_evidence=None,free_action_intents=False,action_emoji=False,action_eyes=False,action_capabilities=False,memory_occurrences=None,parallel_speech=False,explicit_action_targets=False,processing_ms=None,played_sources=None,archive_notes=None):
     from .current_turn_delivery import VERSION as INPUT_LAYOUT, LEGACY_VERSION as OLD_INPUT_LAYOUT, PROPERTY_VERSION, SOURCE_VERSION, ADJACENT_LAYOUTS, WORLD_LAYOUTS, FACT_SCOPE_LAYOUTS, RECORDED_DIALOGUE_LAYOUTS, EVIDENCE_REVIEW_LAYOUTS, CLAIM_READING_VERSION, CLAIM_READING_GUIDANCE, TESTIMONY_FIRST_LAYOUTS, OPTIONAL_MEMORY_REPORT_LAYOUTS, SPEECH_ACTION_FORMAT_LAYOUTS, SCOPED_EVIDENCE_LAYOUTS, COHERENT_PERFORMANCE_LAYOUTS, PROCESSING_TIME_LAYOUTS, SOURCE_CONTINUITY_LAYOUTS, processing_time_note, COHERENT_HISTORY_LAYOUTS, CARD_EVIDENCE_GUIDANCE, NATURAL_SPEECH_GUIDANCE, SOURCE_CONTINUITY_SPEECH_GUIDANCE, FACT_CARRY_LAYOUTS, FACT_CARRY_SPEECH_GUIDANCE, TESTIMONY_FIRST_GUIDANCE, EVIDENCE_REVIEW_GUIDANCE, FACT_SCOPE_GUIDANCE, place_current_input
     from .current_turn_delivery import ACQUISITION_LAYOUTS
-    from .current_turn_delivery import ENVIRONMENT_TIMELINE_LAYOUTS, WORLD_SCOPE_LAYOUTS
+    from .current_turn_delivery import ENVIRONMENT_TIMELINE_LAYOUTS, WORLD_SCOPE_LAYOUTS, STATEMENT_SCOPE_LAYOUTS, COMPLETE_OUTPUT_LAYOUTS, INTEGRATED_EVIDENCE_LAYOUTS, ACQUISITION_BINDING_LAYOUTS, PLAIN_JSON_LAYOUTS, BEHAVIOR_EVIDENCE_LAYOUTS, BEHAVIOR_EVIDENCE_GUIDANCE, FRAGMENT_BEHAVIOR_LAYOUTS, FRAGMENT_BEHAVIOR_GUIDANCE
     information_acquisition = input_layout_version in ACQUISITION_LAYOUTS
     history_time=processing_ms if input_layout_version in COHERENT_HISTORY_LAYOUTS else None
     if input_layout_version in PROCESSING_TIME_LAYOUTS:
@@ -152,7 +152,7 @@ def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body
     original_packet=packet
     if delivery_version in {READABLE_VERSION,MARKER_VERSION,EVIDENCE_VERSION,EVIDENCE_MARKER_VERSION}:
         from .readable_prompt import project
-        packet=project(packet,memory_evidence=delivery_version in {EVIDENCE_VERSION,EVIDENCE_MARKER_VERSION},shared_bodies=optional_idle or shared_all,optional_context=opportunity,independent_children=independent,current_time=timed,subtype_references=typed_references,speaker_framing=speaker_framing,conversation_context=conversation_context,shared_metadata=shared_metadata,grouped_metadata=grouped_metadata,body_context=body_context,action_sequence_context=action_sequence_context,contextual=relation_delivery and interaction_mode=="contextual",intention_time_labels=input_layout_version is not None,property_owners=input_layout_version in (PROPERTY_VERSION,SOURCE_VERSION,INPUT_LAYOUT,*ADJACENT_LAYOUTS),property_owner_events=property_owner_events if input_layout_version in (SOURCE_VERSION,INPUT_LAYOUT,*ADJACENT_LAYOUTS) else None,property_evidence=property_evidence,free_action_intents=free_action_intents,scene_facts=scene_facts,concise=concise,compact_actions=compact_actions,memory_occurrences=(memory_occurrences or {}) if chronological else None,world_sources=input_layout_version in WORLD_LAYOUTS,explicit_action_targets=explicit_action_targets,processing_ms=processing_ms,conversation_processing_ms=history_time,information_acquisition=information_acquisition,environment_material=input_layout_version in ENVIRONMENT_TIMELINE_LAYOUTS,world_observation_scope=input_layout_version in WORLD_SCOPE_LAYOUTS)
+        packet=project(packet,memory_evidence=delivery_version in {EVIDENCE_VERSION,EVIDENCE_MARKER_VERSION},shared_bodies=optional_idle or shared_all,optional_context=opportunity,independent_children=independent,current_time=timed,subtype_references=typed_references,speaker_framing=speaker_framing,conversation_context=conversation_context,shared_metadata=shared_metadata,grouped_metadata=grouped_metadata,body_context=body_context,action_sequence_context=action_sequence_context,contextual=relation_delivery and interaction_mode=="contextual",intention_time_labels=input_layout_version is not None,property_owners=input_layout_version in (PROPERTY_VERSION,SOURCE_VERSION,INPUT_LAYOUT,*ADJACENT_LAYOUTS),property_owner_events=property_owner_events if input_layout_version in (SOURCE_VERSION,INPUT_LAYOUT,*ADJACENT_LAYOUTS) else None,property_evidence=property_evidence,free_action_intents=free_action_intents,scene_facts=scene_facts,concise=concise,compact_actions=compact_actions,memory_occurrences=(memory_occurrences or {}) if chronological else None,world_sources=input_layout_version in WORLD_LAYOUTS,explicit_action_targets=explicit_action_targets,processing_ms=processing_ms,conversation_processing_ms=history_time,information_acquisition=information_acquisition,environment_material=input_layout_version in ENVIRONMENT_TIMELINE_LAYOUTS,world_observation_scope=input_layout_version in WORLD_SCOPE_LAYOUTS,statement_scope=input_layout_version in STATEMENT_SCOPE_LAYOUTS,integrated_evidence=input_layout_version in INTEGRATED_EVIDENCE_LAYOUTS,played_sources=played_sources,preserve_acquisition=input_layout_version in ACQUISITION_BINDING_LAYOUTS,archive_notes=archive_notes,explain_behavior=input_layout_version in BEHAVIOR_EVIDENCE_LAYOUTS and input_layout_version not in FRAGMENT_BEHAVIOR_LAYOUTS,fragment_behavior=input_layout_version in FRAGMENT_BEHAVIOR_LAYOUTS)
         core_text=("以当前角色的身份，依据人物资料直接回应当前输入。性格和当下态度体现在自然口语与句子节奏中。日常回应通常一两句、约8–35个汉字，详细问题按实际需要展开。\n"
             "当前输入和正式记忆给出已经发生的事实，已选表达资源给出本轮态度。身体行动的选择和播放由外部完成；本轮讲话与已选行动计划配合，具体往事以交付的记忆正文为据。\n"
             "输出JSON：speech为对对方说出的感受、观点或回应；其中身体姿势与运动的事实沿已交付的完成记录表达。reported_used_memory_ids为实际参考的记忆标记数组，未参考时填空数组。")
@@ -215,7 +215,7 @@ def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body
             core_text+='\n本轮是用户直接与角色交互：围绕用户的问题或操作给予可感知的反馈，表情、动作和讲话沿本轮可用通道组织。'
     if stationary_choice and action_sequence_context is not None:
         core_text+='\n身体行动可选结果：保持当前姿态（actions: []），或从可用动作中安排活动。保持姿态时可以只说话、看着或听着，表情与视线仍独立选择；这是完整的本轮选择，身体沿当前持物状态及基础呼吸、眨眼表现。'
-    from .current_turn_delivery import INVESTIGATOR_LAYOUTS, PROFILER_LAYOUTS, ROLE_PERSPECTIVE_LAYOUTS, EXPRESSION_ONLY_LAYOUTS, EXPRESSION_ONLY_GUIDANCE
+    from .current_turn_delivery import INVESTIGATOR_LAYOUTS, PROFILER_LAYOUTS, ROLE_PERSPECTIVE_LAYOUTS, EXPRESSION_ONLY_LAYOUTS, EXPRESSION_ONLY_GUIDANCE, EVIDENCE_CARRY_LAYOUTS, EVIDENCE_CARRY_GUIDANCE
     from .persona_layout import EVIDENCE_REVIEW_IDENTITY, INVESTIGATOR_IDENTITY, PROFILER_IDENTITY, ROLE_PERSPECTIVE_IDENTITY, EXPRESSION_ONLY_IDENTITY
     review_identity = EVIDENCE_REVIEW_IDENTITY
     if input_layout_version in INVESTIGATOR_LAYOUTS:
@@ -237,6 +237,8 @@ def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body
             mode=interaction_mode,idle=optional_idle,free_action_intents=free_action_intents,concise=concise,dialogue_author=dialogue_author,recorded_dialogue=recorded_dialogue,evidence_review=evidence_review,review_identity=review_identity,
             parallel_speech=parallel_speech, optional_memory_report=optional_memory_report, speech_action_format=speech_action_format,
             coherent_performance=input_layout_version in COHERENT_PERFORMANCE_LAYOUTS,
+            complete_output=input_layout_version in COMPLETE_OUTPUT_LAYOUTS,
+            plain_json_examples=input_layout_version in PLAIN_JSON_LAYOUTS,
             max_actions=action_sequence_context['max_actions'] if compact_actions and action_sequence_context is not None else None)
     elif free_action_intents:
         from .action_intents import FORMAT
@@ -258,8 +260,15 @@ def compile_delivery(packet, *, budget_chars=None, delivery_version=VERSION,body
         core_text += f'\n可省略reported_used_memory_ids。若填写，用{claim_format}列出实际参考的已交付记忆标记。'
     from .current_turn_delivery import WITNESS_LAYOUTS, WITNESS_SPEECH_GUIDANCE
     if expression_only:
-        core_text+='\n'+EXPRESSION_ONLY_GUIDANCE
-        if information_acquisition:
+        if input_layout_version in FRAGMENT_BEHAVIOR_LAYOUTS:
+            core_text+='\n'+FRAGMENT_BEHAVIOR_GUIDANCE
+        elif input_layout_version in BEHAVIOR_EVIDENCE_LAYOUTS:
+            core_text+='\n'+BEHAVIOR_EVIDENCE_GUIDANCE
+        if input_layout_version in EVIDENCE_CARRY_LAYOUTS:
+            core_text+='\n'+EVIDENCE_CARRY_GUIDANCE
+        else:
+            core_text+='\n'+EXPRESSION_ONLY_GUIDANCE
+        if information_acquisition and input_layout_version not in EVIDENCE_CARRY_LAYOUTS:
             core_text+='\n按每段的角色取得方式叙述；收到发言只说明接收到这句话，来源未记录的材料保留来源未知。'
         if speech_action_format and not layered and action_sequence_context is not None and not free_action_intents:
             core_text+='\nactions是字符串数组，每项逐字复制本轮候选编码。无动作填[]。'

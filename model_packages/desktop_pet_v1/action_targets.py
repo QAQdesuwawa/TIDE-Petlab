@@ -2,16 +2,28 @@
 from copy import deepcopy
 from . import meal_button,movement,shared_meal,spatial
 
+def _meal_catalog(base, meal, owner, target):
+    own=shared_meal.held_by(meal,owner)
+    other=shared_meal.held_by(meal,target)
+    selected=own or other
+    if selected is None and len(shared_meal.bowls(meal))==1:
+        selected=shared_meal.bowls(meal)[0]
+    result=shared_meal.catalog(base,selected,owner,target,include_self_activities=True)
+    if own is not None and other is not None:
+        result['candidates']=[row for row in result['candidates'] if row['key']!='offer_bowl']
+    return result
+
+
 def _expand(base,*,scene,meal,owner,primary,audience):
     from .basic_actions import catalog as basics
-    base=movement.basic_catalog(basics(base,meal=meal,owner=owner),scene=scene,target_ref=primary)
-    result=shared_meal.catalog(movement.catalog(base,scene=scene,target_ref=primary),meal,owner,primary,include_self_activities=True)
+    base=movement.basic_catalog(basics(base,meal=shared_meal.held_by(meal,owner),owner=owner),scene=scene,target_ref=primary)
+    result=_meal_catalog(movement.catalog(base,scene=scene,target_ref=primary),meal,owner,primary)
     if scene is None:return result
     peers=[p for p in spatial.targets(scene) if p not in ('front',owner,primary) and p in audience]
     if not peers:return result
     result=deepcopy(result)
     for peer in peers:
-        other=shared_meal.catalog(movement.catalog(movement.basic_catalog({'version':'target-options','candidates':[]},scene=scene,target_ref=peer),scene=scene,target_ref=peer),meal,owner,peer,include_self_activities=True)
+        other=_meal_catalog(movement.catalog(movement.basic_catalog({'version':'target-options','candidates':[]},scene=scene,target_ref=peer),scene=scene,target_ref=peer),meal,owner,peer)
         for row in other['candidates']:
             if row['key'] in ('eat_rice','stroll','relocate'):continue
             item=deepcopy(row);item.update(action_key=row['key'],key=row['key']+'@'+peer,target_ref=peer)
@@ -21,7 +33,7 @@ def _expand(base,*,scene,meal,owner,primary,audience):
 
 def expand(base,*,scene,meal,owner,primary,audience,executable_keys=None,contact=None):
     result=_expand(base,scene=scene,meal=meal,owner=owner,primary=primary,audience=audience)
-    hands_occupied=meal is not None and meal.get('holder_ref')==owner and meal.get('portions',0)
+    hands_occupied=shared_meal.held_by(meal,owner) is not None
     if hands_occupied:
         result={**result,'candidates':[row for row in result['candidates']
                                       if row['key'] not in {'peek_phone','read_web'}]}
@@ -53,7 +65,7 @@ def expand(base,*,scene,meal,owner,primary,audience,executable_keys=None,contact
         result=deepcopy(result)
         for peer in spatial.targets(scene):
             if peer in ('front',owner) or peer not in audience:continue
-            if meal is not None and meal.get('portions',0) and meal.get('holder_ref') in (owner,peer):continue
+            if hands_occupied or shared_meal.held_by(meal,peer) is not None:continue
             for row in candidates(contact,owner,peer):
                 key=row['key']
                 result['candidates'].append({**row,'key':key+'@'+peer,'action_key':key,'target_ref':peer})

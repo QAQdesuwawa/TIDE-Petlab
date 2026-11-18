@@ -24,6 +24,40 @@ def _artifact(app,source):
  return json.loads(raw)
 
 
+def played_continuations(app, source, *, before_ms, readers=None):
+ """Verified later speech of the same measured delivery, without a new measurement."""
+ capture=getattr(app,'visible_continuations',None)
+ anchor=_artifact(app,source)
+ workspace=getattr(app,'multi_workspace',None)
+ if capture is None or anchor is None or workspace is None:return []
+ manifest=anchor.get('source',{}).get('visible_manifest',{})
+ parent=manifest.get('parent_event_id')
+ if parent is None:return []
+ anchor_id=anchor['delivery']['delivery_id']
+ alias=workspace.aliases[app.owner_ref]
+ from petlab_app.multi_pet import _key
+ from petlab_app.visible_delivery import validate_projection
+ result=[]
+ for row in capture(parent):
+  identity=row['delivery']['delivery_id']
+  if row['projection']['committed_at_ms']>before_ms:continue
+  if row['projection']['conversation_id']!=anchor['source']['event']['conversation_id']:continue
+  actual=workspace.read_delivery(alias,workspace.inbox_path(alias,identity))
+  if actual!=row:raise ValueError('observed continuation delivery changed')
+  receipt_path=workspace.actor_path(alias)/'accepted'/(_key(identity)[:24]+'.json')
+  receipt=json.loads(receipt_path.read_text(encoding='utf-8'))
+  if receipt.get('status')!='observed_with_parent' or receipt.get('measurement_delivery_id')!=anchor_id:continue
+  origin=workspace.source_event(row['projection']['source_event_id'])
+  contents=validate_projection(origin,app.owner_ref,row['visible'])
+  speech=[c for c in contents if c.kind=='speech' and not c.private
+          and (readers is None or set(readers)<=set(c.recipient_refs)|{row['projection']['sender_participant_id']})]
+  if speech:
+   result.append({'来源投递':identity,'原发生时间毫秒':row['projection']['committed_at_ms'],
+                  '实际说话者':row['projection']['sender_participant_id'],
+                  '已播话语':[c.description for c in speech]})
+ return sorted(result,key=lambda item:(item['原发生时间毫秒'],item['来源投递']))
+
+
 def build(app,event,*,limit_chars=2048,max_events=16,public_human=False,reply_conversation=None):
  if type(limit_chars)is not int or limit_chars<=0 or type(max_events)is not int or not 1<=max_events<=16:raise ValueError('conversation context budget invalid')
  if event.event_kind!='peer_input':return None
@@ -61,6 +95,8 @@ def build(app,event,*,limit_chars=2048,max_events=16,public_human=False,reply_co
   if not contents:continue
   app._verify_source(prior);memory=app.runtime.memory_instance(identity)
   body={'实际说话或行动者':prior.actor_ref,'事件方向':prior.event_kind,'原文':evidence_source(replace(prior,contents=contents))}
+  continued=played_continuations(app,source,before_ms=event.position.coordinate)
+  if continued:body['同父输出后续已播话语']=continued
   candidate=json.dumps([body,*rows],ensure_ascii=False,separators=(',',':'))
   if len(candidate)>limit_chars:boundary=identity;break
   rows.insert(0,body)

@@ -6,7 +6,8 @@ from model_packages.desktop_pet_v1.relation_package import META
 from .destinations import VERSION as DEST_VERSION,validate
 LEGACY_VERSION='petlab-idle-relationship-selection-v1'
 VERSION='petlab-idle-relationship-selection-v2-public-addressed'
-SUPPORTED_VERSIONS=frozenset((LEGACY_VERSION,VERSION))
+SOURCE_VERSION='petlab-idle-relationship-selection-v3-source-destination'
+SUPPORTED_VERSIONS=frozenset((LEGACY_VERSION,VERSION,SOURCE_VERSION))
 
 def make_destination(app,peer,*,visibility='public'):
  w=app.multi_workspace
@@ -26,18 +27,40 @@ def make_destination(app,peer,*,visibility='public'):
       'primary':peer,'audience':audience,'addressed':[peer],'addressing_policy':VERSION}
  return validate(app,{**row,'fingerprint':fp(row)})
 
-def choose(app,*,coordinate,bounds):
- if not hasattr(app,'multi_workspace') or META not in app.runtime.session.state.state:return None
- candidates=[]
- known=app.runtime.session.state.state[META]['roots_by_peer']
+def available_peers(app):
  snapshot=getattr(app,'scene_snapshot',None)
  scene=snapshot() if callable(snapshot) else None
  present=None if scene is None else {r['ref'] for r in scene['participants']}|{app.user_ref}
  active=getattr(app,'idle_participant_refs',None)
- for peer in sorted(known):
-  if peer not in app.multi_workspace.participants or peer==app.owner_ref:continue
-  if active is not None and peer not in active:continue
-  if present is not None and peer not in present:continue
+ known=app.runtime.session.state.state[META]['roots_by_peer']
+ return tuple(peer for peer in sorted(known) if peer in app.multi_workspace.participants
+              and peer!=app.owner_ref and (active is None or peer in active)
+              and (present is None or peer in present))
+
+
+def source_destination(app,peer,event_id):
+ from .destinations import _input
+ source=app._product()['sources'][event_id]
+ event=app.runtime.memory_instance(event_id).event
+ if source['origin']=='input':
+  origin=_input(app,event_id)
+ elif source['origin']=='execution':
+  app._verify_source(event)
+  origin=source['evidence']['fact']['model_payload']['execution_receipt']['realization_evidence'].get('participant_destination')
+ else:
+  origin=None
+ if origin is None or origin['primary']!=peer:return None
+ original=validate(app,origin)
+ row={**original,'source_event_id':event_id,'source_binding_ref':event.source_binding_ref,
+      'origin_destination_fingerprint':original['fingerprint'],'addressed':[peer],'addressing_policy':SOURCE_VERSION}
+ row.pop('fingerprint')
+ return validate(app,{**row,'fingerprint':fp(row)})
+
+
+def choose(app,*,coordinate,bounds,evidence_for=None):
+ if not hasattr(app,'multi_workspace') or META not in app.runtime.session.state.state:return None
+ candidates=[]
+ for peer in available_peers(app):
   # These immutable transaction results are previews, never published to the owner.
   progress=execute_runtime_progress_transaction(session=app.runtime.session,model_runtime=app.runtime.model_runtime,
    temporal_runtime=app.runtime.temporal_runtime,target_coordinate=coordinate,scope_ref=None,subject_ref=app.owner_ref,
@@ -45,23 +68,38 @@ def choose(app,*,coordinate,bounds):
    context_metadata={'committed_event_kind':'tick','desktop_pet_counterparty_ref':peer})
   context=progress.context
   shared=app.runtime.model_runtime.invoke('project_shared_semantics',payload={'parameters':progress.session.parameters.parameters,'settlement':progress.settlement_execution.payload['settlement']},context=context)
-  assessment=app.runtime.model_runtime.invoke('assess_action',payload={'shared_projection':shared.payload['shared_projection'],**bounds},context=context)
+  from model_packages.desktop_pet_v1.autonomous_opening import INPUT
+  extra={INPUT:evidence_for(peer)} if evidence_for is not None else {}
+  assessment=app.runtime.model_runtime.invoke('assess_action',payload={'shared_projection':shared.payload['shared_projection'],**bounds,**extra},context=context)
   value=assessment.payload['action_assessment']
   candidates.append({'peer':peer,'margin':value['constraints']['opening']['margin'],'eligible':value['eligible'],
    'assessment':thaw_model_data(assessment.payload),'assessment_receipt':assessment.receipt.to_record()})
  if not candidates:return None
- winner=max(candidates,key=lambda r:(r['margin'],r['peer']))
- # A sealed direct input is an explicit privacy boundary; merely choosing the
- # human as addressee is not. Keep a direct conversation's own continuation.
- from .destinations import destination
- context=destination(app)
- private=(context is not None and context['primary']==winner['peer']
-          and context['conversation']['kind']=='direct')
- if winner['peer']!=app.user_ref:
-  mode=app.multi_workspace.speech_mode(app.owner_ref,winner['peer'])
-  if mode is not None:private=mode=='private'
- row={'version':VERSION,'coordinate':coordinate,'state_fingerprint':app.runtime.session.state.fingerprint,
-      'peer':winner['peer'],'candidates':candidates,'destination':make_destination(app,winner['peer'],visibility='private' if private else 'public')}
+ if evidence_for is None:
+  winner=max(candidates,key=lambda r:(r['margin'],r['peer']))
+ else:
+  winner=max(candidates,key=lambda r:(
+      all(r['assessment']['action_assessment']['constraints']['desktop_idle_opening']['checks'][name]
+          for name in ('same_edge_continuation','unconsumed_same_edge_event')),
+      r['assessment']['action_assessment']['constraints']['observation_projection']['strength'],
+      r['assessment']['action_assessment']['constraints']['desktop_idle_opening']['channels']['a2']['level'],
+      r['peer']))
+ peer=winner['peer']
+ proof=winner['assessment']['action_assessment']['constraints'].get('desktop_idle_opening')
+ anchor=proof['anchor_event'] if proof is not None else None
+ if anchor is not None:
+  target=source_destination(app,peer,anchor)
+  if target is None:return None
+ else:
+  from .destinations import destination
+  context=destination(app)
+  private=(context is not None and context['primary']==peer and context['conversation']['kind']=='direct')
+  if peer!=app.user_ref:
+   mode=app.multi_workspace.speech_mode(app.owner_ref,peer)
+   if mode is not None:private=mode=='private'
+  target=make_destination(app,peer,visibility='private' if private else 'public')
+ row={'version':SOURCE_VERSION if evidence_for is not None else VERSION,'coordinate':coordinate,
+      'state_fingerprint':app.runtime.session.state.fingerprint,'peer':peer,'candidates':candidates,'destination':target}
  return {**row,'fingerprint':fp(row)}
 
 def visible_memories(app,target,memories):

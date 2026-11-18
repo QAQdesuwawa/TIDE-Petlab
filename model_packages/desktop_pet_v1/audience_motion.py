@@ -3,14 +3,15 @@ from dataclasses import replace
 from copy import deepcopy
 from framework.model_api import thaw_model_data
 from . import audience,spatial,movement,whisper
-from .composite import CompositePlan
+from .composite import CompositePlan,DEPENDENCY_VERSION
 
 PREFIX='audience:approach:'
 VERSION='desktop-pet-audience-motion-v1'
 SERIAL_PRIVATE='physical-audience-policy-v5'
 CURRENT_PRIVATE='physical-audience-policy-v6'
 EXPLICIT_WHISPER_ONLY='physical-audience-policy-v7'
-SERIAL_POLICIES=(SERIAL_PRIVATE,CURRENT_PRIVATE,EXPLICIT_WHISPER_ONLY)
+SINGLE_NPC_PROXIMITY='physical-audience-policy-v8'
+SERIAL_POLICIES=(SERIAL_PRIVATE,CURRENT_PRIVATE,EXPLICIT_WHISPER_ONLY,SINGLE_NPC_PROXIMITY)
 REUSE_POLICIES=('physical-audience-policy-v3','physical-audience-policy-v4',*SERIAL_POLICIES)
 SINGLE_POLICIES=('physical-audience-policy-v4',*SERIAL_POLICIES)
 
@@ -30,14 +31,22 @@ def finish_private_speech(contents,rows,approach):
  for key in speech:
   deps=[d for d in rows[key]['after'] if d not in blocked]
   rows[key]['after']=list(dict.fromkeys((*deps,previous)))
+  if 'requires' in rows[key]:
+   rows[key]['requires']=[d for d in rows[key]['requires'] if d not in blocked]
   previous=key
  for key in departures:
   rows[key]['after']=list(dict.fromkeys((*rows[key]['after'],speech[-1])))
 
-def compile(contents,children,*,choice,bound,scene,reuse_selected=False,single_target_only=False,finish_speech_before_departure=False):
+def compile(contents,children,*,choice,bound,scene,reuse_selected=False,single_target_only=False,finish_speech_before_departure=False,private_human_ref=None,dependency_contract=None):
+ if dependency_contract not in (None,DEPENDENCY_VERSION):raise ValueError('unknown audience dependency contract')
+ separate=dependency_contract==DEPENDENCY_VERSION or any('requires' in row for row in children.values())
+ if separate and any(row.get('after') and 'requires' not in row for row in children.values()):
+  raise ValueError('unclassified audience input dependencies')
  b=audience.validate(bound);refs=audience.select(choice,b)
  contents=audience.apply(tuple(contents),choice,b)
- if set(refs)==set(b['physical_observers']) or not refs:return contents,children
+ strict_single_npc=private_human_ref is not None and len(refs)==1 and refs[0]!=private_human_ref
+ if not refs or (not strict_single_npc and set(refs)==set(b['physical_observers'])):return contents,children
+ if private_human_ref is not None and len(refs)==1 and refs[0]==private_human_ref:return contents,children
  # Audience permissions do not specify a multi-stop movement itinerary.
  if single_target_only and len(refs)!=1:return contents,children
  s=spatial.validate(scene)
@@ -45,11 +54,15 @@ def compile(contents,children,*,choice,bound,scene,reuse_selected=False,single_t
  # Humans have no desktop avatar. Every selected on-screen listener is a real
  # geometry prerequisite; exclusions remain permissions, not sound simulation.
  targets=[r for r in refs if r in spatial.targets(s)]
- if not targets:return contents,children
+ if not targets:
+  if strict_single_npc:raise ValueError('private NPC listener is absent from the scene')
+  return contents,children
  if any(c.content_id.startswith(PREFIX) for c in contents):raise ValueError('duplicate audience prerequisites')
  rows={k:{**thaw_model_data(v),'after':list(v.get('after',()))} for k,v in children.items()}
  for c in contents:
   rows.setdefault(c.content_id,{'kind':c.kind,'key':c.semantic_key if c.kind=='action' else 'reply' if c.kind=='speech' else 'inner_monologue' if c.kind=='thought' else 'selected_presentation','after':[]})
+ if separate:
+  for row in rows.values():row.setdefault('requires',[])
  if reuse_selected and len(targets)==1:
   first=next((c for c in contents if c.kind=='action'),None)
   if (first is not None and first.semantic_key=='move_near'
@@ -60,6 +73,8 @@ def compile(contents,children,*,choice,bound,scene,reuse_selected=False,single_t
    for c in contents:
     if c.kind=='speech' and first.content_id not in rows[c.content_id]['after']:
      rows[c.content_id]['after'].append(first.content_id)
+    if separate and c.kind=='speech':
+     rows[c.content_id]['requires']=list(dict.fromkeys((*rows[c.content_id]['requires'],first.content_id)))
    if finish_speech_before_departure:finish_private_speech(result,rows,first.content_id)
    plan=CompositePlan.create(rows);plan.validate_contents(result)
    return result,thaw_model_data(plan.children)
@@ -71,10 +86,18 @@ def compile(contents,children,*,choice,bound,scene,reuse_selected=False,single_t
   c=replace(c,parameters={**dict(c.parameters),'audience_context':ctx})
   preps.append(c)
   rows[c.content_id]={'kind':'action','key':'move_near','after':[] if previous is None else [previous]}
+  if separate:rows[c.content_id]['requires']=[]
   previous=c.content_id
  result=[]
  for c in contents:
-  if c.kind in {'speech','action'} and not rows[c.content_id]['after']:rows[c.content_id]['after']=[previous]
+  deps=rows[c.content_id]['after']
+  if strict_single_npc and c.kind=='speech':
+   rows[c.content_id]['after']=list(dict.fromkeys((*deps,previous)))
+  elif c.kind in {'speech','action'} and not deps:
+   rows[c.content_id]['after']=[previous]
+  if separate and c.kind=='speech':
+   rows[c.content_id]['after']=list(dict.fromkeys((*rows[c.content_id]['after'],previous)))
+   rows[c.content_id]['requires']=list(dict.fromkeys((*rows[c.content_id]['requires'],previous)))
   result.append(c)
  if finish_speech_before_departure:finish_private_speech(result,rows,previous)
  plan=CompositePlan.create(rows);plan.validate_contents((*preps,*result))
@@ -91,9 +114,11 @@ def wrap(payload,control,bound,scene):
  base=thaw_model_data(payload)
  rows=base.get('action_sequence',{}).get('children',control.get('composite',{}).get('children',{}))
  items,rows=compile(tuple(Content.from_record(c) for c in base['contents']),rows,
+  dependency_contract=control.get('dependency_contract'),
   choice=base['audience'],bound=bound,scene=scene,reuse_selected=control.get('audience_motion_policy') in REUSE_POLICIES,
   single_target_only=control.get('audience_motion_policy') in SINGLE_POLICIES,
-  finish_speech_before_departure=control.get('audience_motion_policy') in SERIAL_POLICIES)
+  finish_speech_before_departure=control.get('audience_motion_policy') in SERIAL_POLICIES,
+  private_human_ref=control['audience_motion_human_ref'] if control.get('audience_motion_policy')==SINGLE_NPC_PROXIMITY else None)
  return {**base,'contents':[c.to_record() for c in items],'audience_plan':rows}
 
 

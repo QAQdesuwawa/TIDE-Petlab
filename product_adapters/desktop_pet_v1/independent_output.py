@@ -11,7 +11,7 @@ VERSION = 'petlab-independent-writer-output-v4'
 VERSIONS = (LEGACY_VERSION, EXPRESSION_SEGMENTS_VERSION, WIRE_MARKER_VERSION, VERSION)
 
 
-def recover(text, context, *, scene, human_ref, expressions, gaze_independent, version=VERSION, displayed_targets=False):
+def recover(text, context, *, scene, human_ref, expressions, gaze_independent, version=VERSION, displayed_targets=False, align_meal_target=False):
     body = json.loads(text)
     if not isinstance(body, dict):
         raise ValueError('writer output must be an object')
@@ -42,10 +42,17 @@ def recover(text, context, *, scene, human_ref, expressions, gaze_independent, v
         else:
             try:
                 code = aliases.get(key, key) if isinstance(key, str) else key
+                reason = 'matched_displayed_label'
+                if align_meal_target and isinstance(code, str) and code not in offer['allowed_keys']:
+                    from model_packages.desktop_pet_v1.shared_meal import bound_acceptance_code
+
+                    aligned = bound_acceptance_code(code, offer)
+                    if aligned != code:
+                        code, reason = aligned, 'matched_bound_meal_target'
                 keys = action_sequence.validate_keys([*keys, code], offer)
                 if code != key:
                     adjustments.append({'field': 'actions', 'index': index,
-                                        'reason': 'matched_displayed_label', 'original': key})
+                                        'reason': reason, 'original': key})
                 continue
             except ValueError:
                 reason = 'outside_frozen_candidates' if key not in offer['allowed_keys'] else 'invalid_action_sequence'

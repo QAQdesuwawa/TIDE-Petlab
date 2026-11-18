@@ -297,7 +297,7 @@ class ProviderGateway:
 
     def prepare(self,*,session_binding,current_position,operation_kind,source_fact_ref,codec_contract,
             messages,temperature,require_json,parse,source_receipt_refs=(),invocation_id=None,reuse_from=None,
-            provisional_writer=False):
+            provisional_writer=False,reuse_received=False):
         self.last_failure=None
         self._native_trace=None
         from .ordered_checkpoint import _ACTIVE_CHECKPOINT
@@ -342,6 +342,33 @@ class ProviderGateway:
                 reused_wire=previous['wire_response']
                 record['reused_response']={'invocation_id':previous['invocation_id'],
                     'request_fingerprint':reuse_from.request.fingerprint,
+                    'wire_fingerprint':model_data_fingerprint(reused_wire)}
+        if reuse_received:
+            if reuse_from is not None or provisional_writer:
+                raise ValueError('received response recovery cannot replace a Writer draft')
+            from framework.provider_host import ProviderRequest
+            matching=[]
+            for previous_path in self.trace_dir.glob('*.json'):
+                previous=json.loads(previous_path.read_text(encoding='utf8'))
+                if (previous.get('status')!='received' or previous.get('source_fact_ref')!=source_fact_ref
+                        or previous.get('operation_kind')!=operation_kind
+                        or previous.get('transport_binding')!=binding
+                        or previous.get('request_payload')!=record['request_payload']):
+                    continue
+                old_request=ProviderRequest(**previous['provider_request'])
+                if old_request.codec_contract!=codec_contract:
+                    continue
+                old_request.verify_integrity(session_binding=session_binding,current_position=current_position)
+                timing=read_host_timing(previous,expected_request_fingerprint=old_request.fingerprint)
+                if (timing is None or timing['response_received_at_unix_ms'] is None
+                        or timing['wire_fingerprint']!=model_data_fingerprint(previous['wire_response'])):
+                    raise ValueError('received response recovery lacks verified wire timing')
+                matching.append((timing['response_received_at_unix_ms'],previous))
+            if matching:
+                previous=min(matching,key=lambda item:item[0])[1]
+                reused_wire=previous['wire_response']
+                record['reused_response']={'invocation_id':previous['invocation_id'],
+                    'request_fingerprint':previous['provider_request']['fingerprint'],
                     'wire_fingerprint':model_data_fingerprint(reused_wire)}
         if self.diagnostic_job is not None:
             record['diagnostic_job']=dict(self.diagnostic_job)

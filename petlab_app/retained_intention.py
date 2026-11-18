@@ -15,7 +15,7 @@ def head(app,root):
     return app.runtime.session.profile.get(KEY,{}).get('heads',{}).get(root)
 
 
-def verified_inputs(app,root,planning):
+def verified_inputs(app,root,planning,*,expected_base=None):
     from .peer_reaction import KEY as PEER,_verify,is_peer
     from .intention_continuation import validate_planning
     nodes=app.runtime.session.profile.get(KEY,{}).get('nodes',{})
@@ -32,13 +32,19 @@ def verified_inputs(app,root,planning):
         if (row['version']!=KEY or row['root']!=root or row['planning']!=planning
             or row['fact']!=memory.fact.fingerprint or row['previous_fact']!=previous.fact.fingerprint
             or row['assessment']!=grant['fingerprint'] or grant['version']!=PEER
-            or grant['eligible'] or grant['fact_fingerprint']!=memory.fact.fingerprint
+            or (grant['eligible'] and not row.get('basis_preserved')) or grant['fact_fingerprint']!=memory.fact.fingerprint
             or not is_peer(app,planning)
             or memory.fact.accepted_runtime_ordinal!=previous.fact.accepted_runtime_ordinal+1):
             raise ValueError('retained planning differs from adjacent ineligible source')
+        if row.get('basis_preserved'):
+            from .execution_inputs import pending_revision
+            if pending_revision(app,root,planning) is not None:
+                raise ValueError('retained planning no longer preserves its opening basis')
         inputs.append(memory)
         planning=row['previous']
     # Terminates at the original formation or a verified inherited planning source.
+    if expected_base is not None and planning!=expected_base:
+        raise ValueError('retained planning does not reach its bound effect')
     validate_planning(app,root,planning,_formation_only=True)
     return tuple(inputs)
 
@@ -48,7 +54,7 @@ def validate(app,root,planning):
     return inputs[0] if inputs else app.runtime.memory_instance(planning)
 
 
-def retain(app,root,after):
+def retain(app,root,after,*,preserve_basis=False):
     from .peer_reaction import _journal,_verify,_signed,is_peer,KEY as PEER
     from .intent_history import FACTS_KEY
     from .intention_continuation import validate_planning,carried_grant,base_planning_id
@@ -86,7 +92,10 @@ def retain(app,root,after):
         low=_journal(app)['assessments'].get(after)
         if low is None:raise ValueError('retained planning requires a formal assessment')
         _verify(low)
-        if low['version']!=PEER or low['eligible'] or not is_peer(app,after):
+        from .execution_inputs import pending_revision
+        if (low['version']!=PEER or not is_peer(app,after)
+                or (low['eligible'] and not preserve_basis)
+                or (preserve_basis and pending_revision(app,root,after) is not None)):
             raise ValueError('new qualification cannot retain an old intention')
         journal=app.runtime.session.profile.get(KEY,{})
         previous=head(app,root) or base_planning_id(app,root)
@@ -95,7 +104,7 @@ def retain(app,root,after):
         parent=validate_planning(app,root,previous)
         row=_signed({'version':KEY,'root':root,'planning':after,'previous':previous,
             'fact':current.fact.fingerprint,'previous_fact':parent.fact.fingerprint,
-            'assessment':low['fingerprint']})
+            'assessment':low['fingerprint'],**({'basis_preserved':True} if preserve_basis else {})})
         # Validate the exact new link before publication, without staging a
         # counterfeit session or changing authoritative roots.
         if (low['fact_fingerprint']!=current.fact.fingerprint

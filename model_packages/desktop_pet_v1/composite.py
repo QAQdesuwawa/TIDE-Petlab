@@ -13,6 +13,12 @@ VERSION='desktop-pet-composite-v1'
 THOUGHT_VERSION='desktop-pet-composite-v2-private-thought'
 PRESENTATION_VERSION='desktop-pet-composite-v3-optional-presentation'
 SEQUENCE_VERSION='desktop-pet-composite-v4-sequence'
+DEPENDENCY_VERSION='desktop-pet-composite-v5-dependencies'
+
+
+def success_dependencies(child):
+    """v4 dependencies required success; v5 distinguishes ordering explicitly."""
+    return child.get('requires',child.get('after',()))
 
 
 @dataclass(frozen=True)
@@ -23,12 +29,14 @@ class CompositePlan:
         if not isinstance(self.children,Mapping) or not self.children:
             raise ValueError('composite needs children')
         sequence=any(isinstance(r,Mapping) and 'after' in r for r in self.children.values())
+        separated=any(isinstance(r,Mapping) and 'requires' in r for r in self.children.values())
         if sequence and len(self.children)>20:raise ValueError('sequence exceeds bounded child capacity')
         channels=set()
         for identity,row in self.children.items():
             if not isinstance(identity,str) or not identity.strip():
                 raise ValueError('child identity missing')
-            if not isinstance(row,Mapping) or set(row)!=({'kind','key','after'} if sequence else {'kind','key'}):
+            expected={'kind','key','after','requires'} if separated else {'kind','key','after'} if sequence else {'kind','key'}
+            if not isinstance(row,Mapping) or set(row)!=expected:
                 raise ValueError('invalid child declaration')
             kind,key=row['kind'],row['key']
             if kind not in {'action','expression','speech','thought'} or not isinstance(key,str) or not key:
@@ -40,6 +48,11 @@ class CompositePlan:
                 deps=row['after']
                 if (not isinstance(deps,(list,tuple)) or any(not isinstance(d,str) or d not in self.children for d in deps)
                         or len(deps)!=len(set(deps)) or identity in deps):raise ValueError('invalid child dependencies')
+                if separated:
+                    required=row['requires']
+                    if (not isinstance(required,(list,tuple)) or any(not isinstance(d,str) for d in required)
+                            or len(required)!=len(set(required)) or not set(required).issubset(deps)):
+                        raise ValueError('success dependencies must be explicit ordered predecessors')
         if sequence:
             ancestors={};visiting=set()
             def collect(key):
@@ -72,6 +85,7 @@ class CompositePlan:
 
     @property
     def version(self):
+        if any('requires' in r for r in self.children.values()):return DEPENDENCY_VERSION
         if any('after' in r for r in self.children.values()):return SEQUENCE_VERSION
         if any(r['kind']=='expression' and r['key']=='selected_presentation' for r in self.children.values()):return PRESENTATION_VERSION
         return THOUGHT_VERSION if any(row['kind']=='thought' for row in self.children.values()) else VERSION
@@ -85,7 +99,7 @@ class CompositePlan:
         contents=tuple(contents)
         if any(not isinstance(item,Content) for item in contents):raise ValueError('invalid content')
         ids=[item.content_id for item in contents]
-        optional={key for key,row in self.children.items() if (self.version==THOUGHT_VERSION and row['kind'] in {'speech','thought'}) or (self.version in {PRESENTATION_VERSION,SEQUENCE_VERSION} and row['kind'] in {'speech','thought','expression'})}
+        optional={key for key,row in self.children.items() if (self.version==THOUGHT_VERSION and row['kind'] in {'speech','thought'}) or (self.version in {PRESENTATION_VERSION,SEQUENCE_VERSION,DEPENDENCY_VERSION} and row['kind'] in {'speech','thought','expression'})}
         if (len(ids)!=len(set(ids)) or not set(ids).issubset(self.children)
                 or not (set(self.children)-set(ids)).issubset(optional)):
             raise ValueError('contents differ from declared children')
@@ -145,12 +159,13 @@ def summarize(plan,results):
     if any(row.status=='uncertain' for row in rows):
         raise ValueError('unknown effects require reconciliation')
     by_id={row.child_id:row for row in rows}
-    if plan.version==SEQUENCE_VERSION:
+    if plan.version in {SEQUENCE_VERSION,DEPENDENCY_VERSION}:
         for key,row in by_id.items():
             if row.started_at_ms is None:continue
             for dep in plan.children[key]['after']:
                 previous=by_id[dep]
-                if previous.status!='completed' or previous.ended_at_ms>row.started_at_ms:
+                if (previous.ended_at_ms>row.started_at_ms
+                        or (dep in success_dependencies(plan.children[key]) and previous.status!='completed')):
                     raise ValueError('child ran before its dependency completed')
     return freeze_model_payload({'version':plan.version,'plan_fingerprint':plan.fingerprint,
         'actual_child_ids':[key for key in plan.children if by_id[key].started_at_ms is not None],

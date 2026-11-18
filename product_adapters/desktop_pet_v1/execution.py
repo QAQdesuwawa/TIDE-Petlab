@@ -119,6 +119,15 @@ class PreparedExecution:
             raise ValueError("execution scope is missing")
         payload = self.candidate.candidate_payload
         audience_contract=bool(self.request.control.get('audience_contract'))
+        acceptance = payload.get('action_sequence', {}).get('meal_acceptance')
+        if acceptance is not None:
+            from model_packages.desktop_pet_v1.shared_meal import acceptance_addressed
+            speech = next((item for item in payload['contents'] if item['content_id'] == acceptance['speech_id']), None)
+            if (speech is None or speech['kind'] != 'speech' or not acceptance_addressed(
+                    speech['description'], target=self.request.target_ref, recipients=speech['recipient_refs'],
+                    direct=self.candidate.realization_evidence.get('speech_to'),
+                    addressee=self.request.readonly_facts.get('meal_acceptance_addressee'))):
+                raise ValueError('meal acceptance speech destination differs')
         if audience_contract:
             from .audience_delivery import canonical_payload
             canonical_payload(self.request,payload)

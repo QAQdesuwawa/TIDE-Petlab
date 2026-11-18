@@ -74,13 +74,28 @@ def content(user_ref, *, selection=None):
                   parameters={'behavior_version': VERSION})
 
 
+def realized_speech_prefix(content, prefix):
+    if (content.kind!='speech' or not isinstance(prefix,str) or not prefix.strip()
+            or prefix==content.description or not content.description.startswith(prefix)):
+        raise ValueError('interrupted speech differs from the authorized text prefix')
+    return replace(content,description=prefix)
+
+
 def realized_contents(contents, outcome):
     """Describe only physical effects confirmed by the executor, never feelings."""
     results = outcome.details.get('action_results', {})
+    prefixes=outcome.details.get('speech_prefixes',{})
+    children=outcome.details.get('child_results',{})
+    interrupted_speech={item.content_id for item in contents if item.kind=='speech'
+                        and children.get(item.content_id,{}).get('status')=='interrupted'}
+    if set(prefixes)!=interrupted_speech:
+        raise ValueError('interrupted speech is missing its actual prefix')
     actual = []
     for item in contents:
         if item.content_id not in outcome.completed_content_ids:
             continue
+        if item.content_id in prefixes:
+            item=realized_speech_prefix(item,prefixes[item.content_id])
         if item.kind == 'action' and item.parameters.get('behavior_version') == VERSION:
             row = results.get(item.content_id, {})
             status = row.get('status')
@@ -122,7 +137,7 @@ def realized_contents(contents, outcome):
             from .meal_button import realized
             row=results.get(item.content_id,{})
             item=realized(item,row.get('meal_button_result'),row.get('status'))
-        if item.kind=='action' and outcome.details.get('composite_version')=='desktop-pet-composite-v4-sequence':
+        if item.kind=='action' and outcome.details.get('composite_version') in {'desktop-pet-composite-v4-sequence','desktop-pet-composite-v5-dependencies'}:
             from .action_sequence import describe_stage
             bodies=[c.content_id for c in contents if c.kind=='action']
             item=describe_stage(item,bodies.index(item.content_id))

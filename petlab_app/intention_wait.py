@@ -1,6 +1,7 @@
 """Actor-owned settlement while a source-bound Writer transport is pending."""
 from concurrent.futures import FIRST_COMPLETED,ThreadPoolExecutor,wait
 from .delivery_admission import current_input,reply_conflict
+from .visible_measurement import measured_parent
 
 
 class ReplanIntention(Exception):
@@ -25,18 +26,23 @@ def _finish_current(work):
         raise ReplanIntention(None if source is None else source()) from None
 
 
-def _prepare_cancellable(product,event_id,is_cancelled,kwargs):
+def _prepare_cancellable(link,event_id,is_cancelled,kwargs):
     """Keep physical cancellation responsive without admitting a peer input."""
+    product=link.product
     from .retired_transport import retain,WriterInterrupted
     work=product.writer.begin(event_id,**kwargs)
     pool=ThreadPoolExecutor(max_workers=1,thread_name_prefix='pet-writer-provider')
     detached=False
+    world_started=False
     try:
         future=pool.submit(work.transport)
         while not future.done():
             if is_cancelled():
                 retain(product,work,future);detached=True
                 raise WriterInterrupted()
+            if not world_started and hasattr(link,'local'):
+                from .playback_intake import prefetch_world_for_writer
+                world_started=prefetch_world_for_writer(link,event_id)
             wait((future,),timeout=.02)
         future.result()
         if is_cancelled():
@@ -65,7 +71,7 @@ def prepare(link,event_id,*,is_cancelled=lambda:False,**kwargs):
     from .idle_opening import is_idle_tick
     def prepare_without_intake():
         if callable(getattr(link,'playback_intake',None)):
-            return _prepare_cancellable(product,event_id,is_cancelled,kwargs)
+            return _prepare_cancellable(link,event_id,is_cancelled,kwargs)
         return product.writer.prepare(event_id,**kwargs)
 
     idle=is_idle_tick(app,event_id)
@@ -90,7 +96,7 @@ def prepare(link,event_id,*,is_cancelled=lambda:False,**kwargs):
     try:latest_input=retained_delivery(link,event_id,old)
     except FileNotFoundError:return prepare_without_intake()
     work=product.writer.begin(event_id,**kwargs)
-    incoming=None;measurement=None;mf=None;grant=None;intake_open=True
+    incoming=None;measurement=None;mf=None;grant=None;revision=None;intake_open=True
     detached=False
     settled_input=False
     pool=ThreadPoolExecutor(max_workers=2,thread_name_prefix='pet-provider')
@@ -98,7 +104,7 @@ def prepare(link,event_id,*,is_cancelled=lambda:False,**kwargs):
         wf=pool.submit(work.transport)
         while True:
             cancelled=is_cancelled()
-            if mf is None and (cancelled or (grant is not None and grant['eligible'])):
+            if mf is None and (cancelled or revision is not None):
                 from .retired_transport import retain as retain_transport,WriterInterrupted
                 retain_transport(product,work,wf);detached=True
                 if cancelled:raise WriterInterrupted()
@@ -111,7 +117,7 @@ def prepare(link,event_id,*,is_cancelled=lambda:False,**kwargs):
                 if notice is not None:notice()
             if can_prepare:
                 incoming=next((r for r in link._pending
-                    if reply_conflict(r,conversation,reference=old)
+                    if reply_conflict(r,conversation,reference=old) and not measured_parent(link,r,include_inflight=True)
                     and current_input(r,latest_input,getattr(link,'_human_frontier',None))
                     and 'participant:'+_key(r['delivery']['delivery_id']) not in app._product()['sources']
                     and not (link.local/'failed'/(_key(r['delivery']['delivery_id'])[:24]+'.json')).exists()),None)
@@ -126,18 +132,27 @@ def prepare(link,event_id,*,is_cancelled=lambda:False,**kwargs):
                     event=app.accept_input(scope_ref=app.definition.scope_ref,actor_ref=args['input_source']['actor_ref'],**args)
                     measurement=product.semantic.prepare(event)
                     mf=pool.submit(measurement.transport)
+                elif intake_open:
+                    from .playback_intake import prefetch_world_for_writer
+                    if prefetch_world_for_writer(link,event_id):
+                        intake_open=False
             if mf is not None and mf.done():
                 mf.result()
                 payload=measurement.finish()
                 app.settle_received(event.event_id,measure=lambda _:payload)
                 grant=assess(app,event.event_id)
-                if not grant['eligible']:
-                    retain(app,event_id,event.event_id)
-                    react(product,event.event_id,executor=None)
+                from .execution_inputs import pending_revision
+                revision=pending_revision(app,event_id,event.event_id)
+                if revision is None:
+                    retain(app,event_id,event.event_id,preserve_basis=True)
+                    # A qualified input may still have its own future reply.
+                    # Do not invoke another Writer here or consume its inbox.
+                    if not grant['eligible']:react(product,event.event_id,executor=None)
                     identity=incoming['delivery']['delivery_id']
-                    _immutable(link.local/'accepted'/(_key(identity)[:24]+'.json'),
-                        {'delivery_id':identity,'status':'settled','sender_kind':incoming['sender_kind']})
-                    link._pending=[r for r in link._pending if r['delivery']['delivery_id']!=identity]
+                    if not grant['eligible']:
+                        _immutable(link.local/'accepted'/(_key(identity)[:24]+'.json'),
+                            {'delivery_id':identity,'status':'settled','sender_kind':incoming['sender_kind']})
+                        link._pending=[r for r in link._pending if r['delivery']['delivery_id']!=identity]
                     settled_input=True
                     latest_input=incoming
                     incoming=None

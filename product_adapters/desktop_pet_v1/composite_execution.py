@@ -111,10 +111,10 @@ def restore_desktop_outcome(playback_dir,journal,state,prepared):
         children=_recover_unrendered_approach(row,state)
     details={'adapter':'tk-sprite-v1','interrupted':row['interrupted'],'renderer':row['renderer'],
         'child_results':children,'occurred_at_wall_ms':end}
-    for key in ('action_results','gaze_results','presentation_sources'):
+    for key in ('action_results','gaze_results','presentation_sources','speech_prefixes'):
         if row.get(key):details[key]=row[key]
-    from model_packages.desktop_pet_v1.composite import SEQUENCE_VERSION
-    if plan.version==SEQUENCE_VERSION:details['composite_version']=plan.version
+    from model_packages.desktop_pet_v1.composite import SEQUENCE_VERSION,DEPENDENCY_VERSION
+    if plan.version in {SEQUENCE_VERSION,DEPENDENCY_VERSION}:details['composite_version']=plan.version
     outcome=ExecutionOutcome(row['completed_content_ids'],str(path),details)
     validate_outcome(plan,outcome)
     rendered={item['content_id']:item['at_unix_ms'] for item in row['speech_rendered']}

@@ -70,8 +70,6 @@ class MultiPetWindow(DesktopPetWindow):
    self.workspace.submit_human(event_id='input:'+uuid.uuid4().hex,conversation=conversation,text=text,at=wall_clock_ms(),addressed=targets)
    if self.notify_source is not None:self.notify_source(targets,conversation=conversation)
    else:
-    self.product.note_participant_activity()
-    self.hide_speech();self.view.clear_gaze()
     self.show_local_listening()
    self.hide_dialog()
   return 'break'
@@ -179,36 +177,41 @@ class MultiDesktop:
   # One actual menu interaction, routed to both owners through the same inbox.
   if any(w.closed or w._needs_ingress_recovery() for w in self.windows.values()):return
   if from_button:
-   current=self.meal.snapshot()
-   if current is not None and current['portions']>0:return False
+   if any(row['portions'] for row in self.meal.snapshots()):return False
   else:
    for window in self.windows.values():
     window.product.note_participant_activity()
-    window.view.interrupt_activity(reason='user_contact',cause_ref='meal:new-scene')
+    if window.configuration.definition.owner_ref==owner:
+     window.view.interrupt_activity(reason='user_contact',cause_ref='meal:new-scene')
   value=self.meal.start(owner)
   from model_packages.desktop_pet_v1.shared_meal import placement, placement_event_id
   content=placement(value,from_button=from_button)
+  self._publish_meal()
   self.workspace.submit_human(event_id=placement_event_id(value['interaction_id']),conversation='public',
    text=content.as_text(),at=wall_clock_ms(),addressed=content.recipient_refs,input_content=content)
-  self._publish_meal()
   return True
  def _publish_meal(self):
   if self.meal is None:return
-  value=self.meal.snapshot();signature=None if value is None else value['fingerprint']
+  from model_packages.desktop_pet_v1.shared_meal import context_snapshot
+  rows=self.meal.snapshots()
+  signature=tuple(row['fingerprint'] for row in rows)
   if signature==self._meal_fingerprint:return
   for window in self.windows.values():
    if not window.closed:
     # A visible meal is not permission for every observer to operate the bowl.
     # Public execution milestones still reach observers through the normal relay.
     owner=window.configuration.definition.owner_ref
-    window.product.update_meal(value if value is not None and owner in value['participants'] else None)
-    window.view.update_meal_pose(value)
+    visible=context_snapshot(row for row in rows if owner in row['participants'])
+    window.product.update_meal(visible)
+    window.view.update_meal_pose(context_snapshot(rows))
   self._meal_fingerprint=signature
  def _present_meal(self,value):
   # Both visual owners change in this Tk turn; Actor facts still travel
   # through the existing publication/receipt path on the next scene refresh.
+  from model_packages.desktop_pet_v1.shared_meal import context_snapshot
+  visible=context_snapshot(self.meal.snapshots())
   for window in self.windows.values():
-   if not window.closed:window.view.update_meal_pose(value)
+   if not window.closed:window.view.update_meal_pose(visible)
  def _notice_playback(self,owner,parent,items):
   # Actual UI stage boundaries arrive before output measurement/archival.
   # This only turns an idle observer; formal evidence uses the existing recorder.
@@ -233,7 +236,10 @@ class MultiDesktop:
    if alias not in self._scene_signatures or self._scene_signatures[alias]!=signature:
     window.product.update_scene(value);self._scene_signatures[alias]=signature
   if self.scene.screen is not None:self.scene.screen.queue(self,snapshots)
-  self.world_facts.queue(self,snapshots,self.scene.objects)
+  if not getattr(self,'_world_facts_seeded',False):
+   self.world_facts.seed(snapshots,self.scene.objects)
+   self._world_facts_seeded=True
+  else:self.world_facts.queue(self,snapshots,self.scene.objects)
   self._scene_alarm=self.root.after(100,self._refresh_scene)
  def _content_slot_available(self,alias,content):
   """Each pet owns its bubble; peer influence is gated by committed input."""
@@ -243,17 +249,9 @@ class MultiDesktop:
  def _notify_source(self,targets,*,conversation=None):
   for alias,window in self.windows.items():
    if window.configuration.definition.owner_ref not in targets or window.closed:continue
-   task=getattr(window.view,'active',None)
-   context=(task.execution_context or {}) if task is not None else {}
-   # A follow-up within the same user turn can hold its own unshown speech.
-   # The Actor validates the actual delivery and settles it before takeover.
-   held=(conversation is not None and conversation==getattr(window,'_last_user_conversation',None)
-         and task is not None and task.composite is not None and task.speech_hold is not None
-         and context.get('target_ref')==window.configuration.definition.user_ref
-         and any(row['kind']=='speech' and key not in task.child_results
-                 for key,row in task.composite.children.items()))
-   if not held:
-    window.product.note_participant_activity();window.hide_speech();window.view.clear_gaze()
+   # The arrival only starts local acknowledgement and formal measurement.
+   # Activity generation is a playback cancellation guard, so changing it here
+   # would stop the old speech before the new influence has passed its gate.
    if conversation is not None:
     window._last_user_conversation=conversation
     window.show_local_listening()

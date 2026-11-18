@@ -67,9 +67,9 @@ def newly_qualified_delivery(app,delivery_id):
   raise ValueError('interrupt qualification differs from accepted input')
  return True
 
-def _assessment(app,event_id):
+def _assessment(app,event_id,*,pending_world_for=None):
  if not is_peer(app,event_id):raise ValueError('peer opportunity requires committed eligible NPC input')
- life=PetExpressionService(application=app).project(event_id)
+ life=PetExpressionService(application=app).project(event_id,pending_world_for=pending_world_for)
  expression=life.expression
  payload={'shared_projection':expression.shared_projection_execution.payload['shared_projection'],**BOUNDS}
  execution=app.runtime.model_runtime.invoke('assess_action',payload=payload,context=expression.context)
@@ -193,7 +193,7 @@ def _carry(app,event_id,data):
    'status':'continued','continued_by':event_id})
  return row
 
-def authorize(app,event_id):
+def authorize(app,event_id,*,pending_world_for=None):
  if event_id in _journal(app)['outcomes']:raise ValueError('peer opportunity is already closed')
  row=_journal(app)['assessments'].get(event_id)
  if row is None:raise ValueError('peer reply has no accepted assessment')
@@ -202,7 +202,7 @@ def authorize(app,event_id):
   _verify_carried(app,row)
   if row['position_fingerprint']!=app.runtime.session.position.fingerprint:
    raise ValueError('continued peer planning state is stale')
- elif not row['eligible'] or _assessment(app,event_id)!=row:raise ValueError('peer reply assessment is ineligible or stale')
+ elif not row['eligible'] or _assessment(app,event_id,pending_world_for=pending_world_for)!=row:raise ValueError('peer reply assessment is ineligible or stale')
  source=app.runtime.memory_instance(event_id)
  from .destinations import primary
  return ActionAuthorization.create(session_binding=app.runtime.session.session_binding,current_position=app.runtime.session.position,

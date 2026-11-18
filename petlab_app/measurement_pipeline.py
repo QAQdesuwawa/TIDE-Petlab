@@ -89,10 +89,15 @@ def stash_playback_output(app,action_id,peer,payload,*,prepared_position=None):
     source=product['sources'][action_id]
     receipt=source['evidence']['fact']['model_payload']['execution_receipt']
     expected={'event_id':peer.event_id,'source_binding':peer.source_binding_ref}
-    if source['origin']!='execution' or tuple(receipt['realization_evidence'].get('live_input_sources',()))!=(expected,):
+    refs=tuple(receipt['realization_evidence'].get('live_input_sources',()))
+    from product_adapters.desktop_pet_v1 import EVENT_JOURNAL_KEY
+    accepted=app.runtime.session.profile.get(EVENT_JOURNAL_KEY,{})
+    if (source['origin']!='execution' or not refs or refs[-1]!=expected
+            or len({r['event_id'] for r in refs})!=len(refs)
+            or any(r['event_id'] not in accepted for r in refs[:-1])):
         raise ValueError('parallel output measurement lacks its actual playback input')
     binding={'version':PLAYBACK_OUTPUT,'input':expected,'position':prepared_position or app.runtime.session.position.to_record(),
-             'output':action_id,'execution_receipt':receipt['fingerprint'],'payload':fp(payload)}
+             'inputs':refs,'output':action_id,'execution_receipt':receipt['fingerprint'],'payload':fp(payload)}
     binding['fingerprint']=fp(binding)
     if 'playback_output_prefetch' in source and source['playback_output_prefetch']!=binding:
         raise ValueError('parallel output measurement binding changed')
@@ -104,10 +109,12 @@ def stash_playback_output(app,action_id,peer,payload,*,prepared_position=None):
 
 @contextmanager
 def admission(app,parent):
-    if getattr(app,'_measurement_admission',None) is not None:raise RuntimeError('nested measurement admission')
+    previous=getattr(app,'_measurement_admission',None)
+    if previous is not None and previous[1]!=get_ident():
+        raise RuntimeError('measurement admission requires owner')
     app._measurement_admission=(parent,get_ident())
     try:yield
-    finally:app._measurement_admission=None
+    finally:app._measurement_admission=previous
 
 
 def admitted_parent(app):
@@ -195,7 +202,7 @@ def rebase(service,event,payload):
         if (binding['version']!=PLAYBACK_OUTPUT or binding['output']!=event.event_id
                 or binding['fingerprint']!=fp({k:v for k,v in binding.items() if k!='fingerprint'})
                 or binding['payload']!=fp(payload) or binding['execution_receipt']!=receipt['fingerprint']
-                or tuple(receipt['realization_evidence'].get('live_input_sources',()))!=(binding['input'],)
+                or tuple(receipt['realization_evidence'].get('live_input_sources',()))!=tuple(binding.get('inputs',(binding['input'],)))
                 or input_fact.event.source_binding_ref!=binding['input']['source_binding']
                 or input_fact.fact.accepted_runtime_ordinal!=binding['position']['runtime_ordinal']+1
                 or input_fact.fact.accepted_runtime_ordinal!=position.runtime_ordinal

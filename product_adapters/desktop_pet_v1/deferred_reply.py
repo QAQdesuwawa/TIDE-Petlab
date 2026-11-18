@@ -40,7 +40,7 @@ def authorize(app,event_id):
     if any(c.parameters.get('capture_version') in {'petlab-mouse-observation-v2','petlab-mouse-observation-v3','petlab-mouse-contact-v4'}
             and c.parameters.get('phase') in {'started','ongoing'} for c in memory.event.contents):
         raise ValueError('ongoing capture cannot become a deferred direct reply')
-    projection=current_projection(app)
+    projection=current_projection(app,pending_world_for=event_id)
     view=app.runtime.session.profile[KEY]
     return ActionAuthorization.create(session_binding=app.runtime.session.session_binding,
         current_position=app.runtime.session.position,action_kind='direct_reply',subject_ref=app.owner_ref,
@@ -77,13 +77,21 @@ def verify_delivery(app,delivery):
         raise ValueError('deferred delivery differs from accepted planning projection')
     position=view['acceptance']['position']
     if continuation:
-        from petlab_app.intention_continuation import validate_planning
-        planned=validate_planning(app,delivery['event_id'],projection.context.event_ref)
+        event_id=delivery['event_id']
+        planning_ref=projection.context.event_ref
         if continuation==PLAYBACK_VERSION:
             from petlab_app.execution_inputs import completed_effect
-            effect=completed_effect(app,delivery['event_id'])
-            if effect is None or effect.fact.fingerprint!=planned.fact.fingerprint:
+            effect=completed_effect(app,event_id)
+            if effect is None:
                 raise ValueError('playback delivery differs from bound effect')
+            planned=effect
+            if planning_ref!=effect.event.event_id:
+                from petlab_app.retained_intention import verified_inputs
+                retained=verified_inputs(app,event_id,planning_ref,expected_base=effect.event.event_id)
+                planned=retained[0]
+        else:
+            from petlab_app.intention_continuation import validate_planning
+            planned=validate_planning(app,event_id,planning_ref)
         if (planned.fact.accepted_runtime_ordinal!=position['runtime_ordinal']
                 or planned.fact.temporal_position_fingerprint!=position['position']['fingerprint']):
             raise ValueError('intention delivery planning position differs')

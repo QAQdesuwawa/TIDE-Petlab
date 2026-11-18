@@ -167,10 +167,8 @@ class ProcessDesktopActor:
         if not self._stopping:self.incoming.put(('scene_snapshot',value))
 
     def update_meal(self,value):
-        from model_packages.desktop_pet_v1.shared_meal import validate
-        if value is not None:
-            value=validate(value)
-            if self.application.definition.owner_ref not in value['participants']:raise ValueError('meal actor differs')
+        from model_packages.desktop_pet_v1.shared_meal import validate_context
+        value=validate_context(value,self.application.definition.owner_ref)
         if not self._stopping:self.incoming.put(('meal_snapshot',value))
 
     def note_batch_activity(self):
@@ -222,9 +220,16 @@ class ProcessDesktopActor:
             try:
                 gesture=value['gesture_id'];generation=value.get('input_generation',0)
                 slot=playback_slots[value['id']]
-                cancelled=lambda:(slot['cancelled'].is_set() or is_closed() or (not value.get('batch_scope',False) and getattr(self,'_input_generation',0)!=generation)
-                    or (gesture is not None and not mouse.is_active(gesture))
-                    or value.get('activity_generation',0)!=getattr(self,'_activity_generation',0))
+                def source_changed():
+                    return ((not value.get('batch_scope',False) and getattr(self,'_input_generation',0)!=generation)
+                            or value.get('activity_generation',0)!=getattr(self,'_activity_generation',0))
+                scoped=bool(value.get('accept_speech_takeover') and gesture is None)
+                if scoped and source_changed():
+                    raise ExecutionCancelled('new ingress before UI admission')
+                def cancelled():
+                    return (slot['cancelled'].is_set() or is_closed()
+                            or (gesture is not None and not mouse.is_active(gesture))
+                            or (not scoped and source_changed()))
                 contents=tuple(Content.from_record(x) for x in value['contents'])
                 if value.get('execution_context') is not None:
                     observer=(lambda effect:self.incoming.put(('response',{'id':value['id'],'visible_effect':effect}))) if value.get('observe_visible') else None
@@ -272,11 +277,12 @@ class ProcessDesktopActor:
                 if kind=='recovery_failed':
                     self.recovering=False;continue
                 if kind=='execute':
+                    from .takeover_receipts import TakeoverQueue
                     late=None
                     if value.get('staged'):
                         late=Future();late_slots[value['id']]=late
                     playback_slots[value['id']]={'action_id':value['action_id'],'cancelled':threading.Event(),
-                        'takeover':Future() if value.get('accept_speech_takeover') else None,
+                        'takeover':TakeoverQueue() if value.get('accept_speech_takeover') else None,
                         'speech_hold':threading.Event()}
                     playback_workers[:]=[worker for worker in playback_workers if worker.is_alive()]
                     worker=threading.Thread(target=execute_message,args=(value,late),name='pet-bridge-playback',daemon=True)
@@ -295,7 +301,7 @@ class ProcessDesktopActor:
                     slot=playback_slots.get(value['id'])
                     if slot is not None and slot['action_id']==value['action_id']:
                         pending=slot['takeover']
-                        if pending is not None and not pending.done():pending.set_result(value['proof'])
+                        if pending is not None:pending.set_result(value['proof'])
                 elif kind=='late_speech':
                     late=late_slots.get(value['id'])
                     # A terminated parent must never be recreated by a late result.
@@ -362,7 +368,14 @@ class _Bridge(ExecutionContexts):
             # executor returns. Prepare once from the resulting position.
             _intake.prefetch_writer=not any('movement' in item.get('parameters',{})
                 for item in fields.get('contents',()))
-        if accepts_takeover:fields['accept_speech_takeover']=True
+        playback_cancelled=self.is_cancelled
+        if accepts_takeover:
+            fields['accept_speech_takeover']=True
+            if fields.get('gesture_id') is None:
+                # After admission the UI owns body contact. Keep listening for
+                # settled same-edge proofs while independent speech plays.
+                playback_cancelled=self.closed.is_set
+                _intake.cancelled=playback_cancelled
         identity=uuid.uuid4().hex;self.outgoing.put((kind,{'id':identity,**fields}))
         if _late_speech is not None:
             def deliver(future):
@@ -374,7 +387,20 @@ class _Bridge(ExecutionContexts):
                     value={'quiet':{'request_id':error.decision.request_id,'evidence':error.decision.evidence}} if isinstance(error,SpeechNotSelected) else {'failed':True}
                 self.outgoing.put(('late_speech',{'id':identity,**value}))
             _late_speech.add_done_callback(deliver)
-        sent_takeover=None
+        sent_takeovers={}
+        def send_takeover(proof):
+            if not accepts_takeover or playback_cancelled():
+                return
+            identity_key=proof['event_id']
+            if identity_key in sent_takeovers:
+                if sent_takeovers[identity_key]!=proof:raise ValueError('settled takeover proof changed')
+                return
+            sent_takeovers[identity_key]=proof
+            self.outgoing.put(('takeover_speech',{'id':identity,'action_id':fields['action_id'],'proof':proof}))
+        if accepts_takeover:
+            # The signed proof can stop the UI while the Actor prepares
+            # the next Writer request or finishes processing the inbox.
+            _intake.on_takeover=send_takeover
         holding=False
         if accepts_takeover and hasattr(_intake,'on_speech_hold'):
             def hold_speech():
@@ -388,12 +414,10 @@ class _Bridge(ExecutionContexts):
             # finish would then hold that already-completed playback hostage.
             try:response=self.responses.get_nowait()
             except queue.Empty:
-                if _intake is not None and sent_takeover is None:
-                    proof=_intake.poll()
-                    if proof is not None and accepts_takeover and not self.is_cancelled():
-                        sent_takeover=proof
-                        self.outgoing.put(('takeover_speech',{'id':identity,'action_id':fields['action_id'],'proof':proof}))
-                    if holding and (_intake.closed or self.is_cancelled()):
+                if _intake is not None:
+                    proof=getattr(_intake,'poll_next',_intake.poll)()
+                    if proof is not None:send_takeover(proof)
+                    if holding and (_intake.closed or playback_cancelled()):
                         holding=False
                         self.outgoing.put(('hold_speech',{'id':identity,'action_id':fields['action_id'],'hold':False}))
                 try:response=self.responses.get(timeout=.03 if _intake is not None else .1)
@@ -409,14 +433,9 @@ class _Bridge(ExecutionContexts):
                 observer(response['visible_effect']);continue
             if _intake is not None:_intake.finish()
             details=response.get('outcome',{}).get('details',{})
-            applied=details.get('qualification_takeover')
-            if applied is not None:
-                ids=applied.get('child_ids',())
-                cancelled={key for key,row in details.get('child_results',{}).items()
-                           if row['status']=='cancelled' and row.get('cause_ref')==applied['event_id']}
-                if (sent_takeover is None or {k:v for k,v in applied.items() if k!='child_ids'}!=sent_takeover
-                        or not cancelled or set(ids)!=cancelled or len(ids)!=len(cancelled)):
-                    raise ExecutionUncertain('playback takeover acknowledgement differs from its request')
+            from .takeover_receipts import verify_acknowledgements
+            try:verify_acknowledgements(details,sent_takeovers)
+            except ValueError as error:raise ExecutionUncertain(str(error)) from error
             return response
 
     def __call__(self,action_id,contents):return self.execute_guarded(action_id,contents)
@@ -511,8 +530,8 @@ def _actor_main(spec,incoming,outgoing):
             contact_host=ContactHost(Path(spec['multi_workspace']['root'])/'social-contact.sqlite3',
                 [d.owner_ref for d in multi.workspace.definitions.values()])
             product.application.contact_snapshot=contact_host.snapshot
-            from .playback_intake import PlaybackIntake
-            multi.playback_intake=lambda action_id:PlaybackIntake(multi,action_id,bridge.is_cancelled)
+            from .playback_intake import for_action
+            multi.playback_intake=lambda action_id:for_action(multi,action_id,bridge.is_cancelled)
             bridge.playback_intake=multi.playback_intake
             multi._acknowledge_peer_input=bridge.acknowledge_input
         if spec.get('checkpoint_storage_mode')=='delta-v1':
@@ -570,7 +589,8 @@ def _actor_main(spec,incoming,outgoing):
                 'at_ms':record['target']['payload']['at_ms']}))
         if spec.get('opening_mode')=='shared-opening-v1':
             from .idle_opening import IdleOpeningHost
-            idle=IdleOpeningHost(product=product,on_plan=publish_idle)
+            idle=IdleOpeningHost(product=product,on_plan=publish_idle,
+                channel_policy=bool(spec.get('multi_workspace') and product.idle_behavior=='symbolic'))
         def publish_batch_advice():
             from .mouse_batch import sampling_advice
             advice=sampling_advice(product.application,spec['bounds'])
@@ -647,11 +667,8 @@ def _actor_main(spec,incoming,outgoing):
                         bridge.current_scene=value
                         continue
                     if kind=='meal_snapshot':
-                        from model_packages.desktop_pet_v1.shared_meal import validate
-                        if value is not None:
-                            value=validate(value)
-                            if product.application.owner_ref not in value['participants']:raise ValueError('meal owner differs')
-                        bridge.current_meal=value
+                        from model_packages.desktop_pet_v1.shared_meal import validate_context
+                        bridge.current_meal=validate_context(value,product.application.owner_ref)
                         continue
                     if kind=='participant_activity':
                         if value['generation']!=bridge.activity_generation+1:raise ValueError('participant activity generation differs')
@@ -853,9 +870,18 @@ def _actor_main(spec,incoming,outgoing):
                 elif job['kind']=='web_read':
                     product.read_page(event_id=job['event_id'],url=job['url'],executor=bridge,is_cancelled=bridge.is_cancelled);kind='done'
                 elif job['kind']=='resume':
-                    if multi is not None and multi.requires_recovery():
+                    while multi is not None and multi.requires_recovery():
+                        failed_id=multi._failed_delivery()['delivery']['delivery_id']
                         multi.resume(executor=bridge,is_cancelled=bridge.is_cancelled)
+                        if multi.requires_recovery() and multi._failed_delivery()['delivery']['delivery_id']==failed_id:
+                            raise RuntimeError('multi recovery made no progress')
                     if recovery_pending:
+                        from .startup_recovery import pending_settlement
+                        if pending_settlement(product.application):
+                            # A source already accepted before host loss can be
+                            # independent of retained ingress and readings.
+                            # Settle it before accepting another delivery.
+                            product.resume(executor=None,is_cancelled=lambda:True)
                         from .ingress_journal import retained_reply_ids
                         recovery_prior_sources=set(product.application._product()['sources'])
                         recovery_jobs=[row['value'] for row in journal.pending_jobs() if row['sequence']<=job['_journal_sequence']]

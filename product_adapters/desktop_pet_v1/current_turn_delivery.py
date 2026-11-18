@@ -63,7 +63,46 @@ WORLD_ACQUISITION_FACT_VERSION = 'desktop-pet-current-turn-layout-v53-world-acqu
 WORLD_ACQUISITION_SCENE_VERSION = 'desktop-pet-current-turn-layout-v54-world-acquisition-open-scene'
 WORLD_SCOPE_FACT_VERSION = 'desktop-pet-current-turn-layout-v55-world-observation-scope'
 WORLD_SCOPE_SCENE_VERSION = 'desktop-pet-current-turn-layout-v56-world-observation-scope-open-scene'
-WORLD_SCOPE_LAYOUTS = (WORLD_SCOPE_FACT_VERSION, WORLD_SCOPE_SCENE_VERSION)
+STATEMENT_SCOPE_FACT_VERSION = 'desktop-pet-current-turn-layout-v57-statement-source'
+STATEMENT_SCOPE_SCENE_VERSION = 'desktop-pet-current-turn-layout-v58-statement-source-open-scene'
+COMPLETE_OUTPUT_FACT_VERSION = 'desktop-pet-current-turn-layout-v59-complete-output'
+COMPLETE_OUTPUT_SCENE_VERSION = 'desktop-pet-current-turn-layout-v60-complete-output-open-scene'
+INTEGRATED_EVIDENCE_FACT_VERSION = 'desktop-pet-current-turn-layout-v61-integrated-evidence'
+INTEGRATED_EVIDENCE_SCENE_VERSION = 'desktop-pet-current-turn-layout-v62-integrated-evidence-open-scene'
+EVIDENCE_CARRY_FACT_VERSION = 'desktop-pet-current-turn-layout-v63-evidence-carry'
+EVIDENCE_CARRY_SCENE_VERSION = 'desktop-pet-current-turn-layout-v64-evidence-carry-open-scene'
+PLAYED_FACTS_VERSION = 'desktop-pet-current-turn-layout-v65-played-facts'
+PLAYED_FACTS_SCENE_VERSION = 'desktop-pet-current-turn-layout-v66-played-facts-open-scene'
+PLAYED_CONTEXT_VERSION = 'desktop-pet-current-turn-layout-v67-played-context'
+PLAYED_CONTEXT_SCENE_VERSION = 'desktop-pet-current-turn-layout-v68-played-context-open-scene'
+ACQUISITION_BINDING_VERSION = 'desktop-pet-current-turn-layout-v69-acquisition-binding'
+ACQUISITION_BINDING_SCENE_VERSION = 'desktop-pet-current-turn-layout-v70-acquisition-binding-open-scene'
+PLAIN_JSON_VERSION = 'desktop-pet-current-turn-layout-v71-plain-json'
+PLAIN_JSON_SCENE_VERSION = 'desktop-pet-current-turn-layout-v72-plain-json-open-scene'
+MEMORY_ARCHIVE_VERSION = 'desktop-pet-current-turn-layout-v73-memory-archive'
+MEMORY_ARCHIVE_SCENE_VERSION = 'desktop-pet-current-turn-layout-v74-memory-archive-open-scene'
+BEHAVIOR_EVIDENCE_VERSION = 'desktop-pet-current-turn-layout-v75-behavior-evidence'
+BEHAVIOR_EVIDENCE_SCENE_VERSION = 'desktop-pet-current-turn-layout-v76-behavior-evidence-open-scene'
+FRAGMENT_BEHAVIOR_VERSION = 'desktop-pet-current-turn-layout-v77-fragment-behavior'
+FRAGMENT_BEHAVIOR_SCENE_VERSION = 'desktop-pet-current-turn-layout-v78-fragment-behavior-open-scene'
+MEAL_ACCEPTANCE_VERSION = 'desktop-pet-current-turn-layout-v79-bound-meal-acceptance'
+MEAL_ACCEPTANCE_SCENE_VERSION = 'desktop-pet-current-turn-layout-v80-bound-meal-acceptance-open-scene'
+SEGMENTED_MEAL_ACCEPTANCE_VERSION = 'desktop-pet-current-turn-layout-v81-segmented-meal-acceptance'
+SEGMENTED_MEAL_ACCEPTANCE_SCENE_VERSION = 'desktop-pet-current-turn-layout-v82-segmented-meal-acceptance-open-scene'
+SEGMENTED_MEAL_ACCEPTANCE_LAYOUTS = (SEGMENTED_MEAL_ACCEPTANCE_VERSION, SEGMENTED_MEAL_ACCEPTANCE_SCENE_VERSION)
+MEAL_ACCEPTANCE_LAYOUTS = (MEAL_ACCEPTANCE_VERSION, MEAL_ACCEPTANCE_SCENE_VERSION, *SEGMENTED_MEAL_ACCEPTANCE_LAYOUTS)
+FRAGMENT_BEHAVIOR_LAYOUTS = (FRAGMENT_BEHAVIOR_VERSION, FRAGMENT_BEHAVIOR_SCENE_VERSION, *MEAL_ACCEPTANCE_LAYOUTS)
+BEHAVIOR_EVIDENCE_LAYOUTS = (BEHAVIOR_EVIDENCE_VERSION, BEHAVIOR_EVIDENCE_SCENE_VERSION, *FRAGMENT_BEHAVIOR_LAYOUTS)
+MEMORY_ARCHIVE_LAYOUTS = (MEMORY_ARCHIVE_VERSION, MEMORY_ARCHIVE_SCENE_VERSION, *BEHAVIOR_EVIDENCE_LAYOUTS)
+PLAIN_JSON_LAYOUTS = (PLAIN_JSON_VERSION, PLAIN_JSON_SCENE_VERSION, *MEMORY_ARCHIVE_LAYOUTS)
+ACQUISITION_BINDING_LAYOUTS = (ACQUISITION_BINDING_VERSION, ACQUISITION_BINDING_SCENE_VERSION, *PLAIN_JSON_LAYOUTS)
+PLAYED_CONTEXT_LAYOUTS = (PLAYED_CONTEXT_VERSION, PLAYED_CONTEXT_SCENE_VERSION, *ACQUISITION_BINDING_LAYOUTS)
+PLAYED_FACTS_LAYOUTS = (PLAYED_FACTS_VERSION, PLAYED_FACTS_SCENE_VERSION, *PLAYED_CONTEXT_LAYOUTS)
+EVIDENCE_CARRY_LAYOUTS = (EVIDENCE_CARRY_FACT_VERSION, EVIDENCE_CARRY_SCENE_VERSION, *PLAYED_FACTS_LAYOUTS)
+INTEGRATED_EVIDENCE_LAYOUTS = (INTEGRATED_EVIDENCE_FACT_VERSION, INTEGRATED_EVIDENCE_SCENE_VERSION, *EVIDENCE_CARRY_LAYOUTS)
+COMPLETE_OUTPUT_LAYOUTS = (COMPLETE_OUTPUT_FACT_VERSION, COMPLETE_OUTPUT_SCENE_VERSION, *INTEGRATED_EVIDENCE_LAYOUTS)
+STATEMENT_SCOPE_LAYOUTS = (STATEMENT_SCOPE_FACT_VERSION, STATEMENT_SCOPE_SCENE_VERSION, *COMPLETE_OUTPUT_LAYOUTS)
+WORLD_SCOPE_LAYOUTS = (WORLD_SCOPE_FACT_VERSION, WORLD_SCOPE_SCENE_VERSION, *STATEMENT_SCOPE_LAYOUTS)
 WORLD_ACQUISITION_LAYOUTS = (WORLD_ACQUISITION_FACT_VERSION, WORLD_ACQUISITION_SCENE_VERSION, *WORLD_SCOPE_LAYOUTS)
 ENVIRONMENT_TIMELINE_LAYOUTS = (ENVIRONMENT_TIMELINE_FACT_VERSION, ENVIRONMENT_TIMELINE_SCENE_VERSION, *WORLD_ACQUISITION_LAYOUTS)
 ENVIRONMENT_LAYOUTS = (ENVIRONMENT_FACT_VERSION, ENVIRONMENT_SCENE_VERSION, *ENVIRONMENT_TIMELINE_LAYOUTS)
@@ -147,6 +186,33 @@ EXPRESSION_ONLY_GUIDANCE = (
 )
 
 
+FRAGMENT_BEHAVIOR_GUIDANCE = (
+    '【行为片段】\n'
+    '行为路径依次写父类和子项。同一事件可以有多个子项；每个记录阶段只对应所在片段。'
+    '行为区分参照只解释相近子项的区别；本次发生了哪些子项及效果，各看对应片段和回执。'
+    '话语确认当时说过的话，快照确认采样时的状态。'
+)
+
+
+BEHAVIOR_EVIDENCE_GUIDANCE = (
+    '【行为树与证据口径】\n'
+    '一个事件可以含有话语、表情、动作等并列子项，各自记录实际发生的部分。'
+    '话语能表达意愿、回应或说法。话语播完，只确认说过这段话。'
+    '动作的完成阶段对应这一个动作；动作造成的物件或场景变化，以对应执行结果为据。'
+    '快照确认采样时的状态。卡内行为定义说明每个子项的含义，卡内原文和回执才说明这次实际发生到哪一步。'
+)
+
+
+EVIDENCE_CARRY_GUIDANCE = (
+    '写台词前，先区分角色记得的是一件事本身，还是记得有人说过这件事。'
+    '角色自己曾经说过的说法，也只直接证明它当时那样说过。'
+    '有原话、本人观察或执行记录直接支持时，可以说清楚对应的事实。'
+    '写完检查台词会让听众以为什么已经确定。口吻可以随人设变化，句子的确定程度沿用角色实际掌握的材料。'
+    '只记得某个说法时，保留这个来源，或自然说哪一部分记不准。'
+    '动作、当前状态和因果也各沿能直接支持它的材料表达。'
+)
+
+
 CARD_EVIDENCE_GUIDANCE = (
     '私人依据只列实际采用的材料。逐张核对它记下的是谁的原话、哪个动作的实际阶段，还是某时刻的状态；'
     '引用多个卡号时，每张只支持自己的那一段，提到某个动作的台词不能算执行过。'
@@ -165,6 +231,8 @@ def processing_time_note(at_ms):
 
 def labels(version):
     from agents.responder import _PACKET_LANE_TITLES
+    if version in INTEGRATED_EVIDENCE_LAYOUTS:
+        return '本轮收到的原事件','已召回的原事件记录'
     if version in EVIDENCE_REVIEW_LAYOUTS:
         return '本次可见的已发生事件','此前经历 · 记忆材料'
     if version in FACT_SCOPE_LAYOUTS:

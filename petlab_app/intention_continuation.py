@@ -129,7 +129,7 @@ def authorize(app, event_id):
     from product_adapters.desktop_pet_v1.settlement_view import KEY, current_projection
     from .destinations import primary
     parent = app.runtime.memory_instance(event_id)
-    projection = current_projection(app)
+    projection = current_projection(app,pending_world_for=event_id)
     view = app.runtime.session.profile[KEY]
     return ActionAuthorization.create(session_binding=app.runtime.session.session_binding,
         current_position=app.runtime.session.position, action_kind='direct_reply',

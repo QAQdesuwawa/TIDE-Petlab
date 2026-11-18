@@ -69,7 +69,9 @@ def build(app,event_id,readers):
             if retained_artifact is not None:
                 identity=retained_artifact['delivery']['delivery_id']
                 retained_rows.append(workspace.read_delivery(alias,workspace.inbox_path(alias,identity)))
-    candidates=(*capture(),*retained_rows)
+    sibling_capture=getattr(app,'visible_continuations',None)
+    archived_siblings=sibling_capture(parent) if parent is not None and sibling_capture else ()
+    candidates=(*capture(),*retained_rows,*archived_siblings)
     seen={}
     from petlab_app.visible_delivery import delivery_order
     # The same fragment order applies before and after formal intake.

@@ -1,6 +1,6 @@
 """Collect actual plan/execution evidence for package-owned intention chains."""
 from dataclasses import replace
-from framework.model_api import model_data_fingerprint as fp
+from framework.model_api import model_data_fingerprint as fp,thaw_model_data
 from model_packages.cx_six_seven_v1 import intention_facts as facts
 from .owned_journals import publish_session
 from .intention_source import enabled
@@ -97,15 +97,34 @@ def actual(app, source_ref, source):
         'execution_receipt_ref':receipt['fingerprint']})
     interrupted=facts.interrupted_children(receipt['outcome'])
     if interrupted:
-        takeover=receipt['outcome'].get('details',{}).get('qualification_takeover')
+        from .takeover_receipts import records
+        takeovers=records(receipt['outcome'].get('details',{}))
         evidence={'reason':'partial_execution','actual_effect_ref':event.event_id,
             'execution_receipt_ref':receipt['fingerprint'],'interrupted_children':list(interrupted)}
-        if takeover is not None:
+        for takeover in takeovers:
+            # Durable model data freezes sequences; compare the same canonical
+            # representation as the reconstructed proof, without changing it.
+            takeover=thaw_model_data(takeover)
             from .peer_reaction import _verify,KEY
-            from .execution_inputs import KEY as LIVE_INPUTS
+            from .execution_inputs import KEY as LIVE_INPUTS,SPEECH_REVISION,speech_revision
             grant=app.runtime.session.profile.get(KEY,{}).get('assessments',{}).get(takeover.get('event_id'))
             binding=app.runtime.session.profile.get(LIVE_INPUTS,{}).get(takeover.get('event_id'))
-            if takeover.get('kind')=='required_human_followup':
+            if takeover.get('kind')==SPEECH_REVISION:
+                from .destinations import destination
+                from .multi_pet import _key
+                identity=takeover['event_id']
+                memory=app.runtime.memory_instance(identity)
+                app._verify_source(memory.event)
+                target=destination(app,source_ref)
+                revision=speech_revision(app,identity,target['primary'],
+                    opening_source=source_ref if 'opening_source_ref' in takeover else None) if target is not None else None
+                inputs=receipt['realization_evidence'].get('live_input_sources',())
+                if (revision is None or takeover.get('playback_target_ref')!=target['primary']
+                    or any(takeover.get(key)!=value for key,value in revision.items())
+                    or identity!='participant:'+_key(takeover['delivery_id'])
+                    or not any(r['event_id']==identity and r['source_binding']==memory.event.source_binding_ref for r in inputs)):
+                    raise ValueError('actual speech revision lacks a bound relationship change')
+            elif takeover.get('kind')=='required_human_followup':
                 from .participant_input import ADDRESSED_SPEECH_VERSION
                 identity=takeover['event_id']
                 memory=app.runtime.memory_instance(identity)
@@ -127,7 +146,7 @@ def actual(app, source_ref, source):
                 raise ValueError('actual takeover parent differs')
             if 'child_ids' in takeover:
                 results=receipt['outcome']['details']['child_results']
-                expected={key for key,row in results.items() if row['status']=='cancelled'
+                expected={key for key,row in results.items() if row['status'] in {'cancelled','interrupted'}
                           and row.get('cause_ref')==takeover['event_id']}
                 identities=takeover['child_ids']
                 input_event=app.runtime.memory_instance(takeover['event_id']).event
@@ -135,6 +154,7 @@ def actual(app, source_ref, source):
                         or takeover.get('actor_ref')!=input_event.actor_ref):
                     raise ValueError('actual speech takeover children differ')
             evidence['qualification_takeover']=dict(takeover)
+        if len(takeovers)>1:evidence['qualification_takeovers']=list(takeovers)
         record(app,source_ref,phase='interrupted',evidence=evidence)
 
 

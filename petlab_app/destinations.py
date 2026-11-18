@@ -149,10 +149,15 @@ def destination(app,event_id=None):
    row=tick.get('participant_destination')
    if row is None:return None
    row=validate(app,row)
-   from .idle_targets import SUPPORTED_VERSIONS
+   from .idle_targets import SUPPORTED_VERSIONS,SOURCE_VERSION,source_destination
    if row.get('addressing_policy') in SUPPORTED_VERSIONS:
     selection=tick['plan']['target_selection']
     if selection.get('fingerprint')!=fp({k:v for k,v in selection.items() if k!='fingerprint'}) or fp(row)!=fp(selection['destination']) or row['primary']!=selection['peer']:raise ValueError('idle relationship destination differs')
+    if row['addressing_policy']==SOURCE_VERSION:
+     evidence=tick['grant']['assessment_output']['action_assessment']['constraints']['desktop_idle_opening']
+     anchor=evidence['anchor_event']
+     if row['source_event_id']!=anchor or row!=source_destination(app,selection['peer'],anchor):
+      raise ValueError('idle destination differs from the accepted anchor')
     return row
    origin=_input(app,row['source_event_id'])
    expected=autonomous_destination(origin) if row.get('addressing_policy')=='original-autonomous-destination-v1' else origin

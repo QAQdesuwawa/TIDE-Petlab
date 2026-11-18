@@ -159,7 +159,7 @@ class PetSemanticService:
             codec_type=AtomicGroundedScopedRecipientVisibleSemanticCodec if self.memory_recall_version and not hierarchy_mode and not tree_mode else ScopedRecipientVisibleSemanticCodec
             if hierarchy_mode:codec_type=HierarchicalRecipientVisibleSemanticCodec
             codec=codec_type(target_refs=artifact['visible']['target_refs'])
-        elif any(c.kind=='expression' or c.parameters.get('composite_version') in {'desktop-pet-composite-v1','desktop-pet-composite-v4-sequence'} for c in event.contents):
+        elif any(c.kind=='expression' or c.parameters.get('composite_version') in {'desktop-pet-composite-v1','desktop-pet-composite-v4-sequence','desktop-pet-composite-v5-dependencies'} for c in event.contents):
             from model_packages.desktop_pet_v1.composite_semantic import ConstrainedCompositeSemanticCodec,AtomicGroundedCompositeSemanticCodec
             codec=AtomicGroundedCompositeSemanticCodec() if self.memory_recall_version and not hierarchy_mode else ConstrainedCompositeSemanticCodec()
         from .calibration import reference,KEY as CALIBRATION_KEY
@@ -218,7 +218,7 @@ class PetSemanticService:
                 predecessor_codec=PredecessorCodec
             codec=predecessor_codec(hierarchy_codec_type(codec),predecessor_text)
             context_refs=(*context_refs,*(ref['fact_fingerprint'] for _,ref in predecessors))
-        elif hierarchy_mode and not (compact and event.event_kind=='npc_output') and getattr(hierarchy_codec_type,'referent_context_enabled',False):
+        elif hierarchy_mode and event.event_kind!='npc_output' and getattr(hierarchy_codec_type,'referent_context_enabled',False):
             from .referent_context import build as referent_context
             referents=referent_context(app,event)
             if referents is not None:
@@ -236,7 +236,8 @@ class PetSemanticService:
             parent_text=''
             if parent is not None:
                 self.gateway.archive_readonly(self.gateway.trace_dir/'self-effect-contexts'/(parent['fingerprint']+'.json'),parent)
-                context_refs=(*context_refs,'pet-self-parent:'+parent['fingerprint'])
+                context_refs=tuple(dict.fromkeys((*context_refs,*(x['fact_fingerprint'] for x in parent['sources']),
+                    'pet-self-parent:'+parent['fingerprint'])))
                 if parent['status']=='delivered':parent_text=parent['text']
             from model_packages.desktop_pet_v1.self_effect import SelfEffectCodec
             codec=SelfEffectCodec(codec,parent_text,private_thought=any(c.kind=='thought' for c in event.contents))
@@ -291,9 +292,32 @@ class PetSemanticService:
         graded=address_mode and hierarchy_mode and not has_observations(event.contents) and getattr(codec,'normalize_query_candidates',False)
         graded_suffix=':shared-address-strength-v1' if graded else ''
         system,user=codec.build_request(event=event,recall_hint=hint)
-        from petlab_app.participant_input import NPC_VERSIONS
+        coverage=None
+        if is_visible and hasattr(app,'ready_measurement_tail'):
+            import json
+            delivery_id=artifact['delivery']['delivery_id']
+            coverage={'delivery_id':delivery_id,'additional_deliveries':[]}
+            tail=app.ready_measurement_tail(delivery_id,artifact['visible']['parent_event_id'])
+            if tail is not None:
+                from petlab_app.visible_delivery import validate_projection
+                origin=app.multi_workspace.source_event(tail['delivery']['source_event_id'])
+                contents=validate_projection(origin,app.owner_ref,tail['visible'])
+                user+='\n【同一输出在请求发出前已收到的后续表现】\n'+json.dumps(
+                    [{'类型':c.kind,'原文':c.description,'可见受众':list(c.recipient_refs)} for c in contents],
+                    ensure_ascii=False)
+                system+='\n后续表现与当前观察一起估计本次关系影响。需要定位到当前事件的标签仍以其原片段为锚。'
+                coverage['additional_deliveries'].append(tail['delivery']['delivery_id'])
+                context_refs=(*context_refs,origin['fingerprint'])
+        attributed_speech=hierarchy_mode and (event.event_kind=='npc_output' or is_visible) and any(
+            c.kind=='speech' for c in event.contents)
+        attribution_suffix=''
+        if attributed_speech:
+            from model_packages.desktop_pet_v1.hierarchy_semantics import SPEECH_EVIDENCE_SUFFIX,speech_evidence_instruction
+            system+=speech_evidence_instruction(event)
+            attribution_suffix=SPEECH_EVIDENCE_SUFFIX
+        from petlab_app.participant_input import ADDRESSED_SPEECH_VERSION,NPC_VERSIONS
         from model_packages.desktop_pet_v1 import peer_opening
-        measure_speech_use=(visible_receipt.get('version') in NPC_VERSIONS and any(
+        measure_speech_use=(visible_receipt.get('version') in {*NPC_VERSIONS,ADDRESSED_SPEECH_VERSION} and any(
             c.kind=='speech' and not c.private and event.owner_ref in c.recipient_refs for c in event.contents))
         speech_use_suffix=peer_opening.REQUEST_SUFFIX if measure_speech_use else ''
         if measure_speech_use:
@@ -337,6 +361,11 @@ class PetSemanticService:
                             from model_packages.desktop_pet_v1.address_semantics import parse_available_response as parse_properties
                     try:
                         parsed_cues=parse_properties(measured_text,event)
+                        if attributed_speech:
+                            from model_packages.desktop_pet_v1.hierarchy_semantics import scope_speech_reports
+                            props,converted=scope_speech_reports(event,parsed_cues['properties'])
+                            parsed_cues['properties']=props
+                            if converted:parsed_cues['property_speech_attributions']=converted
                         if compact:
                             parsed_cues['rejected_property_locations']=rejected_locations
                         if graded:
@@ -381,7 +410,8 @@ class PetSemanticService:
                         parsed_cues['version']=RECALL_VERSION
                 recall={RECALL_KEY:parsed_cues}
             speech_use=peer_opening.parse_current(completion_text(wire),event) if measure_speech_use else None
-            return {**recall,**({peer_opening.KEY:speech_use} if speech_use is not None else {}),
+            return {**recall,**({'visible_input_coverage':coverage} if coverage is not None else {}),
+                **({peer_opening.KEY:speech_use} if speech_use is not None else {}),
                 **({CALIBRATION_KEY:local_reference} if local_reference is not None else {}),"event_kind":event.event_kind,"committed_measurement":raw,
                 "measurement_source":{"version":"cx67-committed-measurement-source-v1",
                     "source_event_id":event.event_id,"local_event_id":event.event_id,
@@ -419,10 +449,11 @@ class PetSemanticService:
             from petlab_app.provider_reparse import reparse_failed
             def run(**kwargs):
                 restored=reparse_failed(self.gateway,**kwargs)
-                return restored if restored is not None else self.gateway.prepare(**kwargs)
+                return restored if restored is not None else self.gateway.prepare(
+                    **kwargs,reuse_received=True)
         result=run(session_binding=app.runtime.session.session_binding,
             current_position=app.runtime.session.position,operation_kind="semantic_measurement",
-            source_fact_ref=event.event_id,codec_contract=codec.request_version+graded_suffix+speech_use_suffix+
+            source_fact_ref=event.event_id,codec_contract=codec.request_version+graded_suffix+speech_use_suffix+attribution_suffix+
                 (':independent-retrieval-v1' if self.independent_retrieval else ''),
             messages=[{"role":"system","content":system},{"role":"user","content":user}],
             temperature=codec.temperature,require_json=codec.require_json,parse=parse,

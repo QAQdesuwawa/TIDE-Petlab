@@ -159,7 +159,8 @@ class SinglePetRuntime:
                 session=self.session, model_runtime=self.model_runtime, temporal_runtime=self.temporal_runtime,
                 target_coordinate=event.position.coordinate, scope_ref=event.scope_ref,
                 subject_ref=event.owner_ref, event_ref=event.event_id, action_ref=None,
-                measurement_payload={"event": event.to_record(), "measurement_payload": measurement_payload},
+                measurement_payload={"event": event.to_record(), "measurement_payload":
+                    {key:value for key,value in measurement_payload.items() if key!='visible_input_coverage'}},
                 context_metadata={
                     **relation_context,
                     **calibration_context,

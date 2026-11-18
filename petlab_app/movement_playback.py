@@ -12,6 +12,11 @@ def play(view,task,index,planned=None,started=None,orient_until=None,target_boun
   content=task.contents[index];identity=content.content_id
   child=getattr(task,'child_results',{}).get(identity)
   if child is not None and child['status']!='running':return
+  if getattr(view,'pointer_control_active',False):
+   # Reservation/turn callbacks can bypass _start_composite_child. Never
+   # reacquire the body during pointer ownership; plan from release position.
+   view._schedule(16,lambda:play(view,task,index))
+   return
   scene=view.scene_snapshot() if callable(view.scene_snapshot) else None
   basic=content.parameters['movement'].get('version')==movement.FREE_VERSION
   free=basic and content.parameters['movement']['mode']!='move_away'
@@ -109,6 +114,7 @@ def play(view,task,index,planned=None,started=None,orient_until=None,target_boun
     own=next(row['bounds'] for row in scene['participants'] if row['ref']==scene['owner_ref'])
     task.movement_landing=[*planned['end'],*own[2:]]
    first_segment=identity not in task.movement_results
+   task.affects_sprite=True
    if first_segment:
     view._select_execution_target(task)
     task.movement_results[identity]=movement.result(planned,planned['start'])
@@ -139,7 +145,9 @@ def play(view,task,index,planned=None,started=None,orient_until=None,target_boun
     view._schedule(16,lambda:play(view,task,index,rerouted=rerouted|{contact},detour_from=contact))
     return
    reason='physical_contact' if peer_contact else 'source_expired'
-   view.interrupt_activity(reason=reason,cause_ref=contact)
+   if task.composite is not None and not peer_contact:
+    view._stop_movement_child(task,identity,reason=reason,cause_ref=contact)
+   else:view.interrupt_activity(reason=reason,cause_ref=contact)
    return
   from .rear_view import route_vector
   view._walk_pose(task,identity,{**planned,'heading':heading,'vector':route_vector(planned['route'],progress),
@@ -167,5 +175,8 @@ def play(view,task,index,planned=None,started=None,orient_until=None,target_boun
    else:view._next_content(task,index+1)
    return
   view._schedule(16,lambda:play(view,task,index,planned,started,orient_until,target_bounds,rerouted=rerouted,walked=progress))
- except Exception as error:view._failed(task,error)
+ except Exception as error:
+  fail=getattr(view,'_fail_child',None)
+  if fail is not None:fail(task,task.contents[index].content_id,error)
+  else:view._failed(task,error)
 

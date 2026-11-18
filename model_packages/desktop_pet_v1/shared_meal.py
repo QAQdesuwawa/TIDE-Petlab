@@ -2,6 +2,7 @@
 
 No psychological root, score, clock or compulsory reply is introduced here.
 """
+import re
 from copy import deepcopy
 from dataclasses import replace
 from framework.model_api import model_data_fingerprint as fp, thaw_model_data
@@ -11,7 +12,10 @@ MULTI_VERSION='desktop-pet-shared-meal-v2'
 CATALOG_VERSION='desktop-pet-shared-meal-actions-v4'
 SEQUENCE_CATALOG_VERSIONS={'desktop-pet-shared-meal-actions-v3',CATALOG_VERSION}
 AUDIENCE_CATALOG_VERSIONS={'desktop-pet-shared-meal-actions-v2',*SEQUENCE_CATALOG_VERSIONS}
-KEYS=('eat_rice','request_bowl','offer_bowl','keep_bowl','accept_bowl','decline_bowl')
+HOLDER_TRANSFER_ACTION = 'accept_bowl'
+ACCEPTANCE_V1 = 'bound-speech-v1'
+ACCEPTANCE_V2 = 'bound-speech-v2'
+KEYS=('eat_rice','request_bowl','offer_bowl','keep_bowl',HOLDER_TRANSFER_ACTION,'decline_bowl')
 LABELS=dict(zip(KEYS,('端着饭碗吃一口饭','向对方伸手索要饭碗','把饭碗递向对方，等待对方决定','把饭碗护在怀里，拒绝这次索要','伸手接过对方递来的饭碗','摆手谢绝对方递来的饭碗')))
 
 def signed(value):return {**value,'fingerprint':fp(value)}
@@ -44,6 +48,29 @@ def validate(value):
     if v['offer'] is not None and v['offer']['actor_ref']!=v['holder_ref']:raise ValueError('offer not held by giver')
     if v['request'] is not None and v['request']['target_ref']!=v['holder_ref']:raise ValueError('request not addressed to holder')
     return v
+
+def bowls(context):
+    if context is None:return ()
+    return tuple(context) if isinstance(context,(list,tuple)) else (context,)
+
+
+def context_snapshot(rows):
+    rows=tuple(rows)
+    return rows if len(rows)>1 else rows[0] if rows else None
+
+
+def validate_context(context,owner):
+    rows=tuple(validate(row) for row in bowls(context))
+    if any(owner not in row['participants'] for row in rows):
+        raise ValueError('meal owner differs')
+    if len({row['interaction_id'] for row in rows})!=len(rows) or len({row['holder_ref'] for row in rows})!=len(rows):
+        raise ValueError('duplicate meal object or holder')
+    return context_snapshot(rows)
+
+
+def held_by(context,owner):
+    return next((row for row in bowls(context) if row['holder_ref']==owner and row['portions']),None)
+
 
 def available(value,actor,target):
     s=validate(value)
@@ -132,9 +159,10 @@ def content(target,definition):
 
 def result_content(content,result,*,status):
     p=verify_binding(content.parameters['meal']);r=thaw_model_data(result)
+    if r.get('interaction_id',p['scene']['interaction_id'])!=p['scene']['interaction_id']:raise ValueError('meal receipt bowl differs')
     if not isinstance(r,dict) or r.get('fingerprint')!=fp({k:v for k,v in r.items() if k!='fingerprint'}) or r.get('binding_ref')!=p['fingerprint'] or r.get('status')!=status:raise ValueError('meal effect does not match executed action')
     if r.get('version')!=p['version'] or any(r.get(k)!=p[k] for k in ('actor_ref','target_ref','key')) or type(r.get('frames'))is not int or r['frames']<=0:raise ValueError('meal effect identity differs')
-    transfer=p['key']=='accept_bowl' and status=='completed'
+    transfer=p['key']==HOLDER_TRANSFER_ACTION and status=='completed'
     if r.get('transferred') is not transfer or (transfer and (r['holder_before']!=p['target_ref'] or r['holder_after']!=p['actor_ref'])) or (not transfer and r['holder_after']!=r['holder_before']):raise ValueError('meal ownership effect differs')
     actor,target=p['actor_ref'],p['target_ref']
     text=bound_description(p['key'],actor,target)
@@ -144,6 +172,91 @@ def result_content(content,result,*,status):
               'request_bowl':f'{actor}向拿碗的{target}伸手索要，{actor}尚未拿到饭碗'}.get(p['key'],text)
     else:text='开始'+text+'，中途停止；未完成饭碗交接。'
     return replace(content,description=text,parameters={**dict(content.parameters),'meal_result':r,'execution_status':status})
+
+def handoff_evidence_definition(action_keys):
+    handoff = ('request_bowl', 'offer_bowl', HOLDER_TRANSFER_ACTION)
+    if set(action_keys).isdisjoint(handoff):
+        return None
+    return {
+        '行为分支': '饭碗交接',
+        '子项定义': {key: LABELS[key] for key in handoff},
+        '归属变更条件': f'{HOLDER_TRANSFER_ACTION} 的完成回执确认同一只碗转给接碗者。',
+    }
+
+
+def _without_vocative(text, addressee):
+    parts = re.split('[，,]', text, maxsplit=1)
+    if addressee and len(parts) == 2 and parts[0] in (addressee, addressee.split()[-1]):
+        return parts[1].lstrip()
+    return text
+
+
+def acceptance_addressed(text, *, target, recipients, direct, addressee):
+    if target not in recipients:
+        return False
+    if direct is not None:
+        return tuple(direct) == (target,)
+    text = text.strip()
+    return tuple(recipients) == (target,) or _without_vocative(text, addressee) != text
+
+
+def bound_acceptance_code(key, offer):
+    plain, sep, target = key.partition('@')
+    if plain != HOLDER_TRANSFER_ACTION or not sep or plain not in offer['allowed_keys']:
+        return key
+    row = next(row for row in offer['catalog']['candidates'] if row['key'] == plain)
+    if 'meal' not in row:
+        return key
+    bound = verify_binding(row['meal'])
+    if (bound['key'] == plain and bound['actor_ref'] == offer['owner_ref']
+            and target == bound['target_ref'] == row.get('target_ref', offer['target_ref'])):
+        return plain
+    return key
+
+
+def acceptance_speech(contents, *, addressee, version):
+    speeches = [content for content in contents if content.kind == 'speech']
+    if version != ACCEPTANCE_V2 and len(speeches) != 1:
+        return None
+    return next((speech for speech in speeches if explicit_acceptance(
+        speech.description, addressee=addressee, discourse=version == ACCEPTANCE_V2)), None)
+
+
+def explicit_acceptance(text, *, addressee=None, discourse=False):
+    # The first revision recognizes a complete first-person acceptance
+    # clause. Quotes, negation, questions and conditional sentences remain
+    # speech. The caller must separately verify the addressee and live offer.
+    text = _without_vocative(text.strip(), addressee)
+    if discourse:
+        # A separate addressed aside ending in a sentence particle can precede
+        # a fresh acceptance clause. Keep questions, quotations and conditions out.
+        if addressee:
+            aside, separator, response = text.replace(',', '，').partition('，')
+            if (separator and aside.startswith((addressee, addressee.split()[-1]))
+                    and re.fullmatch(r'[^。！？；“”「」『』"？，]+[嘛呀啊呢啦]', aside)
+                    and not re.search(r'如果|要是|假如|假设|倘若|除非|只要|说|听|问|以为|没|不', aside)
+                    and response.lstrip().startswith('那')):
+                text = response.lstrip()
+        text = text.removeprefix('那').removeprefix('么') if text.startswith('那') else text
+    return re.fullmatch(
+        r'(?:好[啊呀啦]?[，,]\s*)?'
+        r'(?:(?:这碗(?:白饭|饭|米饭)|(?:这只|这个)?饭碗)[，,]?\s*我就?(?:收下|接下)|'
+        r'我就?(?:收下|接下)(?:这碗(?:白饭|饭|米饭)|(?:这只|这个)?饭碗)?)'
+        r'(?:了|啦)?[。！!]*',
+        text,
+    ) is not None
+
+
+def handoff_behavior_distinctions(action_keys):
+    children = ('offer_bowl', HOLDER_TRANSFER_ACTION, 'eat_rice')
+    if action_keys.isdisjoint((*children, 'request_bowl')):
+        return None
+    return {
+        '父类': '身体动作',
+        '子项定义': {key: LABELS[key] for key in children},
+        '归属变更条件': f'{HOLDER_TRANSFER_ACTION} 的完成回执确认同一只碗转给接碗者。',
+    }
+
 
 def card(value, *, snapshot=False):
     s=validate(value)

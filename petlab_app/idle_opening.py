@@ -30,6 +30,15 @@ def _plan_source(session):
     return {'version':'petlab-idle-plan-source-v1','state':session.state.fingerprint,
         'position':session.position.fingerprint,'parameters':session.parameters.fingerprint}
 
+def _current_policy(plan):
+    from model_packages.desktop_pet_v1.autonomous_opening import INPUT, VERSION
+    from .idle_evidence import SOURCE_CLOCK
+    from .idle_targets import SOURCE_VERSION
+    selection=plan.get('target_selection')
+    evidence=plan.get(INPUT,{})
+    return (evidence.get('version')==VERSION and evidence.get('clock_basis')==SOURCE_CLOCK
+            and (selection is None or selection.get('version')==SOURCE_VERSION))
+
 def signed(value):return {**value,'fingerprint':model_data_fingerprint(value)}
 def verify(value):
     if model_data_fingerprint({k:v for k,v in value.items() if k!='fingerprint'})!=value.get('fingerprint'):
@@ -161,10 +170,11 @@ def recalled_memories(app,event_id):
 
 
 class IdleOpeningHost:
-    def __init__(self,*,product,bounds_ms=(2000,300000),on_plan=None):
+    def __init__(self,*,product,bounds_ms=(2000,300000),on_plan=None,channel_policy=False):
         if len(bounds_ms)!=2 or any(isinstance(x,bool) or not isinstance(x,int) or x<=0 for x in bounds_ms) or bounds_ms[0]>bounds_ms[1]:
             raise ValueError('idle observation engineering bounds are invalid')
         self.on_plan=on_plan
+        self.channel_policy=channel_policy
         self.product=product;self.app=product.application;self.bounds={'min_interval_ms':bounds_ms[0],'max_interval_ms':bounds_ms[1]}
 
     @property
@@ -184,6 +194,7 @@ class IdleOpeningHost:
             data['plan']=None;data['pending_tick']=None;publish(self.app,data)
 
     def arm(self,*,coordinate=None):
+        from model_packages.desktop_pet_v1.autonomous_opening import INPUT
         with self.app._lock:
             app=self.app;data=journal(app)
             # A real effect/input awaiting settlement is the next event in
@@ -196,11 +207,18 @@ class IdleOpeningHost:
             # Reconcile after an event; do not keep postponing an unchanged Tick.
             if data['plan'] is not None:
                 verify(data['plan'])
-                if coordinate is None and data['plan'].get('plan_source')==_plan_source(app.runtime.session):
+                if (coordinate is None and data['plan'].get('plan_source')==_plan_source(app.runtime.session)
+                        and (not self.channel_policy or _current_policy(data['plan']))):
                     return data['plan']
             coordinate=wall_clock_ms() if coordinate is None else coordinate
             from .idle_targets import choose
-            target_selection=choose(app,coordinate=coordinate,bounds=self.bounds)
+            evidence_for=None
+            if self.channel_policy:
+                from .idle_evidence import collect
+                evidence_for=collect(app,now=coordinate,horizon=self.bounds['max_interval_ms'],ticks=data['ticks'])
+            target_selection=choose(app,coordinate=coordinate,bounds=self.bounds,evidence_for=evidence_for)
+            evidence=({INPUT:evidence_for(target_selection['peer'])}
+                      if target_selection is not None and evidence_for is not None else {})
             metadata={'committed_event_kind':'tick'}
             if target_selection is not None:metadata['desktop_pet_counterparty_ref']=target_selection['peer']
             progress=execute_runtime_progress_transaction(session=app.runtime.session,model_runtime=app.runtime.model_runtime,
@@ -213,20 +231,25 @@ class IdleOpeningHost:
             context=replace(progress.context,scope_ref=app.definition.scope_ref,temporal_position=session.position.position,runtime_ordinal=session.position.runtime_ordinal)
             shared=app.runtime.model_runtime.invoke('project_shared_semantics',payload={'parameters':session.parameters.parameters,
                 'settlement':progress.settlement_execution.payload['settlement']},context=context)
+            if evidence_for is not None and target_selection is None:
+                from model_packages.desktop_pet_v1.relation_package import META
+                active_peer=shared.payload['shared_projection']['source_state_candidate'][META]['active_peer']
+                evidence={INPUT:{**evidence_for(active_peer),'recent_events':[], 'target_available':False}}
             # Planning belongs to this explicitly configured product destination.
             # Progress remains owner-local; both read-only planning stages share the destination identity.
             planning_context=replace(context,scope_ref=app.definition.scope_ref)
-            execution=app.runtime.model_runtime.invoke('plan_observation',payload={'shared_projection':shared.payload['shared_projection'],**self.bounds},context=planning_context)
+            execution=app.runtime.model_runtime.invoke('plan_observation',payload={'shared_projection':shared.payload['shared_projection'],**self.bounds,**evidence},context=planning_context)
             advice=read_observation_plan(execution,expected_context=planning_context,shared_projection_execution=shared)
             target=app.runtime.temporal_runtime.resolve_observation_target(session.position.position,advice.observation_advice)
             data['plan']=signed({**({'target_selection':target_selection} if target_selection is not None else {}),'origin_coordinate':coordinate,'advice':thaw_model_data(advice.observation_advice),
                 'target':target.to_record(),'bounds':self.bounds,'plan_source':_plan_source(session),'planning_stage':execution.receipt.to_record(),
-                'planning_payload':thaw_model_data(execution.payload),'shared_projection':thaw_model_data(shared.payload['shared_projection'])})
+                'planning_payload':thaw_model_data(execution.payload),'shared_projection':thaw_model_data(shared.payload['shared_projection']),**evidence})
             publish(app,data,session)
             if self.on_plan is not None:self.on_plan(data['plan'])
             return data['plan']
 
     def sample(self,*,coordinate=None,executor,completion_coordinate=wall_clock_ms,is_cancelled=lambda:False,on_reply_ready=lambda:None):
+        from model_packages.desktop_pet_v1.autonomous_opening import INPUT
         with self.app._lock:
             app=self.app;data=journal(app);plan=data['plan']
             try:app._require_ready()
@@ -234,18 +257,25 @@ class IdleOpeningHost:
             if plan is None:return None
             verify(plan);coordinate=wall_clock_ms() if coordinate is None else coordinate
             if is_cancelled():return None
-            if plan.get('plan_source')!=_plan_source(app.runtime.session):
+            old_policy=self.channel_policy and not _current_policy(plan)
+            if old_policy or plan.get('plan_source')!=_plan_source(app.runtime.session):
                 # A committed event changed the source; an old alarm grants nothing.
                 self.arm(coordinate=max(coordinate,app.runtime.session.position.position.coordinate))
-                return {'observed':False,'reason':'settlement_changed','plan_rebuilt':True}
+                return {'observed':False,'reason':'policy_changed' if old_policy else 'settlement_changed','plan_rebuilt':True}
             target=app.runtime.temporal_runtime.resolve_observation_target(app.runtime.session.position.position,plan['advice'])
             if target.to_record()!=plan['target']:raise ValueError('idle plan differs from current source position')
             if not app.runtime.temporal_runtime.prove_observation_due(target,app.runtime.temporal_runtime.normalize_position(coordinate)).due:return None
+            if self.channel_policy and 'target_selection' in plan:
+                from .idle_targets import available_peers
+                if plan['target_selection']['peer'] not in available_peers(app):
+                    self.arm(coordinate=coordinate)
+                    return {'observed':False,'reason':'target_unavailable','plan_rebuilt':True}
             if is_cancelled():return None
             tick_id='idle-tick:'+uuid.uuid4().hex
+            evidence={INPUT:plan[INPUT]} if INPUT in plan else {}
             observed=execute_runtime_autonomous_observation_transaction(session=app.runtime.session,model_runtime=app.runtime.model_runtime,
                 temporal_runtime=app.runtime.temporal_runtime,observation_target=target,target_coordinate=coordinate,
-                participant_id=app.owner_ref,tick_event_id=tick_id,assessment_payload=plan['bounds'])
+                participant_id=app.owner_ref,tick_event_id=tick_id,assessment_payload={**plan['bounds'],**evidence})
             progress=observed.progress_transaction
             viewed=attach_settlement_view(observed.session,previous_state=app.runtime.session.state,
                 previous_position=progress.progress_acceptance.state,context=progress.context,
@@ -253,7 +283,8 @@ class IdleOpeningHost:
                 source_kind='progress',source_ref=progress.acceptance.fingerprint)
             from model_packages.desktop_pet_v1.behavior import select_idle
             mode=getattr(self.product,'idle_behavior','speech')
-            chosen=(plan['target_selection']['destination'] if 'target_selection' in plan else autonomous_destination(participant_destination(app)))
+            chosen=(plan['target_selection']['destination'] if 'target_selection' in plan else
+                    autonomous_destination(participant_destination(app)) if not evidence else None)
             scene=None
             if mode=='symbolic':
                 from model_packages.desktop_pet_v1.action_candidates import propose as choose,compact_tokens

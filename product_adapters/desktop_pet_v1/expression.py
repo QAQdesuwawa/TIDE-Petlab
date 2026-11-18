@@ -56,11 +56,16 @@ class PetExpressionService:
     def __init__(self,*,application):
         self.application=application
 
-    def project(self,event_id,*,historical=False):
+    def project(self,event_id,*,historical=False,pending_world_for=None):
         app=self.application
         with app._lock:
             from petlab_app.live_execution import recovery_projection
-            if not recovery_projection(app,event_id):app._require_ready(during_live_execution=True)
+            if not recovery_projection(app,event_id):
+                from petlab_app.playback_intake import writer_world_input
+                world=(writer_world_input(app,pending_world_for)
+                       if pending_world_for is not None else None)
+                app._require_ready(during_live_execution=True,
+                    world_event_id=None if world is None else world.event.event_id)
             memory=app.runtime.memory_instance(event_id)
             app._verify_source(memory.event)
             if memory.event.event_kind!="peer_input":

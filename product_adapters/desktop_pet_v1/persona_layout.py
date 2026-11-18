@@ -71,7 +71,8 @@ def project(packet):
     return replace(result, packet_fingerprint=model_data_fingerprint(result.content_record()))
 
 
-def core(*, private, sequence, expression, mode, idle, free_action_intents=False, concise=False, dialogue_author=False,recorded_dialogue=False,evidence_review=False,max_actions=None,parallel_speech=False,optional_memory_report=False,speech_action_format=False,coherent_performance=False,review_identity=EVIDENCE_REVIEW_IDENTITY):
+def core(*, private, sequence, expression, mode, idle, free_action_intents=False, concise=False, dialogue_author=False,recorded_dialogue=False,evidence_review=False,max_actions=None,parallel_speech=False,optional_memory_report=False,speech_action_format=False,coherent_performance=False,complete_output=False,plain_json_examples=False,review_identity=EVIDENCE_REVIEW_IDENTITY):
+    speech_required = not (private or sequence or idle or mode == 'contextual')
     text = ('【表达与资料边界】\n'
         '以人格原文中的角色身份，结合此刻关系状态、经历与情境，自主选择措辞、语气和表达内容。'
         '日常回应通常一两句、约8–35个汉字，详细问题按实际需要展开。\n'
@@ -100,7 +101,14 @@ def core(*, private, sequence, expression, mode, idle, free_action_intents=False
             '本轮是情境触发的表达机会，可以回应、联想、继续自己的事或保持安静。\n')
     if idle and not concise:
         text += '当前没有新的用户输入。\n'
-    text += '【输出格式】\n输出JSON。speech为话语'
+    if complete_output:
+        if speech_required:
+            text = text.replace('决定此刻怎么说、做什么或保持安静。', '决定此刻怎么说。')
+        text += '只记得部分经过时，可以照角色的语气说自己记得的部分，其余可以直说没把握。\n'
+        text += '【输出格式】\n返回一个完整的JSON对象。'
+        text += 'speech填写非空的角色台词' if speech_required else 'speech为角色台词'
+    else:
+        text += '【输出格式】\n输出JSON。speech为话语'
     text += '。\n' if optional_memory_report else '，reported_used_memory_ids列实际参考的已交付记忆标记，未参考填空数组。\n'
     if private:
         text += 'thought为仅自己知道的角色内心独白；speech、thought各自可为null。'
@@ -111,6 +119,11 @@ def core(*, private, sequence, expression, mode, idle, free_action_intents=False
     if not sequence and not private and (idle or mode == 'contextual'):
         text += 'speech可为null，表示本轮选择安静'
         text += '。\n' if optional_memory_report else '，此时reported_used_memory_ids为空数组。\n'
+    if plain_json_examples and not (sequence or private or expression):
+        memory_example = '' if optional_memory_report else ',"reported_used_memory_ids":[]'
+        text += '有台词时的 JSON 结构为 {"speech":"<角色台词>"' + memory_example + '}。\n'
+        if not speech_required:
+            text += '保持安静时也返回完整 JSON，如 {"speech":null' + memory_example + '}。\n'
     if sequence:
         if free_action_intents:
             from .action_intents import FORMAT

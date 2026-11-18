@@ -53,6 +53,9 @@ class _Playback:
     takeover_future: object = None
     speech_hold: object = None
     semantic_takeover: dict | None = None
+    semantic_takeovers: list = field(default_factory=list)
+    speech_progress: dict = field(default_factory=dict)
+    speech_prefixes: dict = field(default_factory=dict)
 
 
 from .execution_context import ExecutionContexts
@@ -827,6 +830,11 @@ class DesktopExecutor(ExecutionContexts):
 
     def update_meal_pose(self,value):
         previous=getattr(self,'_meal_snapshot',None)
+        if isinstance(value,(list,tuple)):
+            from model_packages.desktop_pet_v1.shared_meal import held_by
+            value=(held_by(value,self.meal_owner)
+                   or next((row for row in value if row['offer'] and row['offer']['target_ref']==self.meal_owner),None)
+                   or next((row for row in value if previous and row['interaction_id']==previous['interaction_id']),None))
         self._meal_snapshot=value
         if value is None or previous is None or previous['interaction_id']!=value['interaction_id']:
             self.meal_pose_target=None
@@ -1196,35 +1204,137 @@ class DesktopExecutor(ExecutionContexts):
 
     @staticmethod
     def _apply_semantic_takeover(task,proof):
-        if task.done.is_set() or task.semantic_takeover is not None or task.composite is None:return
+        if task.done.is_set() or task.composite is None:return
+        history=getattr(task,'semantic_takeovers',None)
+        if history is None:
+            history=[] if task.semantic_takeover is None else [task.semantic_takeover]
+            task.semantic_takeovers=history
+        if any(row['event_id']==proof['event_id'] for row in history):return
         if proof.get('parent_action_id',task.action_id)!=task.action_id:return
         target=proof.get('playback_target_ref',proof['actor_ref'])
         if 'playback_target_ref' in proof and 'parent_action_id' not in proof:return
         if (task.execution_context or {}).get('target_ref')!=target:return
         children=task.composite.children
+        from model_packages.desktop_pet_v1.composite import success_dependencies
         waiting={item.content_id for item in task.contents}-task.child_results.keys()
         if task.late_speech is not None:
             waiting.update(key for key,row in children.items()
                            if row['kind'] in {'speech','thought'} and key not in task.child_results)
-        cancelled={key for key in waiting if children[key]['kind']=='speech'}
-        while cancelled:
-            dependent={key for key in waiting if set(children[key].get('after',()))&cancelled}
-            if dependent<=cancelled:break
-            cancelled.update(dependent)
-        if not cancelled:return
+        progress=getattr(task,'speech_progress',{})
+        # An input may finish measuring after playback has advanced to another
+        # sentence. Bind a stop to the sentence that was active at ingress.
+        bound=proof.get('bound_speech_ids') if proof.get('cause')=='opening_support_reversed' else None
+        if bound is not None:
+            if any(key not in children or children[key]['kind']!='speech' for key in bound):
+                raise ValueError('opening revision contains an unbound speech child')
+            # Completed words keep their effects, including success dependencies.
+            # The remaining children of this Writer already have a bound basis.
+            on_ingress=None
+        elif proof.get('input_at_ms') is not None:
+            at=proof['input_at_ms']
+            on_ingress=next((key for key,row in task.child_results.items()
+                if children[key]['kind']=='speech' and row.get('started_at_ms') is not None
+                and row['started_at_ms']<=at and (row['ended_at_ms'] is None or at<row['ended_at_ms'])),None)
+            if on_ingress is None:return
+        else:on_ingress=None
+        running={key for key in progress if key==on_ingress}
+        # Current receipts bind the affected sentence at ingress. An explicit
+        # request to stop speaking also covers the as-yet-unfinished remainder
+        # of that same addressed utterance. The measuring reply may arrive
+        # after playback has already advanced to its next sentence; pure
+        # sequence edges do not otherwise carry a cancellation dependency.
+        # Other speakers and independent body actions remain outside this scope.
+        same_utterance=set()
+        if on_ingress is not None and proof.get('cause')=='explicit_stop':
+            by_id={content.content_id:content for content in task.contents}
+            anchor=by_id.get(on_ingress)
+            recipients=set(getattr(anchor,'recipient_refs',())) if anchor is not None else set()
+            later=False
+            for key,row in children.items():
+                if key==on_ingress:
+                    later=True
+                    continue
+                if not later or row['kind']!='speech':continue
+                content=by_id.get(key)
+                if (content is not None and recipients
+                        and recipients.intersection(getattr(content,'recipient_refs',()))
+                        and task.child_results.get(key,{}).get('status') not in
+                            {'completed','interrupted','cancelled'}):
+                    same_utterance.add(key)
+        # Keep the legacy scope solely for archived proofs without an anchor.
+        cancelled=({key for key in waiting if children[key]['kind']=='speech'}
+                   if proof.get('input_at_ms') is None else set())
+        roots={on_ingress} if on_ingress is not None else set()
+        if bound is not None:
+            roots=set(bound)&(waiting|set(progress))
+        affected=cancelled|running|roots|same_utterance
+        while affected:
+            dependent={key for key,row in children.items() if set(success_dependencies(row))&affected}
+            if dependent<=affected:break
+            affected.update(dependent)
+        cancelled.update(waiting&affected)
+        running.update(set(progress)&affected)
+        actions={key for key in affected if children[key]['kind']=='action'
+                 and task.child_results.get(key,{}).get('status')=='running'}
+        if not (cancelled or running or actions):return
         stamp=time.time_ns()//1_000_000
         for key in cancelled:
             task.child_results[key]={'status':'cancelled','started_at_ms':None,'ended_at_ms':stamp,
                                      'reason':'source_expired','cause_ref':proof['event_id']}
-        task.semantic_takeover={**proof,'child_ids':[key for key in children if key in cancelled]}
+        for key in running:
+            content,index=progress.pop(key)
+            task.speech_prefixes[key]=content.description[:index]
+            task.completed.append(key)
+            task.child_results[key].update(status='interrupted',ended_at_ms=stamp,
+                reason='source_expired',cause_ref=proof['event_id'])
+        for key in actions:
+            row=task.child_results[key]
+            shown=bool(getattr(task,'action_frames',{}).get(key))
+            row.update(status='interrupted' if shown else 'cancelled',
+                       started_at_ms=row['started_at_ms'] if shown else None,ended_at_ms=stamp,
+                       reason='source_expired',cause_ref=proof['event_id'])
+        task.semantic_action_stops=set(getattr(task,'semantic_action_stops',()))|actions
+        task.semantic_takeover={**proof,'child_ids':[key for key in children if key in (cancelled|running|actions)]}
+        history.append(task.semantic_takeover)
 
     def _poll_semantic_takeover(self,task):
         future=getattr(task,'takeover_future',None)
         if future is None or not future.done():return False
-        task.takeover_future=None
+        from .takeover_receipts import TakeoverQueue
+        if not isinstance(future,TakeoverQueue):task.takeover_future=None
         if future.cancelled() or (task.is_cancelled and task.is_cancelled()):return False
+        pending=set(getattr(task,'speech_progress',{}))
+        before=task.semantic_takeover
         DesktopExecutor._apply_semantic_takeover(task,future.result())
-        return task.semantic_takeover is not None
+        for key in pending-set(getattr(task,'speech_progress',{})):
+            self._present_spoken_text(task.speech_prefixes[key],final=True)
+        applied=task.semantic_takeover is not before
+        if applied:
+            DesktopExecutor._settle_semantic_action_stops(self,task,task.semantic_takeover['child_ids'])
+            self._notify_visible(task)
+        return applied
+
+    def _settle_semantic_action_stops(self,task,identities):
+        """Seal only newly stopped physical children before publishing visibility."""
+        for content in task.contents:
+            key=content.content_id
+            pending=getattr(task,'semantic_action_stops',set())
+            if key not in identities or key not in pending or content.kind!='action':continue
+            if 'movement' in content.parameters:
+                self._end_walk(task);task.movement_landing=None
+            if 'social_contact' in content.parameters:
+                from .social_contact_playback import finish
+                finish(self,task,content,'interrupted')
+            if ('meal' in content.parameters and task.action_frames.get(key)
+                    and key not in task.meal_results):
+                task.meal_results[key]=self.meal_host.finish(task.action_id+'#'+key,content.parameters['meal'],
+                    status='interrupted',frames=task.action_frames[key],
+                    reason=task.child_results.get(key,{}).get('reason','source_expired'))
+                from model_packages.desktop_pet_v1.shared_meal import context_snapshot
+                self.update_meal_pose(context_snapshot(self.meal_host.snapshots()))
+            if getattr(self,'rendering_action',None)==content:
+                self.rendering_action=None;self.set_activity_badge()
+            pending.discard(key)
 
     def _pump(self):
         if self.closed:return
@@ -1241,10 +1351,11 @@ class DesktopExecutor(ExecutionContexts):
                     task.error=ExecutionCancelled("gesture ended before UI playback");task.done.set()
                     self._schedule(16,self._pump);return
                 self.active=task
-                task.affects_sprite=any(item.kind=="action" and item.semantic_key not in ('move_near','stroll','move_away','relocate') for item in task.contents)
+                task.affects_sprite=(not getattr(self,'pointer_control_active',False) and
+                    any(item.kind=="action" and item.semantic_key not in ('move_near','stroll','move_away','relocate') for item in task.contents))
                 task.started_at_wall_ms=time.time_ns()//1_000_000
                 try:
-                    if task.affects_sprite:
+                    if task.affects_sprite and not getattr(self,'pointer_control_active',False):
                         self._cancel_visual_feedback()
                         # Formal actions use the original atlas, including when a
                         # speech prefix changes expression before the first action.
@@ -1294,12 +1405,13 @@ class DesktopExecutor(ExecutionContexts):
             row=task.child_results.get(c.content_id,{})
             if c.private or c.kind not in {'action','expression','speech'} or row.get('started_at_ms') is None:continue
             phase='started' if row['status']=='running' else row['status']
-            if phase not in {'started','completed','interrupted'}:continue
+            if phase not in {'started','completed','interrupted'} or c.kind=='speech' and phase=='started':continue
             key=(c.content_id,'started' if phase=='started' else 'ended')
             if key in task.visible_phases:continue
             items.append({'content':c.to_record(),'phase':phase,'started_at_ms':row['started_at_ms'],
                 'at_ms':row['started_at_ms'] if phase=='started' else row['ended_at_ms'],
                 'reason':row.get('reason'),'cause_ref':row.get('cause_ref'),
+                **({'spoken_prefix':task.speech_prefixes[c.content_id]} if c.content_id in task.speech_prefixes else {}),
                 **({'gaze_result':task.gaze_results[c.content_id]} if c.content_id in task.gaze_results else {}),
                 **({'meal_result':task.meal_results[c.content_id]} if c.content_id in task.meal_results else {}),
                 **({'prop_move_result':task.prop_move_results[c.content_id]} if c.content_id in getattr(task,'prop_move_results',{}) else {}),
@@ -1326,9 +1438,10 @@ class DesktopExecutor(ExecutionContexts):
         task.child_results[identity]={'status':'interrupted' if started is not None else 'cancelled',
             'started_at_ms':started,'ended_at_ms':stamp,'reason':reason,'cause_ref':cause_ref}
         affected={identity}
+        from model_packages.desktop_pet_v1.composite import success_dependencies
         while True:
             extra={key for key,child in task.composite.children.items()
-                if key not in task.child_results and set(child.get('after',()))&affected}
+                if key not in task.child_results and set(success_dependencies(child))&affected}
             if not extra:break
             for key in extra:
                 task.child_results[key]={'status':'cancelled','started_at_ms':None,
@@ -1386,35 +1499,32 @@ class DesktopExecutor(ExecutionContexts):
         for dep in task.composite.children[content.content_id].get('after',()):
             previous=task.child_results.get(dep)
             if previous is None or previous['status']=='running':return
-            if previous['status']!='completed':
+            from model_packages.desktop_pet_v1.composite import success_dependencies
+            if previous['status']!='completed' and dep in success_dependencies(task.composite.children[content.content_id]):
                 task.child_results[content.content_id]={'status':'cancelled','started_at_ms':None,
                     'ended_at_ms':time.time_ns()//1_000_000,'reason':previous.get('reason') or 'source_expired',
                     'cause_ref':previous.get('cause_ref') or task.action_id+'#dependency:'+dep}
                 return
+        if content.kind in {'action','expression'} and getattr(self,'pointer_control_active',False):
+            self._schedule(16,lambda:self._start_composite_child(task,index))
+            return
         if task.is_cancelled is not None and task.is_cancelled():
             self._failed(task,ExecutionCancelled('source expired before child effect'));return
         if content.kind=='speech' and task.speech_hold is not None and task.speech_hold.is_set():
             self._schedule(16,lambda:self._start_composite_child(task,index))
             return
-        if content.kind=='speech' and time.monotonic()<getattr(task,'next_speech_at',0):
+        if content.kind=='speech' and (task.speech_progress or time.monotonic()<getattr(task,'next_speech_at',0)):
             self._schedule(16,lambda:self._start_composite_child(task,index))
             return
         hidden_thought=content.kind=='thought' and not self.show_thought
         if not hidden_thought and content.kind in {'speech','thought'} and self._await_surface(task,index,
                 lambda:self._start_composite_child(task,index)):return
         if content.kind=='speech':
-            audience_arrival=tuple(c.parameters['audience_context'] for c in task.contents if c.parameters.get('audience_context'))
-            if audience_arrival:
-                from model_packages.desktop_pet_v1.audience_motion import verify_arrival
-                try:verify_arrival(self.scene_snapshot() if callable(self.scene_snapshot) else None,audience_arrival)
-                except ValueError:
-                    self._failed(task,ExecutionCancelled('selected listeners left speaking distance'),guard='audience-distance');return
-            whisper_context=next((c.parameters.get('whisper_context') for c in task.contents if c.parameters.get('whisper_context')),None)
-            if whisper_context is not None:
-                from model_packages.desktop_pet_v1.whisper import check_arrival
-                try:check_arrival(self.scene_snapshot() if callable(self.scene_snapshot) else None,whisper_context)
-                except ValueError:
-                    self._failed(task,ExecutionCancelled('whisper target left speaking distance'),guard='whisper-distance');return
+            failed_guard=DesktopExecutor._speech_distance_failure(self,task)
+            if failed_guard:
+                self._stop_local_children(task,{content.content_id},reason='source_expired',
+                    cause_ref=task.action_id+'#'+failed_guard)
+                return
         if content.kind!='thought':self._select_execution_target(task)
         stamp=time.time_ns()//1_000_000
         if content.kind=='action':
@@ -1429,6 +1539,16 @@ class DesktopExecutor(ExecutionContexts):
             self._apply_presentation(task,content)
             self.speech_expression_active=True
             task.completed.append(content.content_id)
+        elif content.kind=='speech':
+            self.current_speech_guard=task.is_cancelled
+            if 'presentation' in content.parameters:
+                self._apply_presentation(task,content,speech=True)
+            self.last_displayed_content=content
+            task.child_results[content.content_id]={'status':'running','started_at_ms':stamp,'ended_at_ms':None}
+            task.speech_rendered.append({'content_id':content.content_id,'at_unix_ms':stamp})
+            task.speech_progress[content.content_id]=(content,0)
+            self._advance_speech(task,content.content_id)
+            return
         else:
             self.current_speech_guard=task.is_cancelled
             if 'presentation' in content.parameters:
@@ -1455,6 +1575,65 @@ class DesktopExecutor(ExecutionContexts):
             'started_at_ms':stamp,'ended_at_ms':None if content.kind=='action' else time.time_ns()//1_000_000})
         if not getattr(task,'_starting_children',False):DesktopExecutor._notify_visible(self,task)
         self._maybe_finish_composite(task)
+
+    def _present_spoken_text(self,text,*,final=False):
+        self.bubble.configure(text=text)
+        presenter=self.speech_presenter if final else getattr(self,'speech_preview_presenter',self.speech_presenter)
+        if presenter is not None:presenter(text)
+
+    def _speech_distance_failure(self,task):
+        """The original private-audience contract applies to each displayed prefix."""
+        contexts=tuple(c.parameters['audience_context'] for c in task.contents if c.parameters.get('audience_context'))
+        if contexts:
+            from model_packages.desktop_pet_v1.audience_motion import verify_arrival
+            try:verify_arrival(self.scene_snapshot() if callable(self.scene_snapshot) else None,contexts)
+            except ValueError:return 'audience-distance'
+        context=next((c.parameters.get('whisper_context') for c in task.contents if c.parameters.get('whisper_context')),None)
+        if context is not None:
+            from model_packages.desktop_pet_v1.whisper import check_arrival
+            try:check_arrival(self.scene_snapshot() if callable(self.scene_snapshot) else None,context)
+            except ValueError:return 'whisper-distance'
+        return None
+
+    def _advance_speech(self,task,identity):
+        if self.closed or task.done.is_set() or identity not in task.speech_progress:return
+        if self._poll_semantic_takeover(task):
+            self._maybe_finish_composite(task)
+            if identity not in task.speech_progress:return
+        content,index=task.speech_progress[identity]
+        failed_guard=DesktopExecutor._speech_distance_failure(self,task)
+        if failed_guard:
+            self._stop_local_children(task,{identity},reason='source_expired',
+                cause_ref=task.action_id+'#'+failed_guard)
+            return
+        if task.is_cancelled is not None and task.is_cancelled():
+            self._failed(task,ExecutionCancelled('source expired during speech'))
+            return
+        text=content.description
+        end=index+1
+        if index==0:end=len(text)-len(text.lstrip())+1
+        final=end==len(text)
+        self._present_spoken_text(text[:end],final=final)
+        task.speech_progress[identity]=(content,end)
+        if not final and task.visible_observer is not None:
+            task.visible_observer({'version':'petlab-spoken-progress-v1','action_id':task.action_id,
+                'content':content.to_record(),'prefix':text[:end],
+                'started_at_ms':task.child_results[identity]['started_at_ms'],
+                'at_ms':time.time_ns()//1_000_000})
+        if index==0:
+            observer=getattr(self,'speech_started_observer',None)
+            if observer is not None:observer(task.action_id,identity,task.child_results[identity]['started_at_ms'])
+        if final:
+            task.speech_progress.pop(identity)
+            task.completed.append(identity)
+            task.child_results[identity].update(status='completed',ended_at_ms=time.time_ns()//1_000_000)
+            task.next_speech_at=time.monotonic()+0.7
+            if not getattr(task,'_starting_children',False):
+                self._notify_visible(task)
+                self._maybe_finish_composite(task)
+            return
+        self._schedule(250 if text[index] in '，。！？；、,.!?;' else 135,
+                       lambda:self._advance_speech(task,identity))
 
     def _finish_expression_child(self,task,identity):
         if self.closed or task.done.is_set():return
@@ -1490,6 +1669,9 @@ class DesktopExecutor(ExecutionContexts):
             task.completed.append(content.content_id)
             self._next_content(task,index+1)
         else:
+            if getattr(self,'pointer_control_active',False):
+                self._schedule(16,lambda:self._next_content(task,index))
+                return
             self.rendering_action=content
             if content.semantic_key in ('move_near','stroll','move_away','relocate'):
                 from .movement_playback import play
@@ -1502,6 +1684,9 @@ class DesktopExecutor(ExecutionContexts):
 
     def _play_frame(self,task,content_index,clip_name,frame_index):
         if self.closed or task.done.is_set():return
+        identity=task.contents[content_index].content_id
+        row=task.child_results.get(identity)
+        if row is not None and row['status']!='running':return
         frame_started=time.monotonic()
         clip=self.activity_clips.get(clip_name,self.clips.get(clip_name))
         if clip_name=='play_tail' and self.meal_pose in self.carry_activity_clips:
@@ -1525,7 +1710,8 @@ class DesktopExecutor(ExecutionContexts):
                 clip={'frames':[clip['frames'][-1],clip['frames'][-1]],'durations_ms':[200,150]}
             self.rendering_action=content
             if clip_name in ('head_bow','head_tilt','turn_left','turn_right','nod','shake_head','wave_hand','beckon','lie_down','stand_up','peek_phone','read_web') and self.meal_host is not None:
-                held=self.meal_host.snapshot()
+                from model_packages.desktop_pet_v1.shared_meal import held_by
+                held=held_by(self.meal_host.snapshots(),self.meal_owner)
                 if held is not None and held['holder_ref']==self.meal_owner and held['portions']:
                     raise ExecutionCancelled('empty-hand pose unavailable while holding bowl')
             if 'meal' in content.parameters:
@@ -1576,7 +1762,8 @@ class DesktopExecutor(ExecutionContexts):
                     if not clip.get('bound_turn') and not clip.get('authored_transition'):self._begin_pose_transition(registered=True)
                 if 'meal' in content.parameters:
                     task.meal_results[content.content_id]=self.meal_host.finish(task.action_id+'#'+content.content_id,content.parameters['meal'],status='completed',frames=task.action_frames[content.content_id])
-                    self.update_meal_pose(self.meal_host.snapshot())
+                    from model_packages.desktop_pet_v1.shared_meal import context_snapshot
+                    self.update_meal_pose(context_snapshot(self.meal_host.snapshots()))
                     if clip_name=='accept_bowl' and self.meal_pose=='hold_bowl' and 'eat_rice' in self.activity_clips:
                         # Publish the committed held pose before a following speech
                         # or expression can repaint the last empty-hand action frame.
@@ -1631,7 +1818,21 @@ class DesktopExecutor(ExecutionContexts):
             remaining_ms=max(1,round(clip["durations_ms"][frame_index]-(time.monotonic()-frame_started)*1000))
             self._schedule(remaining_ms,
                 lambda:self._play_frame(task,content_index,clip_name,frame_index+1))
-        except Exception as error:self._failed(task,error)
+        except Exception as error:self._fail_child(task,identity,error)
+
+    def _fail_child(self,task,identity,error):
+        """An effect-local precondition cannot revoke independent siblings."""
+        if (task.composite is None or not isinstance(error,ExecutionCancelled)
+                or (task.is_cancelled is not None and task.is_cancelled())):
+            self._failed(task,error)
+            return
+        from product_adapters.desktop_pet_v1.execution import ExecutionBlocked
+        if isinstance(error,ExecutionBlocked):
+            task.obstruction=error.observation
+            reason='destination_occupied';cause=error.observation['blocker_ref']
+        else:
+            reason='source_expired';cause=task.action_id+'#'+identity+':execution-check'
+        self._stop_local_children(task,{identity},reason=reason,cause_ref=cause)
 
     def interrupt_activity(self,*,reason='unknown',cause_ref=None):
         """UI stops physical playback; the worker still settles the actual result."""
@@ -1643,6 +1844,14 @@ class DesktopExecutor(ExecutionContexts):
                 self.contact_lease=None
                 lease[0].interrupt_activity(reason=reason,cause_ref=cause_ref)
         task=self.active
+        if task is not None and task.composite is not None and reason in {'user_contact','physical_contact'}:
+            if not cause_ref:raise ValueError('interruption needs causal reference')
+            running={c.content_id for c in task.contents if c.kind=='action'
+                     and task.child_results.get(c.content_id,{}).get('status')=='running'
+                     and c.content_id not in getattr(task,'waiting_approaches',())}
+            if not running:task.affects_sprite=False
+            self._stop_local_children(task,running,reason=reason,cause_ref=cause_ref)
+            return
         if task is None or not any(c.semantic_key in self.activity_clips or c.semantic_key in ('move_near','stroll','move_away','relocate') for c in task.contents):return
         if reason not in {'unknown','user_contact','source_expired','technical_failure','window_closed','physical_contact'}:
             raise ValueError('invalid interruption reason')
@@ -1652,6 +1861,42 @@ class DesktopExecutor(ExecutionContexts):
             task.done.set();self.active=None
             return
         self._finish(task,interrupted=True,reason=reason,cause_ref=cause_ref)
+
+    def _stop_local_children(self,task,identities,*,reason,cause_ref):
+        """Local control loss stops occupied body effects, not the parent intent."""
+        from model_packages.desktop_pet_v1.composite import success_dependencies
+        affected=set(identities)
+        if not affected:return
+        while True:
+            extra={key for key,child in task.composite.children.items()
+                   if set(success_dependencies(child))&affected}-affected
+            if not extra:break
+            affected.update(extra)
+        stamp=time.time_ns()//1_000_000
+        stopped_actions=set()
+        for key in affected:
+            row=task.child_results.get(key)
+            if row is not None and row['status']!='running':continue
+            if key in task.speech_progress:
+                content,index=task.speech_progress.pop(key)
+                if index:
+                    task.speech_prefixes[key]=content.description[:index]
+                    task.completed.append(key)
+                    self._present_spoken_text(task.speech_prefixes[key],final=True)
+                shown=bool(index)
+            else:
+                shown=bool(task.action_frames.get(key)) or (row is not None and task.composite.children[key]['kind']=='expression')
+            if row is not None and task.composite.children[key]['kind']=='action':stopped_actions.add(key)
+            task.child_results[key]={'status':'interrupted' if shown else 'cancelled',
+                'started_at_ms':row['started_at_ms'] if shown and row is not None else None,
+                'ended_at_ms':stamp,'reason':reason,'cause_ref':cause_ref}
+        # Reuse the actual-effect cleanup, but preserve the physical cause.
+        task.semantic_action_stops=set(getattr(task,'semantic_action_stops',()))|stopped_actions
+        self._settle_semantic_action_stops(task,stopped_actions)
+        task.affects_sprite=any(c.kind=='action' and task.child_results.get(c.content_id,{}).get('status')=='running'
+                                for c in task.contents)
+        self._notify_visible(task)
+        self._maybe_finish_composite(task)
 
     def _finish(self,task,*,interrupted=False,reason='unknown',cause_ref=None):
         if task.done.is_set():return
@@ -1673,6 +1918,11 @@ class DesktopExecutor(ExecutionContexts):
                 if 'meal' in c.parameters and task.action_frames.get(c.content_id) and c.content_id not in task.meal_results:
                     task.meal_results[c.content_id]=self.meal_host.finish(task.action_id+'#'+c.content_id,c.parameters['meal'],status='interrupted',frames=task.action_frames[c.content_id],reason=reason)
             if task.composite is not None:
+                for key,(content,index) in task.speech_progress.items():
+                    if index:
+                        task.speech_prefixes[key]=content.description[:index]
+                        task.completed.append(key)
+                task.speech_progress.clear()
                 end=time.time_ns()//1_000_000
                 for content_id in task.composite.children:
                     row=task.child_results.get(content_id)
@@ -1723,9 +1973,11 @@ class DesktopExecutor(ExecutionContexts):
                 "image_sha256":self.manifest["image_sha256"],"interrupted":interrupted,
                 "renderer":"win32-premultiplied-alpha-v1" if self.alpha_surface is not None else "tk-color-key-v1",
                 "started_at_wall_ms":task.started_at_wall_ms,"finished_at_wall_ms":time.time_ns()//1_000_000}
+            if task.speech_prefixes:trace['speech_prefixes']=task.speech_prefixes
             # An existing physical execution trace must never be overwritten by a retry.
             if task.semantic_takeover is not None:
-                trace['qualification_takeover']=task.semantic_takeover
+                from .takeover_receipts import fields
+                trace.update(fields(task))
             if task.composite is not None:
                 trace['composite_plan_fingerprint']=task.composite.fingerprint
                 trace['child_results']=task.child_results
@@ -1738,8 +1990,9 @@ class DesktopExecutor(ExecutionContexts):
             if task.presentation_sources:details['presentation_sources']=task.presentation_sources
             if task.composite is not None:
                 details['child_results']=task.child_results
-                if task.composite.version=='desktop-pet-composite-v4-sequence':details['composite_version']=task.composite.version
-            if task.semantic_takeover is not None:details['qualification_takeover']=task.semantic_takeover
+                if task.composite.version in {'desktop-pet-composite-v4-sequence','desktop-pet-composite-v5-dependencies'}:details['composite_version']=task.composite.version
+            if task.speech_prefixes:details['speech_prefixes']=task.speech_prefixes
+            if task.semantic_takeover is not None:details.update(fields(task))
             if task.is_cancelled is not None:details["occurred_at_wall_ms"]=trace["finished_at_wall_ms"]
             if task.semantic_takeover is not None and not task.completed:
                 task.error=ExecutionCancelled('speech taken over before any effect')
@@ -1763,7 +2016,7 @@ class DesktopExecutor(ExecutionContexts):
         release(task)
         self.set_activity_badge()
         self._end_walk(task)
-        if task.completed or task.action_frames:
+        if task.completed or task.action_frames or task.speech_progress:
             from product_adapters.desktop_pet_v1.execution import ExecutionBlocked
             if isinstance(error,ExecutionBlocked):
                 task.obstruction=error.observation

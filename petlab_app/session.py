@@ -290,12 +290,12 @@ class SinglePetApplication:
         updated = replace(self.runtime.session,profile=profile)
         publish_session(self,updated)
 
-    def _require_ready(self,*,during_live_execution=False):
+    def _require_ready(self,*,during_live_execution=False,world_event_id=None):
         product = self.runtime.session.profile.get(PRODUCT_KEY,{"sources":{},"executions":{}})
         committed = self.runtime.session.profile.get(EVENT_JOURNAL_KEY,{})
         pending=[event_id for event_id in product['sources'] if event_id not in committed]
         from .measurement_pipeline import permits
-        if pending and not permits(self,pending):
+        if pending and pending!=[world_event_id] and not permits(self,pending):
             raise RuntimeError("pending source must be settled before accepting another event")
         from .live_execution import accepts_input
         if any(entry["status"] != "executed" and not (during_live_execution and accepts_input(self,key,entry))
@@ -486,7 +486,9 @@ class SinglePetApplication:
                     event = PetEvent.from_record(product["sources"][plan.action_id]["event"])
                     return self._settle(event,measure)
             if _recovered_outcome is None:
-                self._require_ready()
+                from .playback_intake import writer_world_input
+                world=writer_world_input(self,prepared.authorization.source_fact_ref)
+                self._require_ready(world_event_id=None if world is None else world.event.event_id)
                 from .measurement_pipeline import admitted_parent
                 preceding=admitted_parent(self)
             else:
@@ -534,7 +536,9 @@ class SinglePetApplication:
                 raise ValueError("direct reply source differs from its formal input")
             if not recovered_admission and prepared.authorization.host_authorization_evidence.get("origin")=="eligible_peer_reply_v1":
                 from .peer_reaction import authorize as authorize_peer
-                if authorize_peer(self,source.event.event_id)!=prepared.authorization:raise ValueError("peer source lacks its current assessment")
+                if authorize_peer(self,source.event.event_id,
+                        pending_world_for=source.event.event_id)!=prepared.authorization:
+                    raise ValueError("peer source lacks its current assessment")
             if not recovered_admission and prepared.authorization.action_kind=="autonomous_opening" and not idle:
                 from .interaction_observer import authorize_interaction_tick
                 if authorize_interaction_tick(self,source.event.event_id)!=prepared.authorization:raise ValueError("autonomous source lacks its actual Tick grant")
@@ -550,6 +554,11 @@ class SinglePetApplication:
                      "admitted_position":prepared.position.to_record(),
                      **({'live_input_sources':recovered_inputs} if recovered_inputs else {}),
                      **({'preceding_effect':preceding} if preceding is not None else {})}
+            world_ref=None
+            if _recovered_outcome is None and world is not None:
+                world.action_id=plan.action_id
+                world_ref={'event_id':world.event.event_id,'source_binding':world.event.source_binding_ref}
+                entry['live_input_sources']=[world_ref]
             product["executions"][plan.action_id] = entry
             self._publish_product(product)
             try:
@@ -557,7 +566,9 @@ class SinglePetApplication:
                 live_inputs=recovered_inputs
                 if _recovered_outcome is not None:outcome=_recovered_outcome
                 else:
-                    with running(self,plan.action_id) as live_inputs:outcome=executor(plan.action_id,contents)
+                    with running(self,plan.action_id) as live_inputs:
+                        if world_ref is not None:live_inputs.append(world_ref)
+                        outcome=executor(plan.action_id,contents)
                 if not isinstance(outcome,ExecutionOutcome):
                     raise ValueError("executor returned no verified outcome")
                 composite=prepared.composite_plan()

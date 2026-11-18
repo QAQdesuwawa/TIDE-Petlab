@@ -16,11 +16,13 @@ def received_fragment(kind, *, own_output=False):
     return _RECEIVED_FRAGMENT.get(kind, _UNKNOWN_ACQUISITION)
 
 
-def acquisition_view(row, *, owner):
+def acquisition_view(row, *, owner, preserve_verified=False):
     parts = row.get('片段材料')
     if not parts:
         return row
     receiver = row.get('本次观察者')
+    if preserve_verified and receiver is None and row.get('内容接收者') == owner:
+        return row
     own_output = row.get('说话者') == owner
     projected = []
     for part in parts:

@@ -5,6 +5,7 @@ from .composition import PetDefinition
 from .multi_pet import MultiPetWorkspace,_immutable,_key,_read
 from .participant_input import prepare,is_human_observation
 from .product import wall_clock_ms
+from .visible_measurement import measured_parent
 from product_adapters.desktop_pet_v1 import EVENT_JOURNAL_KEY
 
 class MultiPetActorLink:
@@ -16,11 +17,16 @@ class MultiPetActorLink:
   product.application.multi_workspace=self.workspace
   from .intention_wait import prepare as prepare_waiting
   product.prepare_waiting_writer=lambda event_id,**kw:prepare_waiting(self,event_id,**kw)
-  self.local=self.workspace.actor_path(alias);self._directory_stamp=None;self._pending=[];self._seen=set();self._publication_cursor=0;self._visible_siblings={};self.last_receipt=None;self._human_frontier=None
+  self.local=self.workspace.actor_path(alias);self._directory_stamp=None;self._pending=[];self._seen=set();self._publication_cursor=0;self._visible_siblings={};self._speech_first_parents=set();self.last_receipt=None;self._human_frontier=None
   product.application.pending_visible_inputs=self.pending_visible_inputs
+  product.application.visible_continuations=self.visible_continuations
+  from .visible_measurement import ready_tail
+  product.application.ready_measurement_tail=lambda identity,parent:ready_tail(self,identity,parent)
   product.semantic.waiting_input=self.prepare_waiting_input
   from .visible_execution import VisibleExecutionPublisher
   self.visible=VisibleExecutionPublisher(self);product.visible_execution_publisher=self.visible
+  product.application.visible_execution_records=self.visible.records
+  product.application.visible_speech_progress=self.visible.speech_progress_snapshot
   self.visible.recover()
   product.application.on_execution_committed=lambda event:self.flush_outputs()
   from .playback_intake import continue_after_playback
@@ -61,9 +67,13 @@ class MultiPetActorLink:
   for path in sorted(directory.glob('*.json')) if directory.exists() else ():
    if path.name in self._seen:continue
    self._seen.add(path.name)
-   row=self.workspace.read_delivery(self.alias,path)
+   row,source=self.workspace.read_delivery(self.alias,path,include_source=True)
    if row.get("visible"):
-    self._visible_siblings.setdefault(row["visible"]["parent_event_id"],[]).append(row)
+    parent=row["visible"]["parent_event_id"]
+    self._visible_siblings.setdefault(parent,[]).append(row)
+    from .visible_execution import SPEECH_FIRST_DELIVERY
+    if source['origin'].get('participant_delivery')==SPEECH_FIRST_DELIVERY:
+     self._speech_first_parents.add(parent)
    from .delivery_admission import human_frontier
    frontier=human_frontier((row,))
    if frontier is not None and (self._human_frontier is None or frontier>self._human_frontier):self._human_frontier=frontier
@@ -96,6 +106,8 @@ class MultiPetActorLink:
    or (self.local/'failed'/(_key(r['delivery']['delivery_id'])[:24]+'.json')).exists()]
   frontiers=[f for f in (self._human_frontier,getattr(self,'_arrival_frontier',None)) if f is not None]
   self._pending=ordered(self._pending,max(frontiers) if frontiers else None,started,human_anchor=self._human_frontier)
+  from .visible_measurement import order_speech_episodes
+  self._pending=order_speech_episodes(self._pending,getattr(self,'_speech_first_parents',()),started)
  def pending_count(self):
   from .obstruction_input import pending
   from .desktop_routines import pending as sightings
@@ -105,6 +117,15 @@ class MultiPetActorLink:
   self._refresh()
   from .visible_delivery import delivery_order
   return tuple(sorted(self._pending,key=delivery_order)[-16:])
+ def visible_continuations(self,parent_action_id):
+  self._refresh()
+  from .delivery_admission import is_peer_speech
+  result=[]
+  for row in self._visible_siblings.get(parent_action_id,()):
+   if not is_peer_speech(row):continue
+   receipt=self.local/'accepted'/(_key(row['delivery']['delivery_id'])[:24]+'.json')
+   if receipt.exists() and _read(receipt)['status']=='observed_with_parent':result.append(row)
+  return result
  def notice_waiting_speech(self):
   """Send presentation-only attention from verified pending deliveries."""
   acknowledge=getattr(self,'_acknowledge_peer_input',None)
@@ -113,7 +134,7 @@ class MultiPetActorLink:
   from .visible_delivery import delivery_order
   app=self.product.application
   sources=app._product()['sources']
-  fresh=[row for row in self._pending if can_interrupt_peer_reply(row)
+  fresh=[row for row in self._pending if can_interrupt_peer_reply(row) and not measured_parent(self,row)
    and current_input(row,None,self._human_frontier)
    and 'participant:'+_key(row['delivery']['delivery_id']) not in sources]
   if not fresh:return
@@ -130,7 +151,7 @@ class MultiPetActorLink:
  def prepare_waiting_input(self):
   """Peek one real inbox source; normal pump retains consumption and reply."""
   self._refresh()
-  if not self._pending:return None
+  if not self._pending:return self._prepare_waiting_world()
   MultiPetActorLink.notice_waiting_speech(self)
   self._sort_intake()
   app=self.product.application
@@ -151,7 +172,7 @@ class MultiPetActorLink:
    identity=row['delivery']['delivery_id'];event_id='participant:'+_key(identity)
    if event_id in app._product()['sources']:continue
    if (self.local/'failed'/(_key(identity)[:24]+'.json')).exists():return None
-   if self._covered_start(row):continue
+   if measured_parent(self,row,include_inflight=True) or self._covered_start(row):continue
    if row['sender_kind']=='npc':
     if origin=='cx67_private_intention' and not can_interrupt_peer_reply(row):continue
     # After playback the existing prefetch slot can serve overheard speech.
@@ -163,7 +184,16 @@ class MultiPetActorLink:
    if admit is not None and not admit(row):return None
    args=prepare(app,row,self.workspace)
    return {**args,'scope_ref':app.definition.scope_ref,'actor_ref':args['input_source']['actor_ref']}
-  return None
+  return self._prepare_waiting_world()
+ def _prepare_waiting_world(self):
+  app=self.product.application
+  if getattr(app,'_measurement_preparing_origin',None)!='execution':return None
+  from .desktop_routines import next_world
+  world=next_world(self)
+  if world is None:return None
+  from .screen_perception import prepare_input
+  args=prepare_input(app,world[1])
+  return {**args,'scope_ref':app.definition.scope_ref,'actor_ref':args['input_source']['actor_ref']}
  def _newer_human_waiting(self,row):
   self._refresh()
   from .peer_reaction import newly_qualified_delivery
@@ -176,7 +206,7 @@ class MultiPetActorLink:
   from .peer_reaction import newly_qualified_delivery
   from .delivery_admission import can_interrupt_peer_reply
   return tuple(x['delivery']['delivery_id'] for x in self._pending
-   if x.get('visible') and can_interrupt_peer_reply(x) and x['delivery']['delivery_id']!=row['delivery']['delivery_id']
+   if x.get('visible') and can_interrupt_peer_reply(x) and not measured_parent(self,x) and x['delivery']['delivery_id']!=row['delivery']['delivery_id']
    and all(x['projection'].get(k)==p.get(k) for k in scope)
    and x['projection']['committed_at_ms']>=p['committed_at_ms']
    and newly_qualified_delivery(self.product.application,x['delivery']['delivery_id']))
@@ -234,6 +264,15 @@ class MultiPetActorLink:
   try:
    reply=None
    self._defer_playback_settlement=True
+   parent=measured_parent(self,row)
+   if parent is not None:
+    key=_key(identity)[:24]+'.json'
+    _immutable(self.local/'observations'/key,row)
+    self.last_receipt={'delivery_id':identity,'status':'observed_with_parent','sender_kind':row['sender_kind'],
+      'parent_action_id':row['visible']['parent_event_id'],'measurement_delivery_id':parent,'measurement_performed':False}
+    _immutable(self.local/'accepted'/key,self.last_receipt)
+    self._pending.remove(row)
+    return True
    covered=self._covered_start(row)
    if covered:return self._record_covered_start(row,covered)
    if row['delivery']['delivery_scope']=='observed' and 'visible' not in row and not is_human_observation(row,self.workspace):

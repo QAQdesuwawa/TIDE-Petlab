@@ -107,6 +107,21 @@ class WorldFacts:
     def __init__(self):
         self.active = {}
 
+    def seed(self, snapshots, objects):
+        """Treat the scene already present at host startup as current state.
+
+        A later fact change still creates a formal observation. A pet that was
+        not initially in view can receive the fact when it first sees it.
+        """
+        for obj in objects:
+            if 'fact' not in obj:
+                continue
+            seen = {owner for owner, scene in snapshots.items()
+                    if scene is not None and any(visible['ref'] == obj['ref']
+                        and visible.get('fact') == obj['fact']
+                        for visible in scene.get('objects', ()))}
+            self.active[obj['ref']] = (obj['fact'], uuid4().hex, seen)
+
     def queue(self, host, snapshots, objects):
         visible = {}
         for owner, scene in snapshots.items():
@@ -183,9 +198,7 @@ def validate(app, receipt, contents, *, event_id=None):
     return value
 
 
-def settle(link, material, *, executor, is_cancelled, on_reply_ready):
-    product = link.product
-    app = product.application
+def prepare_input(app, material):
     identity = _identity(app, material)
     path = app.store.path.with_suffix('.resources')/'screen'/(_key(identity)+'.json')
     if path.exists():
@@ -199,9 +212,20 @@ def settle(link, material, *, executor, is_cancelled, on_reply_ready):
                   'received_at_ms': at, 'material': material}
         source['fingerprint'] = fp(source)
         _immutable(path, source)
-    product.interact(event_id=identity, contents=(content(source),), coordinate=source['received_at_ms'],
-        input_source=source, response_policy='eligible', executor=executor, is_cancelled=is_cancelled)
-    from .peer_reaction import react
-    outcome = react(product, identity, executor=executor, is_cancelled=is_cancelled, on_reply_ready=on_reply_ready)
+    return {'event_id': identity, 'contents': (content(source),), 'coordinate': source['received_at_ms'],
+            'input_source': source, 'response_policy': 'eligible'}
+
+
+def settlement_receipt(identity, material, outcome):
     return {'delivery_id': identity, 'event_id': identity, 'status': 'settled',
             'sender_kind': 'world' if _world(material) else 'screen', 'outcome': outcome['status']}
+
+
+def settle(link, material, *, executor, is_cancelled, on_reply_ready):
+    product = link.product
+    args = prepare_input(product.application, material)
+    identity = args['event_id']
+    product.interact(**args, executor=executor, is_cancelled=is_cancelled)
+    from .peer_reaction import react
+    outcome = react(product, identity, executor=executor, is_cancelled=is_cancelled, on_reply_ready=on_reply_ready)
+    return settlement_receipt(identity, material, outcome)

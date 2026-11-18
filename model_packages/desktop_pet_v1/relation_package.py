@@ -124,6 +124,38 @@ class MultiPetPackage(DesktopPetPackage):
   result.pop('fingerprint',None)
   return {'shared_projection':signed(result)}
 
+ def plan_observation(self,*,payload,context):
+  from . import autonomous_opening as idle
+
+  if idle.INPUT not in payload:
+   return super().plan_observation(payload=payload,context=context)
+  evidence=payload[idle.INPUT]
+  shared=payload['shared_projection']
+  now=context.temporal_position.coordinate
+  idle.read_context(shared,evidence,owner=self.owner_ref,now=now)
+  basis={key:value for key,value in payload.items() if key!=idle.INPUT}
+  plan=super().plan_observation(payload=basis,context=context)['observation_plan']
+  cadence=idle.cadence(evidence,low=payload['min_interval_ms'],high=payload['max_interval_ms'],now=now)
+  return {'observation_plan':{**plan,'observation_advice':{'after_ms':cadence['after_ms']},
+                             'observation_projection':cadence}}
+
+ def assess_action(self,*,payload,context):
+  from . import autonomous_opening as idle
+
+  if idle.INPUT not in payload:
+   return super().assess_action(payload=payload,context=context)
+  if context.metadata.get('committed_event_kind')!='tick':
+   raise ValueError('autonomous channels require an idle tick')
+  evidence=payload[idle.INPUT]
+  now=context.temporal_position.coordinate
+  proof=idle.assess(payload['shared_projection'],evidence,owner=self.owner_ref,now=now)
+  cadence=idle.cadence(evidence,low=payload['min_interval_ms'],high=payload['max_interval_ms'],now=now)
+  basis={key:value for key,value in payload.items() if key!=idle.INPUT}
+  legacy=super().assess_action(payload=basis,context=context)['action_assessment']
+  return {'action_assessment':{**legacy,'version':proof['version'],'eligible':proof['eligible'],
+    'constraints':{**legacy['constraints'],'desktop_idle_opening':proof,'observation_projection':cadence},
+    'observation_advice':{'after_ms':cadence['after_ms']}}}
+
 
 def numerical_pair(before,after,settlement):
  """Use this accepted relation's original roots, not another peer's old face."""

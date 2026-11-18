@@ -250,14 +250,18 @@ class PetSpeechBubble:
         # Existing execution/source guards still decide whether an output may show.
         return not self._closed
 
-    def show_speech(self,text):
+    def preview_speech(self,text):
         if self._closed:return
         self._cancel_jobs();self.mode="speech"
-        self.history.append(text);self._speech_sequence+=1
         self.label.configure(text=text);self.label.update_idletasks()
         self._width=max(88,self.label.winfo_reqwidth()+36)
         self._body_height=self.label.winfo_reqheight()+30
         self._draw();self._present()
+
+    def show_speech(self,text):
+        if self._closed:return
+        self.preview_speech(text)
+        self.history.append(text);self._speech_sequence+=1
         if self.history_text is not None:self._append_history(text)
         self.last_display_duration_ms=reading_duration_ms(text,minimum_ms=self.dismiss_after_ms,
             maximum_ms=self.maximum_dismiss_ms,per_char_ms=self.reading_ms_per_char)

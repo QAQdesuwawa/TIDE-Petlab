@@ -4859,8 +4859,8 @@
     },
     {
       "path": "product_adapters/desktop_pet_v1/realization.py",
-      "bytes": 146144,
-      "sha256": "64df00ee8eae6c6dde730c16fba03bf01801e35a9d44175ea380db7478dd228b"
+      "bytes": 146991,
+      "sha256": "fa47ae91cac5885f49ae7c045721bbe3ccba2b64080325847a869fdaab6b21cd"
     },
     {
       "path": "product_adapters/desktop_pet_v1/realizers.py",

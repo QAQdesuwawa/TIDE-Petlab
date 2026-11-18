@@ -53,6 +53,19 @@ class _LivePrepared:
     parameters: object
 
 
+@dataclass(frozen=True)
+class _FollowupDraft:
+    event_id: str
+    product: object
+    request: RealizerRequest
+    call: object
+    future: object
+
+    def archive(self):
+        # A superseded transport can only publish its provider receipt.
+        return self.call.finish()
+
+
 class WriterRealizationFailed(RuntimeError):
     """The Writer finished without a candidate, before any playback."""
 
@@ -1152,7 +1165,7 @@ class PetRealizationService:
         app=self.application
         pending=getattr(self,'_followup_writer',None)
         if pending is not None:
-            if pending[0]==event_id or not pending[2].done():return
+            if pending.event_id==event_id or not pending.future.done():return
             self.finish_followup()
         entry=app._product()['executions'].get(action_id)
         if entry is None or not (accepts_input(app,action_id,entry)
@@ -1180,21 +1193,27 @@ class PetRealizationService:
         pool=ThreadPoolExecutor(max_workers=1,thread_name_prefix='pet-followup-writer')
         try:future=pool.submit(call.transport)
         finally:pool.shutdown(wait=False)
-        self._followup_writer=(event_id,call,future,request.readonly_facts["prompt_delivery"].get("processing_ms"))
+        self._followup_writer=_FollowupDraft(event_id,product,request,call,future)
 
     def finish_followup(self,event_id=None,request=None):
         pending=getattr(self,'_followup_writer',None)
-        if pending is None or (event_id is not None and pending[0]!=event_id):
+        if pending is None or (event_id is not None and pending.event_id!=event_id):
             return None
-        _,call,future,_=pending
+        call,future=pending.call,pending.future
         if request is not None:
             from petlab_app.providers import PROVISIONAL_WRITER_SUFFIX
             contract,messages=self._provider_fields(request)
             transport=self.gateway.transport_for('writer')
             expected=transport.payload(messages=messages,temperature=self.temperature,require_json=True)
-            if (call.request.codec_contract!=contract+PROVISIONAL_WRITER_SUFFIX
+            previous=pending.request
+            if (previous.target_ref!=request.target_ref
+                    or previous.readonly_facts.get('audience_envelope')!=request.readonly_facts.get('audience_envelope')
+                    or previous.readonly_facts['prompt_delivery'].get('memory_aliases')!=request.readonly_facts['prompt_delivery'].get('memory_aliases')
+                    or call.request.codec_contract!=contract+PROVISIONAL_WRITER_SUFFIX
                     or thaw_model_data(call.request.request_payload)!=thaw_model_data(expected)):
-                if future.done():self.finish_followup()
+                from petlab_app.retired_transport import retain
+                self._followup_writer=None
+                retain(pending.product,pending,future)
                 return None
         self._followup_writer=None
         future.result()
@@ -1236,9 +1255,9 @@ class PetRealizationService:
             pending=getattr(self,'_followup_writer',None)
             processing_ms=None
             prior_messages=None
-            if pending is not None and pending[0]==event_id:
-                processing_ms=pending[3]
-                prior_messages=thaw_model_data(pending[1].request.request_payload)['messages']
+            if pending is not None and pending.event_id==event_id:
+                processing_ms=pending.request.readonly_facts['prompt_delivery'].get('processing_ms')
+                prior_messages=thaw_model_data(pending.call.request.request_payload)['messages']
             elif replay is not None:
                 previous,_=replay
                 processing_ms=previous.readonly_facts['prompt_delivery'].get('processing_ms')

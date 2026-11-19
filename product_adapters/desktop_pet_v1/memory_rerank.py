@@ -6,16 +6,18 @@ VERSION = 'desktop-pet-memory-effect-rerank-v1'
 EFFECT_BONUS = 0.03
 UNIFIED_VERSION = 'desktop-pet-three-route-writer-ranking-v1'
 STRONGEST_VERSION = 'desktop-pet-three-route-writer-ranking-v2-strongest'
+PARTIAL_VERSION = "desktop-pet-three-route-writer-ranking-v3-partial-rerank"
 ROUTE_WEIGHTS = {'property': .35, 'rag': .40, 'numeric': .25}
 
 
 def rank_routes(candidates, *, rag_status, numeric_status, rag_scale='reranker', version=UNIFIED_VERSION):
     """Rank exact source IDs for Writer hydration only."""
-    if version not in (UNIFIED_VERSION, STRONGEST_VERSION):
+    if version not in (UNIFIED_VERSION, STRONGEST_VERSION, PARTIAL_VERSION):
         raise ValueError('unknown Writer route ranking version')
-    strongest = version == STRONGEST_VERSION
+    strongest = version in (STRONGEST_VERSION, PARTIAL_VERSION)
     ranked = []
     for identity, scores in candidates.items():
+        scale = scores.get("rag_scale", rag_scale) if version == PARTIAL_VERSION else rag_scale
         routes = {}
         for lane, weight in ROUTE_WEIGHTS.items():
             raw = scores.get(lane)
@@ -26,13 +28,13 @@ def rank_routes(candidates, *, rag_status, numeric_status, rag_scale='reranker',
             }[lane]
             # Cosine has a signed range. The other routes already publish
             # nonnegative strengths on the unit interval.
-            value = (raw + 1.) / 2. if raw is not None and lane == 'rag' and rag_scale == 'embedding' else raw
+            value = (raw + 1.) / 2. if raw is not None and lane == 'rag' and scale == 'embedding' else raw
             calibrated = None if value is None else max(0., min(1., value))
             routes[lane] = {'status': status, 'raw': raw, 'calibrated': calibrated}
             if not strongest:
                 routes[lane]['weight'] = weight
             if lane == 'rag':
-                routes[lane]['scale'] = rag_scale
+                routes[lane]['scale'] = scale
         if strongest:
             available = {lane: row['calibrated'] for lane, row in routes.items()
                          if row['calibrated'] is not None}

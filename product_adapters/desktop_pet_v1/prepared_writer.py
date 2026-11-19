@@ -17,7 +17,12 @@ class PreparedWriter:
         writer=self._writer
         with writer.application._lock,writer.attempt_journal.batch(),writer.attempt_journal._readers.scope():
             try:
-                call=next(self._steps) if initial else self._steps.send(result)
+                if initial:
+                    from .deferred_reply import assembly_scope
+                    with assembly_scope(writer.application, self._event_id):
+                        call = next(self._steps)
+                else:
+                    call = self._steps.send(result)
             except StopIteration as finished:
                 self._value=finished.value;self._done=True
                 return

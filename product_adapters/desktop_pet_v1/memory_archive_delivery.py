@@ -94,3 +94,29 @@ def inline_records(fields, card, notes, *, explain_behavior=False):
         if definitions:
             result = {'本卡涉及的行为树定义': definitions, **result}
     return result, tuple(consumed)
+
+def share_received_speech(fields):
+    """Factor the same delivered testimony; keep all event-specific evidence in order."""
+    import json
+    rows = fields.get('相关记忆（按发生顺序）', ())
+    first = {}
+    projected = []
+    for row in rows:
+        fragments = row.get('原事件片段', ())
+        if len(fragments) == 1 and row.get('记忆标记'):
+            fragment = fragments[0]
+            holder = row.get('内容接收者')
+            target = row.get('父级回应对象')
+            if (holder and target and fragment.get('材料性质') == '话语记录'
+                    and fragment.get('说话者') and fragment.get('原文')
+                    and fragment.get('原投递指向') and fragment.get('可见受众')
+                    and fragment.get('角色取得方式') and fragment.get('直接证明')):
+                # All fields of the observable fragment must agree, including
+                # attribution, claim scope, visibility, and bound object IDs.
+                signature = json.dumps([holder, target, fragment], sort_keys=True, ensure_ascii=False)
+                marker = first.setdefault(signature, row['记忆标记'])
+                if marker != row['记忆标记']:
+                    row = {key: value for key, value in row.items() if key != '原事件片段'}
+                    row['本次收到的同一发言内容参照'] = marker
+        projected.append(row)
+    return {**fields, '相关记忆（按发生顺序）': projected} if rows else fields

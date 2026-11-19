@@ -703,6 +703,8 @@ class RagMemoryService:
                     else:
                         properties[i]=strength
         rag={}
+        reranked={}
+        partial = content.get('partial_rerank', {}) if ranking_version == memory_rerank.PARTIAL_VERSION else {}
         for doc in documents:
             for i in doc['member_event_ids']:
                 if child_mode:
@@ -711,7 +713,13 @@ class RagMemoryService:
                         if not any(c.content_id==doc['content_id'] for c in contents):continue
                     elif contents!=memories[i].event.visible_contents(app.owner_ref):
                         continue
-                rag[i]=max(rag.get(i,-1.),raw[doc['event_id']])
+                doc_id = doc['event_id']
+                rag[i]=max(rag.get(i,-1.),raw[doc_id])
+                if doc_id in partial:
+                    reranked[i] = max(reranked.get(i, 0.), partial[doc_id])
+        # One semantic score per event. Only visible, actually ranked passages
+        # can supersede its vector fallback (including a genuine zero).
+        rag.update(reranked)
         def admitted(ids,lane):
             if child_mode:
                 return (memories[i] for i in ids if projected[i])
@@ -721,6 +729,8 @@ class RagMemoryService:
             for memory in admitted(scores,lane):
                 i=memory.event.event_id
                 candidates.setdefault(i,{})[lane]=scores[i]
+                if lane == 'rag' and i in reranked:
+                    candidates[i]['rag_scale'] = 'reranker'
         for memory in admitted((i for i in recall.recalled_fact_ids if i not in numeric),'numeric'):
             candidates.setdefault(memory.event.event_id,{})
         status=result['status']
@@ -737,7 +747,7 @@ class RagMemoryService:
         # Missing or zero-strength evidence does not make a positive claim.
         # Keep such rows in the audit. The legacy path retains its replay rules.
         scores={row['event_id']:row['score'] for row in ranking
-                if ranking_version!=memory_rerank.STRONGEST_VERSION or row['score']>0}
+                if ranking_version==memory_rerank.UNIFIED_VERSION or row['score']>0}
         occupation=_occupy(context,ranking_version,scores)
         return ranking, occupation
 

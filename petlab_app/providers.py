@@ -197,12 +197,15 @@ def verify_writer_reuse(trace_dir, proof, *, session_ref, source_ref, position, 
     previous=thaw_model_data(proof['original'])
     current,attempt,parse,timing=load(proof['invocation_id'],request_ref)
     original,original_attempt,_,original_timing=load(previous['invocation_id'],previous['request_fingerprint'])
+    from product_adapters.desktop_pet_v1.followup_revision import VERSION,compatible_payloads
+    revised=(previous.get('revision')==VERSION and current.runtime_ordinal==original.runtime_ordinal+1
+        and compatible_payloads(thaw_model_data(original.request_payload),thaw_model_data(current.request_payload)))
     if (current.runtime_ordinal!=position.runtime_ordinal
             or current.temporal_position_fingerprint!=position.position.fingerprint
             or parse.fingerprint!=codec_ref or thaw_model_data(attempt.invocation_evidence.get('reused_response'))!=previous
             or timing['wire_fingerprint']!=previous['wire_fingerprint']
             or original_timing['wire_fingerprint']!=previous['wire_fingerprint']
-            or current.request_payload!=original.request_payload
+            or (current.request_payload!=original.request_payload and not revised)
             or current.codec_contract!=original.codec_contract.removesuffix(PROVISIONAL_WRITER_SUFFIX)
             or attempt.invocation_evidence['transport_binding_fingerprint']!=original_attempt.invocation_evidence['transport_binding_fingerprint']):
         raise ValueError('reused Writer source receipt differs from candidate')
@@ -297,7 +300,7 @@ class ProviderGateway:
 
     def prepare(self,*,session_binding,current_position,operation_kind,source_fact_ref,codec_contract,
             messages,temperature,require_json,parse,source_receipt_refs=(),invocation_id=None,reuse_from=None,
-            provisional_writer=False,reuse_received=False):
+            provisional_writer=False,reuse_received=False,followup_revision=False):
         self.last_failure=None
         self._native_trace=None
         from .ordered_checkpoint import _ACTIVE_CHECKPOINT
@@ -322,14 +325,19 @@ class ProviderGateway:
         reused_wire=None
         if reuse_from is not None and operation_kind=="writer":
             previous=json.loads(reuse_from.trace_path.read_text(encoding='utf8'))
+            from product_adapters.desktop_pet_v1.followup_revision import VERSION,compatible_payloads
+            prior_payload=thaw_model_data(reuse_from.request.request_payload)
+            revised=(followup_revision and previous.get('provisional_writer') and
+                     current_position.runtime_ordinal==reuse_from.request.runtime_ordinal+1 and
+                     compatible_payloads(prior_payload,record['request_payload']))
             if (previous['status']=='parsed' and previous['operation_kind']==operation_kind
                 and previous['source_fact_ref']==source_fact_ref
                 and reuse_from.request.session_binding_fingerprint==session_binding.fingerprint
                 and previous['transport_binding']==binding
                 and previous['provider_request']['codec_contract']==(codec_contract+PROVISIONAL_WRITER_SUFFIX
                     if previous.get('provisional_writer') else codec_contract)
-                and previous['request_payload']==record['request_payload']
-                and thaw_model_data(reuse_from.request.request_payload)==record['request_payload']):
+                and previous['request_payload']==prior_payload
+                and (prior_payload==record['request_payload'] or revised)):
                 timing=read_host_timing(previous,expected_request_fingerprint=reuse_from.request.fingerprint)
                 if timing is None or timing['response_received_at_unix_ms'] is None:
                     raise ValueError('Writer draft requires verified response timing')
@@ -342,7 +350,8 @@ class ProviderGateway:
                 reused_wire=previous['wire_response']
                 record['reused_response']={'invocation_id':previous['invocation_id'],
                     'request_fingerprint':reuse_from.request.fingerprint,
-                    'wire_fingerprint':model_data_fingerprint(reused_wire)}
+                    'wire_fingerprint':model_data_fingerprint(reused_wire),
+                    **({'revision':VERSION} if revised else {})}
         if reuse_received:
             if reuse_from is not None or provisional_writer:
                 raise ValueError('received response recovery cannot replace a Writer draft')

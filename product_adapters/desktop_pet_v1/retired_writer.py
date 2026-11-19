@@ -41,10 +41,18 @@ def is_retired(service,artifact):
     return True
 
 
+def unfinished_allocations(receipts):
+    finished = {row["writer_request_id"] for row in receipts
+                if row["stage"] == "commit" or
+                (row["stage"] == "terminal" and row.get("terminal_status") == "failed")}
+    return (row for row in receipts if row["stage"] == "allocated"
+            and row["writer_request_id"] not in finished)
+
+
 def retire_stale(service,event_id):
     app=service.application
-    for receipt in service.attempt_journal.read_receipts():
-        if receipt['stage']!='allocated':continue
+    for receipt in unfinished_allocations(service.attempt_journal.read_receipts()):
+        if service._attempt_source(receipt)!=event_id:continue
         artifact=service.attempt_journal.read_attempt(receipt['writer_request_id'])
         sealed=artifact.get('source_evidence',{})
         if sealed.get('event_id')!=event_id or 'commit' in artifact or artifact.get('terminal',{}).get('status')=='failed':continue

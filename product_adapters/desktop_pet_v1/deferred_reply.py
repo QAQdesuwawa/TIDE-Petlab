@@ -1,4 +1,7 @@
 """Original required-input authority with a separately bound planning state."""
+from contextlib import contextmanager
+from contextvars import ContextVar
+
 from framework.action_protocol import ActionAuthorization
 from framework.model_api import thaw_model_data
 from ops.runtime_product_action_authorization import authorize_required_product_reply
@@ -14,7 +17,32 @@ def needed(app,event_id):
         or fact.temporal_position_fingerprint!=app.runtime.session.position.position.fingerprint)
 
 
-def authorize(app,event_id):
+_assembly = ContextVar("deferred_writer_assembly", default=None)
+
+
+@contextmanager
+def assembly_scope(app, event_id):
+    # Caller holds the app lock. Discard the proof before yielding to transport.
+    token = _assembly.set((app, event_id, {}))
+    try:
+        yield
+    finally:
+        _assembly.reset(token)
+
+
+def authorize(app, event_id):
+    scope = _assembly.get()
+    if scope is None or scope[0] is not app or scope[1] != event_id:
+        return _authorize(app, event_id)
+    cache = scope[2]
+    session = app.runtime.session
+    if cache.get("session") is not session:
+        proof = _authorize(app, event_id)
+        cache.update(session=session, proof=proof)
+    return cache["proof"]
+
+
+def _authorize(app,event_id):
     source=app._product()['sources'][event_id]
     if source['origin']=='input' and source['evidence'].get('response_policy')=='eligible':
         from petlab_app.intention_continuation import authorize as authorize_intention

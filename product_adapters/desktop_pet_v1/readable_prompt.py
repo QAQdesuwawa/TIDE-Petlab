@@ -51,7 +51,7 @@ def _environment_material(row, *, world_observation_scope=False):
         row = {**row, '记录含义': WORLD_OBSERVATION_SCOPE}
     return row
 
-def project(packet, *, memory_evidence=False,shared_bodies=False,optional_context=False,independent_children=False,current_time=False,subtype_references=False,speaker_framing=False,conversation_context=False,shared_metadata=False,grouped_metadata=False,body_context=None,action_sequence_context=None,contextual=False,intention_time_labels=False,property_owners=False,property_owner_events=None,property_evidence=None,free_action_intents=False,scene_facts=False,concise=False,compact_actions=False,memory_occurrences=None,world_sources=False,explicit_action_targets=False,processing_ms=None,conversation_processing_ms=None,information_acquisition=False,environment_material=False,world_observation_scope=False,statement_scope=False,integrated_evidence=False,played_sources=None,preserve_acquisition=False,archive_notes=None,explain_behavior=False,fragment_behavior=False):
+def project(packet, *, memory_evidence=False,shared_bodies=False,optional_context=False,independent_children=False,current_time=False,subtype_references=False,speaker_framing=False,conversation_context=False,shared_metadata=False,grouped_metadata=False,body_context=None,action_sequence_context=None,contextual=False,intention_time_labels=False,property_owners=False,property_owner_events=None,property_evidence=None,free_action_intents=False,scene_facts=False,concise=False,compact_actions=False,memory_occurrences=None,world_sources=False,explicit_action_targets=False,processing_ms=None,conversation_processing_ms=None,information_acquisition=False,environment_material=False,world_observation_scope=False,statement_scope=False,integrated_evidence=False,played_sources=None,preserve_acquisition=False,archive_notes=None,explain_behavior=False,fragment_behavior=False,share_received=False):
     sections={}
     played_events, played_facts = played_sources or ({}, {})
     owner=packet.output_identity.speaker_participant_id
@@ -230,6 +230,9 @@ def project(packet, *, memory_evidence=False,shared_bodies=False,optional_contex
                 from .memory_archive_delivery import attach_behavior_distinctions
 
                 fields=attach_behavior_distinctions(fields)
+            if share_received and lane == 'memory':
+                from .memory_archive_delivery import share_received_speech
+                fields = share_received_speech(fields)
             if not fields:fields={'内容参照':'本栏目沿其他已交付事实理解。'}
             if consumed:
                 refs=tuple(dict.fromkeys((*card.source_receipt_refs,

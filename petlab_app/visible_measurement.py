@@ -38,7 +38,7 @@ def order_speech_episodes(rows, speech_first_parents, started):
     return result
 
 
-def _scope(row):
+def delivery_scope_key(row):
     p = row['projection']
     return tuple(p.get(key) for key in ('sender_participant_id', 'recipient_participant_id',
                                          'conversation_id', 'membership_version'))
@@ -62,6 +62,22 @@ def _has_independent_effect(link, row):
                and reader in item['recipient_refs'] for item in source['visible_manifest']['items'])
 
 
+_VISUAL_KINDS = frozenset({'action', 'expression'})
+
+
+def _visible_intervals(link, row):
+    """Intervals attested for this reader by this physical checkpoint."""
+    source = link.workspace.source_event(row['projection']['source_event_id'])
+    reader = row['projection']['recipient_participant_id']
+    intervals = set()
+    for item in source['visible_manifest']['items']:
+        if item['kind'] in _VISUAL_KINDS and reader in item['recipient_refs']:
+            if item.get('started_at_ms') is None:
+                return set()
+            intervals.add((item['kind'], item['content_id'], item['started_at_ms']))
+    return intervals
+
+
 def measured_parent(link, row, *, include_inflight=False):
     """Find the measured anchor, or reserve its sibling while measured in flight."""
     visible = row.get('visible')
@@ -79,9 +95,9 @@ def measured_parent(link, row, *, include_inflight=False):
         return None
     settled = profile.get(EVENT_JOURNAL_KEY, {})
     anchor_ids = sources if include_inflight else settled
-    scope = _scope(row)
+    scope = delivery_scope_key(row)
     anchors = [other for other in siblings if other['delivery']['delivery_id'] != identity
-               and _scope(other) == scope
+               and delivery_scope_key(other) == scope
                and 'participant:' + _key(other['delivery']['delivery_id']) in anchor_ids]
     if not anchors or _has_independent_effect(link, row):
         # Existing transactions resume by their original identity.
@@ -108,6 +124,17 @@ def measured_parent(link, row, *, include_inflight=False):
         if not speech.issubset(set().union(*map(_speech_scopes, anchors))):
             return None
         anchors = [other for other in anchors if _speech_scopes(other) & speech]
+    else:
+        if any(item['kind'] not in _VISUAL_KINDS for item in visible['contents']):
+            return None
+        intervals = _visible_intervals(link, row)
+        if not intervals:
+            return None
+        anchors = [other for other in anchors
+                   if any(item['kind'] in _VISUAL_KINDS for item in other['visible']['contents'])
+                   and intervals.issubset(_visible_intervals(link, other))]
+        if not anchors:
+            return None
     return min(anchors, key=lambda other: other['visible']['sequence'])['delivery']['delivery_id']
 
 
@@ -132,7 +159,7 @@ def ready_tail(link, delivery_id, parent):
         return link.workspace.read_delivery(link.alias, link.workspace.inbox_path(link.alias, tail_id))
     tail = None
     for row in rows:
-        if (row['visible']['sequence'] == 1 and _scope(row) == _scope(anchor)
+        if (row['visible']['sequence'] == 1 and delivery_scope_key(row) == delivery_scope_key(anchor)
                 and _speech_scopes(row) and _speech_scopes(row) == _speech_scopes(anchor)
                 and not _has_independent_effect(link, row)):
             tail = row

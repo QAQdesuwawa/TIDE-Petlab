@@ -5,7 +5,7 @@ from .composition import PetDefinition
 from .multi_pet import MultiPetWorkspace,_immutable,_key,_read
 from .participant_input import prepare,is_human_observation
 from .product import wall_clock_ms
-from .visible_measurement import measured_parent
+from .visible_measurement import delivery_scope_key, measured_parent
 from product_adapters.desktop_pet_v1 import EVENT_JOURNAL_KEY
 
 class MultiPetActorLink:
@@ -93,7 +93,7 @@ class MultiPetActorLink:
   self._sort_intake()
   self._directory_stamp=stamp
  def _sort_intake(self):
-  from .delivery_admission import ordered
+  from .delivery_admission import next_peer_turn,ordered
   app=self.product.application;sources=app._product()['sources']
   settled=app.runtime.session.profile.get(EVENT_JOURNAL_KEY,{})
   from .peer_reaction import KEY as PEER_KEY
@@ -108,6 +108,8 @@ class MultiPetActorLink:
   self._pending=ordered(self._pending,max(frontiers) if frontiers else None,started,human_anchor=self._human_frontier)
   from .visible_measurement import order_speech_episodes
   self._pending=order_speech_episodes(self._pending,getattr(self,'_speech_first_parents',()),started)
+  self._pending,self._reserved_peer_turn=next_peer_turn(
+   self._pending,getattr(self,'_reserved_peer_turn',()),started,self._human_frontier)
  def pending_count(self):
   from .obstruction_input import pending
   from .desktop_routines import pending as sightings
@@ -228,8 +230,7 @@ class MultiPetActorLink:
   for later in siblings:
    v=later.get('visible',{})
    if (v.get('parent_event_id')!=visible.get('parent_event_id') or later['delivery']['delivery_id']==row['delivery']['delivery_id']
-       or later['projection']['sender_participant_id']!=row['projection']['sender_participant_id']
-       or later['projection']['recipient_participant_id']!=reader):continue
+       or delivery_scope_key(later)!=delivery_scope_key(row)):continue
    last=self.workspace.source_event(later['projection']['source_event_id'])
    matched={(i['content_id'],i['started_at_ms']) for i in last.get('visible_manifest',{}).get('items',[])
     if reader in i['recipient_refs'] and i['kind']=='action' and i.get('phase') in {'completed','interrupted'}

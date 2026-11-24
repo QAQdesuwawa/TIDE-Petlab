@@ -3899,8 +3899,8 @@
     },
     {
       "path": "petlab_app/delivery_admission.py",
-      "bytes": 5229,
-      "sha256": "99c7af2992c94247c1be642be76a4127b681afbe11709f0c4e58d5a9bef2e4a9"
+      "bytes": 7205,
+      "sha256": "13f69ce8d43c68462d814d84ebb1d5ccf14d537aad0e112ea48b5f926ed445d9"
     },
     {
       "path": "petlab_app/delivery_guard.py",
@@ -4164,8 +4164,8 @@
     },
     {
       "path": "petlab_app/multi_actor.py",
-      "bytes": 29268,
-      "sha256": "dd80c568db5171da3602f335a696c9c3bcdf65fff273d70e017beb2dc860547b"
+      "bytes": 28881,
+      "sha256": "a67d7ba068a376955d4064ee0c5139b255d55fdf5f12ecc44af3aa5eff781510"
     },
     {
       "path": "petlab_app/multi_desktop.py",
@@ -4484,8 +4484,8 @@
     },
     {
       "path": "petlab_app/visible_measurement.py",
-      "bytes": 6787,
-      "sha256": "30d71da92117132dea693e9f073de55503e6f58ba39ce4ae5296dc5fcff9b619"
+      "bytes": 7974,
+      "sha256": "4f4c118f2ed14ad0e02a89bfc4a123e5e4e8ef5f7e68e05728ddb5dccaa63aea"
     },
     {
       "path": "petlab_app/walk_renderer.py",

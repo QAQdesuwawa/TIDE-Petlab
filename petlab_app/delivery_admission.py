@@ -30,6 +30,45 @@ def ordered(rows,frontier,started=(),*,human_anchor=None):
     return sorted(rows,key=key)
 
 
+def next_peer_turn(rows, reserved, protected, human_anchor):
+    """Reserve both sides of a contested turn. Peeking never spends a turn."""
+    if not rows:
+        return rows, ()
+    def identity(row):
+        return row['delivery']['delivery_id']
+
+    pending = {identity(row): row for row in rows}
+    peers = [row for row in rows if row['sender_kind'] == 'npc' and row.get('visible')
+             and (row['delivery'].get('delivery_scope') == 'observed'
+                  or human_anchor is None or delivery_order(row) > human_anchor)]
+    eligible = {identity(row) for row in peers}
+    reserved = tuple(key for key in reserved if key in eligible)
+    if identity(rows[0]) in protected or identity(rows[0]) not in eligible:
+        return rows, reserved
+    if not reserved:
+        direct = next((row for row in peers if row['delivery'].get('delivery_scope') == 'addressed'
+                       and row['visible'].get('contents') and is_peer_speech(row)
+                       and row['projection'].get('recipient_participant_id')
+                       in row['visible'].get('target_refs', ())), None)
+        witness = min((row for row in peers if row['delivery'].get('delivery_scope') == 'observed'),
+                      key=delivery_order, default=None)
+        if direct is None or witness is None:
+            return rows, ()
+        reserved = (identity(direct), identity(witness))
+    target = pending[reserved[0]]
+    # A parent may have an earlier visible checkpoint in this same projection.
+    from .visible_measurement import delivery_scope_key
+    visible = target['visible']
+    def precedes(row):
+        part = row.get('visible', {})
+        return (part.get('parent_event_id') == visible['parent_event_id']
+                and delivery_scope_key(row) == delivery_scope_key(target)
+                and part.get('sequence', 0) < visible.get('sequence', 0))
+    prior = min((row for row in rows if precedes(row)),
+                key=lambda row: row['visible']['sequence'], default=target)
+    return [prior, *(row for row in rows if row is not prior)], reserved
+
+
 def after_source(row,source):
     """Old unconsumed history is not a new interruption of a newer intention."""
     return delivery_order(row)>delivery_order(source)
